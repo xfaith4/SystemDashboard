@@ -11,7 +11,7 @@ Describe 'SystemDashboard listener' {
     }
 
     It 'responds with metrics JSON' -Skip:(!$IsWindows -or -not $IsAdmin) {
-=======
+
     }
 
     It 'responds with metrics JSON' -Skip:(!$IsWindows) {
@@ -37,7 +37,12 @@ Describe 'SystemDashboard listener' {
             for ($i=0; $i -lt 20; $i++) {
                 Start-Sleep -Milliseconds 200
                 try {
+
+                    $metricsUri = $prefix + 'metrics'
+                    $response = Invoke-RestMethod -Uri $metricsUri -TimeoutSec 2
+
                     $response = Invoke-RestMethod -Uri "$prefix/metrics" -TimeoutSec 2
+
                     break
                 } catch {}
             }
