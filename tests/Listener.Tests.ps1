@@ -1,6 +1,7 @@
 Describe 'SystemDashboard listener' {
     BeforeAll {
         . "$PSScriptRoot/../Start-SystemDashboard.ps1"
+
         $script:IsAdmin = $false
         if ($IsWindows) {
             $id = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -10,6 +11,11 @@ Describe 'SystemDashboard listener' {
     }
 
     It 'responds with metrics JSON' -Skip:(!$IsWindows -or -not $IsAdmin) {
+=======
+    }
+
+    It 'responds with metrics JSON' -Skip:(!$IsWindows) {
+
         $port = Get-Random -Minimum 10000 -Maximum 19999
         $prefix = "http://localhost:$port/"
         Ensure-UrlAcl -Prefix $prefix

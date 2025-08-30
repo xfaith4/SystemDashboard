@@ -14,3 +14,6 @@ jobs:
         run: |
           Install-Module Pester -Force -SkipPublisherCheck
           Invoke-Pester -Path tests -CI
+      - name: Checkout
+        uses: actions/checkout@v5.0.0
+
