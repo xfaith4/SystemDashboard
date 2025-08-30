@@ -563,5 +563,7 @@ function Start-SystemDashboardListener {
 # Ensure-UrlAcl -Prefix $Prefix
 
 # 2) Start the listener. Use -OpenBrowser if you want it to pop the tab.
-Start-SystemDashboardListener -Prefix $Prefix -Root $Root -IndexHtml $IndexHtml -CssFile $CssFile -OpenBrowser
+if ($MyInvocation.InvocationName -ne '.') {
+  Start-SystemDashboardListener -Prefix $Prefix -Root $Root -IndexHtml $IndexHtml -CssFile $CssFile -OpenBrowser
+}
 
