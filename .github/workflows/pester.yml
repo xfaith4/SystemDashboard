@@ -1,0 +1,16 @@
+name: Pester Tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run Pester tests
+        shell: pwsh
+        run: |
+          Install-Module Pester -Force -SkipPublisherCheck
+          Invoke-Pester -Path tests -CI
