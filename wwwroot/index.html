@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>System Monitor - THESHIRE</title>
+    <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+    <header>
+        <h1>System Monitor - THESHIRE</h1>
+        <div class="sub">Live refresh every 5s • <span id="host"></span> • <span id="updated"></span></div>
+    </header>
+
+    <main class="grid">
+        <section class="card">
+            <h2>Health</h2>
+            <div class="kv"><span>CPU</span><b id="cpu"></b></div>
+            <div class="kv"><span>Memory</span><b id="mem"></b></div>
+            <div class="kv"><span>WAN Latency</span><b id="wan"></b></div>
+        </section>
+
+        <section class="card">
+            <h2>Disks</h2>
+            <div id="disks"></div>
+        </section>
+
+        <section class="card">
+            <h2>Routers</h2>
+            <ul id="routers" class="plain"></ul>
+        </section>
+
+        <section class="card">
+            <h2>Recent Events (1h)</h2>
+            <div class="kv warn"><span>Warnings</span><b id="evWarn"></b></div>
+            <div class="kv err"><span>Errors</span><b id="evErr"></b></div>
+            <details>
+                <summary>Latest filtered errors</summary>
+                <ul id="evList"></ul>
+            </details>
+        </section>
+
+        <section class="card wide">
+            <h2>Hot Messages (1h, filtered)</h2>
+            <table id="hot">
+                <thead><tr><th>Provider</th><th>Message (snippet)</th><th>Count</th></tr></thead>
+                <tbody></tbody>
+            </table>
+        </section>
+
+        <section class="card wide">
+            <h2>Top Processes (CPU)</h2>
+            <table id="procs">
+                <thead><tr><th>Process</th><th>CPU %</th><th>WorkingSet (MB)</th></tr></thead>
+                <tbody></tbody>
+            </table>
+        </section>
+    </main>
+
+    <script>
+        function kv(label, value, cls = '') {
+            return '<div class="kv ' + cls + '"><span>' + label + '</span><b>' + value + '</b></div>';
+        }
+
+        async function refresh() {
+            try {
+                const r = await fetch('/metrics', { cache: 'no-store' });
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                const m = await r.json();
+                console.log('Metrics:', m);
+                if (!m) throw new Error('No metrics');
+                if (!m.Timestamp) throw new Error('No timestamp in metrics');
+
+                document.getElementById('host').textContent = m.ComputerName;
+                document.getElementById('updated').textContent = new Date(m.Timestamp).toLocaleTimeString();
+
+                document.getElementById('cpu').textContent = m.CPU.UsagePct.toFixed(1) + '%';
+                document.getElementById('mem').textContent = m.Memory.UsedPct.toFixed(1) + '% (' + m.Memory.UsedGB.toFixed(1) + ' / ' + m.Memory.TotalGB.toFixed(1) + ' GB)';
+                document.getElementById('wan').textContent = (m.Network.WanLatencyMs >= 0 ? m.Network.WanLatencyMs.toFixed(0) + ' ms' : 'unreachable');
+
+                const disksDiv = document.getElementById('disks');
+                disksDiv.innerHTML = '';
+                m.Disks.forEach(d => {
+                    const cls = d.UsedPct >= 90 ? 'err' : (d.UsedPct >= 80 ? 'warn' : '');
+                    disksDiv.innerHTML += kv(d.Letter + ':', d.UsedPct.toFixed(1) + '% (' + d.UsedGB.toFixed(0) + ' / ' + d.TotalGB.toFixed(0) + ' GB)', cls);
+                });
+
+                const ul = document.getElementById('routers');
+                ul.innerHTML = '';
+                m.Routers.forEach(rt => {
+                    const li = document.createElement('li');
+                    const status = rt.Reachable ? (rt.LatencyMs.toFixed(0) + ' ms') : 'down';
+                    li.textContent = rt.Name + ' (' + rt.Host + '): ' + status;
+                    ul.appendChild(li);
+                });
+
+                document.getElementById('evWarn').textContent = m.Events.LastHourWarnings;
+                document.getElementById('evErr').textContent = m.Events.LastHourErrors;
+
+                const evList = document.getElementById('evList');
+                evList.innerHTML = '';
+                (m.Events.LatestFilteredErrors || []).forEach(e => {
+                    const li = document.createElement('li');
+                    li.textContent = '[' + e.Time + '] ' + e.Provider + ': ' + e.Message;
+                    evList.appendChild(li);
+                });
+
+                const hotBody = document.querySelector('#hot tbody');
+                hotBody.innerHTML = '';
+                (m.Events.HotMessages || []).forEach(h => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = '<td>' + h.Provider + '</td><td>' + h.Snippet + '</td><td>' + h.Count + '</td>';
+                    hotBody.appendChild(tr);
+                });
+
+                const tbody = document.querySelector('#procs tbody');
+                tbody.innerHTML = '';
+                (m.TopProcesses || []).forEach(p => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = '<td>' + p.Name + '</td><td>' + p.CPU.toFixed(1) + '</td><td>' + p.WS_MB.toFixed(0) + '</td>';
+                    tbody.appendChild(tr);
+                });
+            } catch (e) {
+                console.error('metrics fetch failed:', e);
+            }
+        }
+        refresh();
+        setInterval(refresh, 5000);
+    </script>
+</body>
+</html>
+
