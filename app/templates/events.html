@@ -1,0 +1,16 @@
+{% extends 'base.html' %}
+{% block content %}
+<h1>System Events</h1>
+<table class="data-table">
+    <thead><tr><th>Time</th><th>Source</th><th>Message</th></tr></thead>
+    <tbody>
+    {% for e in events %}
+        <tr>
+            <td>{{ e.time }}</td>
+            <td>{{ e.source }}</td>
+            <td>{{ e.message }}</td>
+        </tr>
+    {% endfor %}
+    </tbody>
+</table>
+{% endblock %}
