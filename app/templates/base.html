@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>System Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
+</head>
+<body>
+    <nav class="navbar">
+        <a href="{{ url_for('dashboard') }}" class="logo">Dashboard</a>
+        <ul class="nav-links">
+            <li><a href="{{ url_for('events') }}">System Events</a></li>
+            <li><a href="{{ url_for('router') }}">Router Logs</a></li>
+            <li><a href="{{ url_for('wifi') }}">Wi-Fi Clients</a></li>
+        </ul>
+    </nav>
+    <main>
+        {% block content %}{% endblock %}
+    </main>
+</body>
+</html>

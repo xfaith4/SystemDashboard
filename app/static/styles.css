@@ -1,0 +1,80 @@
+:root {
+    --bg-color: #1e1e2f;
+    --text-color: #e0e0e0;
+    --accent-color: #4e9af1;
+    --warn-color: #f5a623;
+    --error-color: #e74c3c;
+    --chatty-color: #ff4081;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+body {
+    margin: 0;
+    background: var(--bg-color);
+    color: var(--text-color);
+}
+
+.navbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: #111;
+    padding: 0.5rem 1rem;
+}
+
+.navbar .logo {
+    color: var(--accent-color);
+    font-weight: bold;
+    text-decoration: none;
+}
+
+.nav-links {
+    list-style: none;
+    display: flex;
+    gap: 1rem;
+    margin: 0;
+    padding: 0;
+}
+
+.nav-links a {
+    color: var(--text-color);
+    text-decoration: none;
+    transition: color 0.2s ease-in-out;
+}
+
+.nav-links a:hover {
+    color: var(--accent-color);
+}
+
+main {
+    padding: 1rem 2rem;
+}
+
+h1 {
+    color: var(--accent-color);
+}
+
+.data-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 1rem;
+}
+
+.data-table th,
+.data-table td {
+    padding: 0.5rem;
+    border-bottom: 1px solid #333;
+    text-align: left;
+}
+
+.data-table tr.chatty {
+    background: var(--chatty-color);
+    color: #000;
+}
+
+@media (max-width: 600px) {
+    .nav-links {
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+}
