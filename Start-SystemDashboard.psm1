@@ -10,6 +10,22 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+$ConfigPath = if ($env:SYSTEMDASHBOARD_CONFIG) { $env:SYSTEMDASHBOARD_CONFIG } else { Join-Path $PSScriptRoot 'config.json' }
+$script:Config = @{}
+if (Test-Path $ConfigPath) {
+    $script:Config = Get-Content $ConfigPath -Raw | ConvertFrom-Json
+}
+
+function Write-Log {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$Message,
+        [ValidateSet('INFO','WARN','ERROR')][string]$Level = 'INFO'
+    )
+    $ts = Get-Date -Format o
+    Write-Information "[$ts] [$Level] $Message" -InformationAction Continue
+}
+
 function Ensure-UrlAcl {  
     [CmdletBinding()]  
     param([Parameter(Mandatory)][string] $Prefix)  
@@ -20,8 +36,8 @@ function Ensure-UrlAcl {
             $user = "$env:USERDOMAIN\$env:USERNAME"      
             Start-Process -FilePath netsh -ArgumentList @('http','add','urlacl',"url=$Prefix",("user={0}" -f $user)) -Wait -WindowStyle Hidden | Out-Null    
         }  
-    } catch {    
-        Write-Verbose "Ensure-UrlAcl failed: $_"  
+    } catch {
+        Write-Log -Level 'WARN' -Message "Ensure-UrlAcl failed: $_"
     }
 }
 
@@ -31,30 +47,45 @@ function Remove-UrlAcl {
     if (-not $IsWindows) { return }  
     try {    
         Start-Process -FilePath netsh -ArgumentList @('http','delete','urlacl',"url=$Prefix") -Wait -WindowStyle Hidden | Out-Null  
-    } catch {    
-        Write-Verbose "Remove-UrlAcl failed: $_"  
+    } catch {
+        Write-Log -Level 'WARN' -Message "Remove-UrlAcl failed: $_"
     }
 }
 
-function Start-SystemDashboardListener {  
-    [CmdletBinding()]  
-    param(    
-        [Parameter(Mandatory)] [string] $Prefix,    
-        [Parameter(Mandatory)] [string] $Root,    
-        [Parameter(Mandatory)] [string] $IndexHtml,    
-        [Parameter(Mandatory)] [string] $CssFile,    
-        [Parameter()] [string] $PingTarget = '1.1.1.1'  
-    )  
-    Ensure-UrlAcl -Prefix $Prefix  
-    $l = [System.Net.HttpListener]::new()  
-    $l.Prefixes.Add($Prefix)  
-    $l.Start()  
-    Write-Host "Listening on $Prefix"  
-    # Cache for network deltas  
-    $prevNet = @{}  
+function Start-SystemDashboardListener {
+    [CmdletBinding()]
+    param(
+        [Parameter()][string] $Prefix,
+        [Parameter()][string] $Root,
+        [Parameter()][string] $IndexHtml,
+        [Parameter()][string] $CssFile,
+        [Parameter()][string] $PingTarget
+    )
+    if (-not $Prefix) {
+        if ($env:SYSTEMDASHBOARD_PREFIX) { $Prefix = $env:SYSTEMDASHBOARD_PREFIX }
+        elseif ($script:Config.Prefix) { $Prefix = $script:Config.Prefix }
+    }
+    if (-not $Root) {
+        if ($env:SYSTEMDASHBOARD_ROOT) { $Root = $env:SYSTEMDASHBOARD_ROOT }
+        elseif ($script:Config.Root) { $Root = $script:Config.Root }
+    }
+    if (-not $IndexHtml -and $script:Config.IndexHtml) { $IndexHtml = $script:Config.IndexHtml }
+    if (-not $CssFile -and $script:Config.CssFile) { $CssFile = $script:Config.CssFile }
+    if (-not $PingTarget) { $PingTarget = $script:Config.PingTarget }
+    if (-not $PingTarget) { $PingTarget = '1.1.1.1' }
+    if (-not $Prefix -or -not $Root -or -not $IndexHtml -or -not $CssFile) {
+        throw 'Prefix, Root, IndexHtml, and CssFile are required.'
+    }
+    Ensure-UrlAcl -Prefix $Prefix
+    $l = [System.Net.HttpListener]::new()
+    $l.Prefixes.Add($Prefix)
+    $l.Start()
+    Write-Log -Message "Listening on $Prefix"
+    # Cache for network deltas
+    $prevNet = @{}
 
-    try {    
-        while ($true) {      
+    try {
+        while ($true) {
             $context = $l.GetContext()      
             $req = $context.Request      
             $res = $context.Response      
@@ -177,10 +208,25 @@ function Start-SystemDashboardListener {
                 $res.StatusDescription = 'Not Found'      
             }      
             $res.Close()    
-        }  
-    } finally {    
-        try { $l.Stop(); $l.Close() } catch {}  
+        }
+    } catch {
+        Write-Log -Level 'ERROR' -Message $_
+    } finally {
+        try { $l.Stop(); $l.Close() } catch {}
     }
+}
+
+function Start-SystemDashboard {
+    [CmdletBinding()]
+    param(
+        [string]$ConfigPath = (Join-Path $PSScriptRoot 'config.json')
+    )
+    if (Test-Path $ConfigPath) {
+        $script:Config = Get-Content $ConfigPath -Raw | ConvertFrom-Json
+    } else {
+        throw "Config file not found: $ConfigPath"
+    }
+    Start-SystemDashboardListener
 }
 
 function Scan-ConnectedClients {
@@ -194,7 +240,7 @@ function Scan-ConnectedClients {
     $addresses = 1..254 | ForEach-Object { "$NetworkPrefix.$_" }
 
     # 2) Fire off parallel ping sweep to populate ARP table
-    Write-Verbose "Pinging $($addresses.Count) addresses to prime ARP cache..."
+    Write-Log -Level 'INFO' -Message "Pinging $($addresses.Count) addresses to prime ARP cache..."
     $pingParams = @{
         Count        = 1
         Quiet        = $true
@@ -239,27 +285,44 @@ function Get-RouterCredentials {
     [CmdletBinding()]
     param(
         # The IP or hostname of your router
-        [Parameter(Mandatory)]
         [ValidateNotNullOrEmpty()]
-        [string]$RouterIP = '192.168.50.1'
+        [string]$RouterIP
     )
 
-    # 1) Prompt the user for their router admin creds
-    #    This opens the standard credential UI and returns a PSCredential object
-    $credential = Get-Credential -Message "Enter administrator credentials for router $RouterIP"
+    if (-not $RouterIP) {
+        if ($env:ROUTER_IP) { $RouterIP = $env:ROUTER_IP }
+        elseif ($script:Config.RouterIP) { $RouterIP = $script:Config.RouterIP }
+        else { $RouterIP = '192.168.50.1' }
+    }
+
+    Import-Module CredentialManager -ErrorAction SilentlyContinue | Out-Null
+    $target = "SystemDashboard:$RouterIP"
+    $credential = $null
+    if (Get-Command Get-StoredCredential -ErrorAction SilentlyContinue) {
+        $stored = Get-StoredCredential -Target $target
+        if ($stored) {
+            $secure = $stored.Password | ConvertTo-SecureString -AsPlainText -Force
+            $credential = [PSCredential]::new($stored.UserName, $secure)
+        } else {
+            $credential = Get-Credential -Message "Enter administrator credentials for router $RouterIP"
+            New-StoredCredential -Target $target -UserName $credential.UserName -Password ($credential.GetNetworkCredential().Password) -Persist LocalMachine | Out-Null
+        }
+    } else {
+        $credential = Get-Credential -Message "Enter administrator credentials for router $RouterIP"
+    }
 
     # 2) Quick reachability check
-    Write-Verbose "Pinging router at $RouterIP to verify it’s up..."
+    Write-Log -Level 'INFO' -Message "Pinging router at $RouterIP to verify it’s up..."
     if (-not (Test-Connection -ComputerName $RouterIP -Count 1 -Quiet)) {
         throw "ERROR: Cannot reach router at $RouterIP. Check network connectivity."
     }
 
     # 3) Verify login via SSH/HTTP here.
-     try {
-           New-SSHSession -ComputerName $RouterIP -Credential $credential -ErrorAction Stop | Remove-SSHSession
-       } catch {
-           throw "ERROR: Authentication to $RouterIP failed. $_"
-      }
+    try {
+        New-SSHSession -ComputerName $RouterIP -Credential $credential -ErrorAction Stop | Remove-SSHSession
+    } catch {
+        throw "ERROR: Authentication to $RouterIP failed. $_"
+    }
 
     # 4) Package up and return
     [PSCustomObject]@{
@@ -301,7 +364,7 @@ function Get-SystemLogs {
     try {
         # Loop through each requested log
         $allLogs = foreach ($log in $LogName) {
-            Write-Verbose "Retrieving up to $MaxEvents entries from '$log' where Level ≥ $MinimumLevel..."
+            Write-Log -Level 'INFO' -Message "Retrieving up to $MaxEvents entries from '$log' where Level ≥ $MinimumLevel..."
             
             # Query the log with filters applied
             Get-WinEvent `
@@ -330,5 +393,5 @@ function Get-SystemLogs {
 }
 
 
-Export-ModuleMember -Function Start-SystemDashboardListener, Ensure-UrlAcl, Remove-UrlAcl, Scan-ConnectedClients, Get-RouterCredentials, Get-SystemLogs
+Export-ModuleMember -Function Start-SystemDashboardListener, Start-SystemDashboard, Ensure-UrlAcl, Remove-UrlAcl, Scan-ConnectedClients, Get-RouterCredentials, Get-SystemLogs
 ### END FILE: SystemDashboard Listener
