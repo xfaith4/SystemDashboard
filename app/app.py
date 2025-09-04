@@ -4,6 +4,7 @@ import platform
 import subprocess
 import json
 import html
+import urllib.request
 
 app = Flask(__name__)
 
@@ -174,6 +175,19 @@ def api_ai_suggest():
         return jsonify({'error': err}), 502
     return jsonify({'suggestion': suggestion})
 
+
+@app.route('/health')
+def health():
+    backend = os.environ.get('SYSTEMDASHBOARD_BACKEND', 'http://localhost:15000/metrics')
+    try:
+        with urllib.request.urlopen(backend, timeout=2) as resp:
+            if resp.status == 200:
+                return 'ok', 200
+    except Exception:
+        pass
+    return 'unhealthy', 503
+
 if __name__ == '__main__':
     # Enable debug for development convenience
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    port = int(os.environ.get('DASHBOARD_PORT', '5000'))
+    app.run(debug=True, host='0.0.0.0', port=port)
