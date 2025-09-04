@@ -170,6 +170,6 @@ function Start-SystemDashboardListener {
   }
 }
 
-##Export-ModuleMember -Function Start-SystemDashboardListener, Ensure-UrlAcl, Remove-UrlAcl
+Export-ModuleMember -Function Start-SystemDashboardListener, Ensure-UrlAcl, Remove-UrlAcl
 ### END FILE: SystemDashboard Listener
 
