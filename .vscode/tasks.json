@@ -1,0 +1,138 @@
+{
+  // Workspace tasks that succeed out-of-the-box.
+  // Uses a local stub at tools/Invoke-SavedPrompt.ps1 to emulate success.
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "AI: Run Saved Prompt (pick + input)",
+      "type": "shell",
+      "command": "pwsh",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "./tools/Invoke-SavedPrompt.ps1",
+        "-PromptId",
+        "${input:pickPromptId}",
+        "-Input",
+        "${input:userInput}"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      }
+    },
+    {
+      "label": "npm: start (graceful)",
+      "type": "shell",
+      "command": "pwsh",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        "if (Test-Path package.json) { npm start } else { Write-Host 'package.json not found. Skipping npm start.' }"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": { "kind": "build", "isDefault": true },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      }
+    },
+    {
+      "label": "AI: Website Dev (type input)",
+      "type": "shell",
+      "command": "pwsh",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "./tools/Invoke-SavedPrompt.ps1",
+        "-PromptId",
+        "pmpt_68acebb6eb408190992851790f1df50e0d1edd62f8e340da",
+        "-Input",
+        "{ \"Website\": \"${input:userInput}\" }"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      }
+    },
+    {
+      "label": "AI: Network Monitoring (current file as input)",
+      "type": "shell",
+      "command": "pwsh",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "./tools/Invoke-SavedPrompt.ps1",
+        "-PromptId",
+        "pmpt_68acec003f2c8196975a4223d71efef20d1f400944d1d617",
+        "-FromFile",
+        "${file}"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      }
+    },
+    {
+      "label": "AI: VSCode Extension (type input)",
+      "type": "shell",
+      "command": "pwsh",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "./tools/Invoke-SavedPrompt.ps1",
+        "-PromptId",
+        "pmpt_68acec33cb3481958351de00223c8a7704c883322df7c978",
+        "-Input",
+        "${input:userInput}"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      }
+    }
+  ],
+  "inputs": [
+    {
+      "id": "userInput",
+      "type": "promptString",
+      "description": "Input to send to the saved prompt",
+      "default": "Briefly describe your request here…"
+    },
+    {
+      "id": "pickPromptId",
+      "type": "pickString",
+      "description": "Choose a saved prompt",
+      "options": [
+        "pmpt_68acebb6eb408190992851790f1df50e0d1edd62f8e340da  (Website Dev)",
+        "pmpt_68acec003f2c8196975a4223d71efef20d1f400944d1d617  (Home Network Monitoring)",
+        "pmpt_68acec33cb3481958351de00223c8a7704c883322df7c978  (AI in VSCode)"
+      ]
+    }
+  ]
+}
+

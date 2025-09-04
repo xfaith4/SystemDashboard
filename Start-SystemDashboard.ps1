@@ -1,84 +1,149 @@
-
+### BEGIN FILE: Enhanced-Metrics.ps1
 #requires -Version 7
+<#
+.SYNOPSIS
+  HTTP-based system metrics endpoint with extended telemetry.
+.DESCRIPTION
+  Exposes CPU, memory, disk, events, network, uptime, processes, and latency.
+  Ideal for lightweight monitoring and quick troubleshooting.
+#>
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$Port = 8892
-$Prefix = "http://localhost:$Port/"
-$Root = "F:\Logs\wwwroot"
-$IndexHtml = Join-Path $Root 'index.html'
-$CssFile   = Join-Path $Root 'styles.css'
+# ----------------------------
+# Configuration
+# ----------------------------
+$Port       = 5000
+$Prefix     = "http://localhost:$Port/"
+$Root       = 'F:\Logs\wwwroot'
+$IndexHtml  = Join-Path $Root 'index.html'
+$CssFile    = Join-Path $Root 'styles.css'
+$PingTarget = '1.1.1.1'       # External latency test target
 
+# ----------------------------
+# Start HTTP Listener
+# ----------------------------
 $l = [System.Net.HttpListener]::new()
 $l.Prefixes.Add($Prefix)
 $l.Start()
 Write-Host "Listening on $Prefix"
 
+# Track previous network counters for rate calculation
+$prevNet = @{}
+$NetAdapters = @()
+$NetAdapters = Get-NetAdapter
+foreach ($Net in $NetAdapters) {
+    if ($Net.Status -eq 'Up') {
+        Get-NetAdapterStatistics -Name "$($Net.Name)"
+    }
+}
+$Context=@{}
 while ($true) {
-    $c = $l.GetContext()
-    $r = $c.Request
-    $s = $c.Response
+    $Context = $l.GetContext()
+    $req     = $context.Request
+    $res     = $context.Response
 
-    if ($r.RawUrl -eq '/metrics') {
-        $cpu = [math]::Round((Get-Counter '\Processor(_Total)\% Processor Time').CounterSamples.CookedValue,2)
-        $os = Get-CimInstance Win32_OperatingSystem
-        $tGB = [math]::Round($os.TotalVisibleMemorySize/1MB,2)
-        $fGB = [math]::Round($os.FreePhysicalMemory/1MB,2)
-        $uGB = $tGB - $fGB
-        $mPct = $uGB / $tGB
+    if ($req.RawUrl -eq '/metrics') {
+        # Timestamp and host
+        $nowUtc = (Get-Date).ToUniversalTime().ToString('o')
+        $host   = $env:COMPUTERNAME
 
-        $fixed = Get-CimInstance Win32_LogicalDisk -Filter "DriveType=3"
-        $disks = foreach ($d in $fixed) {
-            $t = [math]::Round($d.Size/1GB,2)
-            $f = [math]::Round($d.FreeSpace/1GB,2)
+        # CPU usage
+        $cpuPct = [math]::Round((Get-Counter '\Processor(_Total)\% Processor Time').CounterSamples.CookedValue, 2)
+
+        # Memory usage
+        $os     = Get-CimInstance Win32_OperatingSystem
+        $totalMemGB = [math]::Round($os.TotalVisibleMemorySize / 1MB, 2)
+        $freeMemGB  = [math]::Round($os.FreePhysicalMemory    / 1MB, 2)
+        $usedMemGB  = $totalMemGB - $freeMemGB
+        $memPct     = [math]::Round(($usedMemGB / $totalMemGB), 4)
+
+        # Disk usage
+        $fixedDrives = Get-CimInstance Win32_LogicalDisk -Filter "DriveType=3"
+        $disks = $fixedDrives | ForEach-Object {
+            $sizeGB = [math]::Round($_.Size      / 1GB,  2)
+            $freeGB = [math]::Round($_.FreeSpace / 1GB,  2)
             [pscustomobject]@{
-                L = $d.DeviceID.TrimEnd(':')
-                T = $t
-                U = ($t - $f)
-                P = ($t - $f) / $t
+                Drive = $_.DeviceID.TrimEnd(':')
+                TotalGB = $sizeGB
+                UsedGB  = $sizeGB - $freeGB
+                UsedPct = [math]::Round((($sizeGB - $freeGB) / $sizeGB), 4)
             }
         }
 
-        $since = (Get-Date).AddHours(-1)
-        $warns = Get-WinEvent -FilterHashtable @{LogName=@('System','Application');Level=3;StartTime=$since} -ErrorAction SilentlyContinue
-        $errs  = Get-WinEvent -FilterHashtable @{LogName=@('System','Application');Level=2;StartTime=$since} -ErrorAction SilentlyContinue
+        # System uptime
+        $bootTime = (Get-CimInstance Win32_OperatingSystem).LastBootUpTime
+        $uptime   = (Get-Date) - $bootTime
 
-        $warnSummary = $warns | Group-Object ProviderName | ForEach-Object {
-            [pscustomobject]@{ Source = $_.Name; Count = $_.Count }
-        }
-        $errSummary = $errs | Group-Object ProviderName | ForEach-Object {
-            [pscustomobject]@{ Source = $_.Name; Count = $_.Count }
+        # Event log summary (last 1h)
+        $startTime = (Get-Date).AddHours(-1)
+        $warns = Get-WinEvent -FilterHashtable @{LogName='System','Application'; Level=3; StartTime=$startTime} -ErrorAction SilentlyContinue
+        $errs  = Get-WinEvent -FilterHashtable @{LogName='System','Application'; Level=2; StartTime=$startTime} -ErrorAction SilentlyContinue
+        $warnSummary = $warns | Group-Object ProviderName | ForEach-Object { [pscustomobject]@{ Source=$_.Name; Count=$_.Count } }
+        $errSummary  = $errs  | Group-Object ProviderName | ForEach-Object { [pscustomobject]@{ Source=$_.Name; Count=$_.Count } }
+
+        # Network usage rates
+        $netUsage = @()
+        Get-NetAdapter | Where-Object Status -eq 'Up' | ForEach-Object {
+            $name  = $_.Name
+            $stats = Get-NetAdapterStatistics -Name $name
+            $prev  = $prevNet[$name]
+            if ($prev) {
+                $sentBps = [math]::Round((($stats.OutboundBytes - $prev.OutboundBytes) / 1), 2)
+                $recvBps = [math]::Round((($stats.InboundBytes  - $prev.InboundBytes ) / 1), 2)
+                $netUsage += [pscustomobject]@{
+                    Adapter = $name; BytesSentPerSec=$sentBps; BytesRecvPerSec=$recvBps
+                }
+            }
+            $prevNet[$name] = $stats
         }
 
+        # Ping latency
+        $ping = Test-Connection -ComputerName $PingTarget -Count 1 -Quiet:$false
+        $latencyMs = if ($ping.StatusCode -eq 0) { $ping.ResponseTime } else { -1 }
+
+        # Top 5 processes by CPU in past 1m
+        $topProcs = Get-Process | Sort-Object CPU -Descending | Select-Object -First 5 | ForEach-Object {
+            [pscustomobject]@{ Name=$_.ProcessName; CPU=$([math]::Round($_.CPU,2)); Id=$_.Id }
+        }
+
+        # Assemble metrics object
         $metrics = [pscustomobject]@{
-            Time = (Get-Date).ToUniversalTime().ToString("o")
-            Name = $env:COMPUTERNAME
-            CPU  = @{Pct = $cpu}
-            Mem  = @{T=$tGB; F=$fGB; U=$uGB; P=$mPct}
-            Disk = $disks
-            Events = @{Warnings = $warnSummary; Errors = $errSummary}
+            Time       = $nowUtc
+            Host       = $host
+            CPU        = @{ Pct = $cpuPct }
+            Memory     = @{ TotalGB=$totalMemGB; FreeGB=$freeMemGB; UsedGB=$usedMemGB; Pct=$memPct }
+            Disk       = $disks
+            Uptime     = @{ Days=$uptime.Days; Hours=$uptime.Hours; Minutes=$uptime.Minutes }
+            Events     = @{ Warnings=$warnSummary; Errors=$errSummary }
+            Network    = @{ Usage=$netUsage; LatencyMs=$latencyMs }
+            Processes  = $topProcs
         }
 
-        $json = $metrics | ConvertTo-Json -Depth 4
-        $buf = [System.Text.Encoding]::UTF8.GetBytes($json)
-        $s.ContentType = 'application/json'
-        $s.OutputStream.Write($buf,0,$buf.Length)
-        $s.Close()
+        # Send JSON response
+        $json = $metrics | ConvertTo-Json -Depth 5
+        $buf  = [Text.Encoding]::UTF8.GetBytes($json)
+        $res.ContentType = 'application/json'
+        $res.OutputStream.Write($buf,0,$buf.Length)
+        $res.Close()
         continue
     }
 
-    $path = Join-Path $Root ($r.RawUrl.TrimStart('/'))
-    if ($r.RawUrl -eq '/' -or $r.RawUrl -eq '/index.html') { $path = $IndexHtml }
-    elseif ($r.RawUrl -eq '/styles.css') { $path = $CssFile }
-
-    if (Test-Path $path) {
-        $b = [System.IO.File]::ReadAllBytes($path)
-        $s.ContentType = if ($path -like '*.css') {'text/css'} else {'text/html'}
-        $s.OutputStream.Write($b,0,$b.Length)
-    } else {
-        $s.StatusCode = 404
-        $s.StatusDescription = 'Not Found'
+    # Serve static files
+    $file = Switch ($req.RawUrl) {
+        '/'          { $IndexHtml }
+        '/index.html'{ $IndexHtml }
+        '/styles.css'{ $CssFile }
+        Default      { Join-Path $Root ($req.RawUrl.TrimStart('/')) }
     }
-
-    $s.Close()
+    if (Test-Path $file) {
+        $bytes = [IO.File]::ReadAllBytes($file)
+        $res.ContentType = if ($file -like '*.css') { 'text/css' } else { 'text/html' }
+        $res.OutputStream.Write($bytes,0,$bytes.Length)
+    } else {
+        $res.StatusCode = 404
+        $res.StatusDescription = 'Not Found'
+    }
+    $res.Close()
 }
+### END FILE: Enhanced-Metrics.ps1
