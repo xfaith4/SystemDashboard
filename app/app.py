@@ -5,27 +5,11 @@ import subprocess
 import json
 import html
 import urllib.request
+import socket
 
 app = Flask(__name__)
 
-# Sample data to simulate real metrics
-SYSTEM_EVENTS = [
-    {"time": "2024-06-01 08:00", "source": "System", "message": "System boot completed"},
-    {"time": "2024-06-01 09:15", "source": "Application", "message": "Service xyz failed to start"},
-]
-
-ROUTER_LOGS = [
-    {"time": "2024-06-01 10:20", "level": "INFO", "message": "WAN connection established"},
-    {"time": "2024-06-01 10:45", "level": "WARN", "message": "DHCP request flood detected"},
-]
-
-WIFI_CLIENTS = [
-    {"mac": "AA:BB:CC:DD:EE:01", "ip": "192.168.0.10", "hostname": "laptop", "packets": 150},
-    {"mac": "AA:BB:CC:DD:EE:02", "ip": "192.168.0.20", "hostname": "security-cam", "packets": 1200},
-    {"mac": "AA:BB:CC:DD:EE:03", "ip": "192.168.0.30", "hostname": "tablet", "packets": 60},
-]
-
-CHATTY_THRESHOLD = 500
+CHATTY_THRESHOLD = int(os.environ.get('CHATTY_THRESHOLD', '500'))
 
 
 def _is_windows():
@@ -75,6 +59,51 @@ def get_windows_events(level: str = None, max_events: int = 50):
     except Exception:
         return []
 
+
+def get_router_logs(max_lines: int = 100):
+    """Read router logs from a local file specified by ROUTER_LOG_PATH."""
+    log_path = os.environ.get('ROUTER_LOG_PATH')
+    if not log_path or not os.path.exists(log_path):
+        return []
+    try:
+        with open(log_path, 'r', encoding='utf-8', errors='ignore') as f:
+            lines = f.readlines()[-max_lines:]
+        logs = []
+        for line in lines:
+            parts = line.strip().split(maxsplit=3)
+            if len(parts) >= 4:
+                time = f"{parts[0]} {parts[1]}"
+                level = parts[2]
+                message = parts[3]
+            else:
+                time = ''
+                level = ''
+                message = line.strip()
+            logs.append({'time': time, 'level': level, 'message': message})
+        return logs
+    except Exception:
+        return []
+
+
+def get_wifi_clients():
+    """Return a list of clients from the ARP table."""
+    try:
+        result = subprocess.run(['arp', '-a'], capture_output=True, text=True, timeout=10)
+        clients = []
+        for line in result.stdout.splitlines():
+            parts = line.split()
+            if len(parts) >= 3 and parts[1].count('-') == 5:
+                ip = parts[0]
+                mac = parts[1].replace('-', ':')
+                try:
+                    hostname = socket.getfqdn(ip)
+                except Exception:
+                    hostname = ''
+                clients.append({'mac': mac, 'ip': ip, 'hostname': hostname, 'packets': 0})
+        return clients
+    except Exception:
+        return []
+
 @app.route('/')
 def dashboard():
     """Render the primary dashboard."""
@@ -83,7 +112,7 @@ def dashboard():
 @app.route('/events')
 def events():
     """Drill-down page for system events."""
-    events = get_windows_events(max_events=100) or SYSTEM_EVENTS
+    events = get_windows_events(max_events=100)
     # Simple severity tagging
     for e in events:
         msg = (e.get('message') or '').lower()
@@ -99,19 +128,19 @@ def events():
 @app.route('/router')
 def router():
     """Drill-down page for router logs."""
-    return render_template('router.html', logs=ROUTER_LOGS)
+    return render_template('router.html', logs=get_router_logs())
 
 @app.route('/wifi')
 def wifi():
     """List Wi-Fi clients highlighting chatty nodes."""
-    return render_template('wifi.html', clients=WIFI_CLIENTS, threshold=CHATTY_THRESHOLD)
+    return render_template('wifi.html', clients=get_wifi_clients(), threshold=CHATTY_THRESHOLD)
 
 
 @app.route('/api/events')
 def api_events():
     level = request.args.get('level')
     max_events = int(request.args.get('max', '100'))
-    data = get_windows_events(level=level, max_events=max_events) or SYSTEM_EVENTS
+    data = get_windows_events(level=level, max_events=max_events)
     return jsonify({'events': data})
 
 
