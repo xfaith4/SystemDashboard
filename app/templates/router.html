@@ -1,6 +1,7 @@
 {% extends 'base.html' %}
 {% block content %}
 <h1>Router Logs</h1>
+{% if logs %}
 <table class="data-table">
     <thead><tr><th>Time</th><th>Level</th><th>Message</th></tr></thead>
     <tbody>
@@ -13,4 +14,7 @@
     {% endfor %}
     </tbody>
 </table>
+{% else %}
+<p>No router logs available.</p>
+{% endif %}
 {% endblock %}
