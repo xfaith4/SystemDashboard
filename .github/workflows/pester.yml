@@ -1,3 +1,4 @@
+### BEGIN FILE: .github/workflows/ci-dashboard.yml
 name: CI - Dashboard Script Tests
 
 on:
@@ -8,55 +9,97 @@ on:
 
 jobs:
   lint-and-unit-tests:
+    name: lint-and-unit-tests (pwsh ${{ matrix.pwsh }})
     runs-on: windows-latest
     strategy:
+      fail-fast: false
       matrix:
-        pwsh-version: [ '7.2.0', '7.4.0' ]
+        # Pin by minor; the action resolves the latest patch (e.g., 7.2.x)
+        pwsh: ['7.2.x', '7.4.x']
+
+    # Use pwsh for all "run:" steps by default
+    defaults:
+      run:
+        shell: pwsh
+
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Set up PowerShell Core
-        uses: actions/setup-powershell@v3
+      # Install/ensure the desired PowerShell version for this matrix leg
+      - name: Install PowerShell ${{ matrix.pwsh }}
+        uses: PSModule/Install-PowerShell@v1
         with:
-          version: ${{ matrix.pwsh-version }}
+          version: ${{ matrix.pwsh }}
 
-      - name: Install PSScriptAnalyzer
-        run: Install-Module -Name PSScriptAnalyzer -Scope CurrentUser -Force
+      - name: Verify PowerShell version
+        run: '$PSVersionTable.PSVersion | Format-List *'
+
+      - name: Trust PSGallery & install PSScriptAnalyzer
+        run: |
+          if (-not (Get-PSRepository -Name PSGallery).InstallationPolicy -eq 'Trusted') {
+            Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+          }
+          Install-Module -Name PSScriptAnalyzer -Scope CurrentUser -Force
 
       - name: Lint with PSScriptAnalyzer
         run: |
           $scriptPath = '.\SystemDashboard.ps1'
+          # Fail on warnings and errors; recurse if the script imports other .ps1 files
           Invoke-ScriptAnalyzer -Path $scriptPath -Recurse -Severity Warning,Error
 
       - name: Unit test Get-Metrics output shape
         run: |
-          $script = '.\SystemDashboard.ps1'
+          $script  = '.\SystemDashboard.ps1'
           $metrics = & $script -Port 9000 -WanProbeHost '127.0.0.1' -DesiredDriveLetters '' -EventProvidersOfInterest '' -HotMessageKeywords '' -OpenBrowser:$false
-          if (-not ($metrics -is [PSCustomObject])) { throw 'Get-Metrics did not return a PSCustomObject' }
+
+          # Assert PSCustomObject
+          if (-not ($metrics -is [pscustomobject])) { throw 'Get-Metrics did not return a PSCustomObject' }
+
+          # Assert required properties exist
           foreach ($prop in 'ComputerName','Timestamp','CPU','Memory','Disks','Network','Events','TopProcesses') {
             if (-not $metrics.PSObject.Properties.Name -contains $prop) { throw "Missing property: $prop" }
           }
-          # CPU.UsagePct numeric?
-          if (-not ($metrics.CPU.UsagePct -is [double] -or $metrics.CPU.UsagePct -is [int])) { throw 'CPU.UsagePct is not numeric' }
-          Write-Host "Metrics shape validated."
+
+          # CPU.UsagePct should be numeric
+          if (-not ($metrics.CPU.UsagePct -is [double] -or $metrics.CPU.UsagePct -is [int])) {
+            throw 'CPU.UsagePct is not numeric'
+          }
+
+          Write-Host 'Metrics shape validated.'
 
       - name: Smoke test HTTP endpoint
         run: |
           $script = '.\SystemDashboard.ps1'
-          Start-Process -FilePath pwsh -ArgumentList "-NoProfile", "-Command", "& { . $script -Port 9111 -WanProbeHost '127.0.0.1' -DesiredDriveLetters '' -EventProvidersOfInterest '' -HotMessageKeywords '' -OpenBrowser:$false }" -PassThru
-          Start-Sleep -Seconds 3
-          $response = Invoke-WebRequest -Uri 'http://localhost:9111/metrics' -UseBasicParsing -ErrorAction Stop
-          if ($response.StatusCode -ne 200) { throw "Expected HTTP 200, got $($response.StatusCode)" }
-          $json = $response.Content | ConvertFrom-Json
-          if (-not $json.ComputerName) { throw "JSON missing ComputerName" }
-          Write-Host "HTTP /metrics endpoint is responding."
-          # Stop the dashboard process
-          Stop-Process -Id $LASTEXITCODE -ErrorAction SilentlyContinue
+
+          # Launch dashboard in a child pwsh and capture the process
+          $proc = Start-Process -FilePath pwsh -ArgumentList @(
+              '-NoProfile','-ExecutionPolicy','Bypass','-Command',
+              # NOTE: escape $false in the inline string passed to -Command
+              "& { . $script -Port 9111 -WanProbeHost '127.0.0.1' -DesiredDriveLetters '' -EventProvidersOfInterest '' -HotMessageKeywords '' -OpenBrowser:\$false }"
+          ) -PassThru
+
+          try {
+            Start-Sleep -Seconds 3
+
+            $response = Invoke-WebRequest -Uri 'http://localhost:9111/metrics' -UseBasicParsing -ErrorAction Stop
+            if ($response.StatusCode -ne 200) { throw "Expected HTTP 200, got $($response.StatusCode)" }
+
+            $json = $response.Content | ConvertFrom-Json
+            if (-not $json.ComputerName) { throw 'JSON missing ComputerName' }
+
+            Write-Host 'HTTP /metrics endpoint is responding.'
+          }
+          finally {
+            if ($proc -and -not $proc.HasExited) {
+              Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+            }
+          }
 
       - name: Cleanup (ensure no lingering listeners)
         run: |
-          # Attempt to stop any process listening on 9111
-          $p = Get-NetTCPConnection -LocalPort 9111 -State Listen -ErrorAction SilentlyContinue
-          if ($p) {
-            Stop-Process -Id $p.OwningProcess -Force -ErrorAction SilentlyContinue
-          }
+          # If anything is still holding 9111, kill it
+          Get-NetTCPConnection -LocalPort 9111 -State Listen -ErrorAction SilentlyContinue |
+            Select-Object -ExpandProperty OwningProcess -Unique |
+            ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }
+### END FILE
