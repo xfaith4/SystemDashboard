@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>System Dashboard</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="top-bar">
+    <div class="brand">
+      <h1>System Dashboard</h1>
+      <p class="muted">Live metrics served by the PowerShell listener.</p>
+    </div>
+    <div class="status-wrapper">
+      <span id="connection-status" class="status status--connecting">Connecting…</span>
+      <span id="status-detail" class="muted"></span>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="grid summary">
+      <article class="card summary__item">
+        <h2>Host</h2>
+        <p class="metric" id="host-name">--</p>
+        <p class="muted">Uptime <span id="uptime-value">--</span></p>
+      </article>
+      <article class="card summary__item">
+        <h2>CPU</h2>
+        <p class="metric" id="cpu-value">--</p>
+        <p class="muted">Average utilisation</p>
+      </article>
+      <article class="card summary__item">
+        <h2>Memory</h2>
+        <p class="metric" id="memory-value">--</p>
+        <p class="muted" id="memory-detail">--</p>
+      </article>
+      <article class="card summary__item">
+        <h2>Latency</h2>
+        <p class="metric" id="latency-value">--</p>
+        <p class="muted">ICMP to configured target</p>
+      </article>
+    </section>
+
+    <section class="card">
+      <header class="card__header">
+        <h2>Disk Utilisation</h2>
+      </header>
+      <div class="card__body">
+        <table id="disk-table" class="table">
+          <thead>
+            <tr>
+              <th>Drive</th>
+              <th>Used</th>
+              <th>Total</th>
+              <th>Usage %</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="empty-row"><td colspan="4">Waiting for data…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="grid two-column">
+      <article class="card">
+        <header class="card__header">
+          <h2>Recent Warnings</h2>
+          <span id="warning-total" class="badge">0</span>
+        </header>
+        <ul id="warning-list" class="list">
+          <li class="empty">Waiting for data…</li>
+        </ul>
+      </article>
+      <article class="card">
+        <header class="card__header">
+          <h2>Recent Errors</h2>
+          <span id="error-total" class="badge badge--error">0</span>
+        </header>
+        <ul id="error-list" class="list">
+          <li class="empty">Waiting for data…</li>
+        </ul>
+      </article>
+    </section>
+
+    <section class="grid two-column">
+      <article class="card">
+        <header class="card__header">
+          <h2>Network Throughput</h2>
+        </header>
+        <div class="card__body">
+          <table id="network-table" class="table">
+            <thead>
+              <tr>
+                <th>Adapter</th>
+                <th>Send</th>
+                <th>Receive</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr class="empty-row"><td colspan="3">Waiting for data…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </article>
+      <article class="card">
+        <header class="card__header">
+          <h2>Top Processes (CPU time)</h2>
+        </header>
+        <div class="card__body">
+          <table id="process-table" class="table">
+            <thead>
+              <tr>
+                <th>Process</th>
+                <th>CPU (s)</th>
+                <th>PID</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr class="empty-row"><td colspan="3">Waiting for data…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </article>
+    </section>
+  </main>
+
+  <footer class="footer muted">
+    <p>Data refreshes automatically every <span id="refresh-interval">5</span> seconds.</p>
+  </footer>
+  <script src="app.js"></script>
+</body>
+</html>
