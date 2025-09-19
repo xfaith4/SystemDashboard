@@ -15,11 +15,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Built-in on windows-latest; skip install to avoid flaky MSI downloads.
-          - pwsh: '7.4.x'
+          - pwsh: '7.4.x'   # preinstalled on windows-latest (Windows Server 2025)
             install: false
-          # Keep this leg to guarantee compatibility with older engine.
-          - pwsh: '7.2.x'
+          - pwsh: '7.2.x'   # keep an “old engine” leg for compat
             install: true
 
     defaults:
@@ -30,17 +28,39 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Optional: cache user modules to speed up repeated runs
+      # Compute paths once and expose as outputs for later steps
+      - name: Discover script & module path
+        id: discover
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = 'Stop'
+
+          # Find the dashboard script anywhere in the repo
+          $script = Get-ChildItem -Path $PWD -Filter 'SystemDashboard.ps1' -Recurse -File -ErrorAction Stop |
+                    Select-Object -First 1 -ExpandProperty FullName
+
+          if (-not $script) {
+            throw "Could not find 'SystemDashboard.ps1' anywhere under $PWD. Adjust the filter or rename."
+          }
+
+          # Where user-scoped modules live on Windows runners
+          $modulePath = Join-Path $env:USERPROFILE 'Documents\PowerShell\Modules'
+
+          "script_path=$script"     | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "module_cache=$modulePath"| Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+          Write-Host "Script: $script"
+          Write-Host "Module cache: $modulePath"
+
       - name: Cache PowerShell modules
         uses: actions/cache@v4
         with:
-          path: ${{ env.USERPROFILE }}\Documents\PowerShell\Modules
+          path: ${{ steps.discover.outputs.module_cache }}
           key: psmodules-${{ runner.os }}-${{ hashFiles('**/*.psd1') }}
           restore-keys: |
             psmodules-${{ runner.os }}-
 
-      # Install only when needed (7.2.x). We use retry around a script installer
-      # because you can't "retry" a composite action.
+      # Install 7.2.x only; skip 7.4.x (already present)
       - name: Install PowerShell ${{ matrix.pwsh }} (retry)
         if: matrix.install == true
         uses: nick-fields/retry@v3
@@ -50,7 +70,7 @@ jobs:
           command: |
             pwsh -NoProfile -Command "
               Set-StrictMode -Version Latest
-              $ErrorActionPreference = 'Stop'
+              \$ErrorActionPreference = 'Stop'
               iex (irm 'https://raw.githubusercontent.com/PSModule/Install-PowerShell/main/install-latest.ps1')
               Install-PowerShell -Version '${{ matrix.pwsh }}' -Quiet -ErrorAction Stop
             "
@@ -60,7 +80,6 @@ jobs:
           'Using pwsh: ' + (Get-Command pwsh).Source
           $PSVersionTable.PSVersion
 
-      # Install PSScriptAnalyzer with retries (the Gallery hiccups sometimes)
       - name: Install PSScriptAnalyzer (retry)
         uses: nick-fields/retry@v3
         with:
@@ -69,7 +88,7 @@ jobs:
           command: |
             pwsh -NoProfile -Command "
               Set-StrictMode -Version Latest
-              $ErrorActionPreference = 'Stop'
+              \$ErrorActionPreference = 'Stop'
               if (-not (Get-PSRepository -Name PSGallery).InstallationPolicy -eq 'Trusted') {
                 Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
               }
@@ -78,12 +97,12 @@ jobs:
 
       - name: Lint with PSScriptAnalyzer
         run: |
-          $scriptPath = '.\SystemDashboard.ps1'
+          $scriptPath = '${{ steps.discover.outputs.script_path }}'
           Invoke-ScriptAnalyzer -Path $scriptPath -Recurse -Severity Warning,Error
 
       - name: Unit test Get-Metrics output shape
         run: |
-          $script  = '.\SystemDashboard.ps1'
+          $script  = '${{ steps.discover.outputs.script_path }}'
           $metrics = & $script -Port 9000 -WanProbeHost '127.0.0.1' `
                                -DesiredDriveLetters '' `
                                -EventProvidersOfInterest '' `
@@ -91,14 +110,10 @@ jobs:
                                -OpenBrowser:$false
 
           # --- Assertions ----------------------------------------------------
-          if (-not ($metrics -is [pscustomobject])) {
-            throw 'Get-Metrics did not return a PSCustomObject'
-          }
+          if (-not ($metrics -is [pscustomobject])) { throw 'Get-Metrics did not return a PSCustomObject' }
 
           foreach ($prop in 'ComputerName','Timestamp','CPU','Memory','Disks','Network','Events','TopProcesses') {
-            if (-not $metrics.PSObject.Properties.Name -contains $prop) {
-              throw "Missing property: $prop"
-            }
+            if (-not $metrics.PSObject.Properties.Name -contains $prop) { throw "Missing property: $prop" }
           }
 
           if (-not ($metrics.CPU.UsagePct -is [double] -or $metrics.CPU.UsagePct -is [int])) {
@@ -109,17 +124,17 @@ jobs:
 
       - name: Smoke test HTTP endpoint (poll, random port)
         run: |
-          $script = '.\SystemDashboard.ps1'
+          $script = '${{ steps.discover.outputs.script_path }}'
           $port   = Get-Random -Minimum 20000 -Maximum 40000
 
-          # Make sure nothing is already on the chosen port (paranoid cleanup)
+          # Paranoid: evict any prior listener on the chosen port
           Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue |
             Select-Object -ExpandProperty OwningProcess -Unique |
             ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }
 
           $proc = Start-Process -FilePath pwsh -ArgumentList @(
             '-NoProfile','-ExecutionPolicy','Bypass','-Command',
-            "& { . $script -Port $port -WanProbeHost '127.0.0.1' -DesiredDriveLetters '' -EventProvidersOfInterest '' -HotMessageKeywords '' -OpenBrowser:`$false }"
+            "& { . `"$script`" -Port $port -WanProbeHost '127.0.0.1' -DesiredDriveLetters '' -EventProvidersOfInterest '' -HotMessageKeywords '' -OpenBrowser:`$false }"
           ) -PassThru
 
           try {
@@ -148,8 +163,8 @@ jobs:
 
       - name: Cleanup (ensure no lingering listeners)
         run: |
-          # Sweep any dashboard instances left behind (both fixed and random-range ports)
-          foreach ($p in 9111..9113) {
+          # Sweep a couple of known ports just in case
+          foreach ($p in 9000, 9111) {
             Get-NetTCPConnection -LocalPort $p -State Listen -ErrorAction SilentlyContinue |
               Select-Object -ExpandProperty OwningProcess -Unique |
               ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }
