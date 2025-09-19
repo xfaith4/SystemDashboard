@@ -12,8 +12,13 @@ $ErrorActionPreference = 'Stop'
 
 $ConfigPath = if ($env:SYSTEMDASHBOARD_CONFIG) { $env:SYSTEMDASHBOARD_CONFIG } else { Join-Path $PSScriptRoot 'config.json' }
 $script:Config = @{}
+$script:ConfigPath = $null
+$script:ConfigBase = $PSScriptRoot
 if (Test-Path $ConfigPath) {
-    $script:Config = Get-Content $ConfigPath -Raw | ConvertFrom-Json
+    $resolvedConfig = (Resolve-Path -LiteralPath $ConfigPath).Path
+    $script:ConfigPath = $resolvedConfig
+    $script:ConfigBase = Split-Path -Parent $resolvedConfig
+    $script:Config = Get-Content -LiteralPath $resolvedConfig -Raw | ConvertFrom-Json
 }
 
 function Write-Log {
@@ -26,11 +31,62 @@ function Write-Log {
     Write-Information "[$ts] [$Level] $Message" -InformationAction Continue
 }
 
-function Ensure-UrlAcl {  
-    [CmdletBinding()]  
-    param([Parameter(Mandatory)][string] $Prefix)  
-    if (-not $IsWindows) { return }  
-    try {    
+function Resolve-ConfigPathValue {
+    [CmdletBinding()]
+    param(
+        [Parameter()][string]$PathValue
+    )
+
+    if ([string]::IsNullOrWhiteSpace($PathValue)) {
+        return $null
+    }
+
+    try {
+        $expanded = [Environment]::ExpandEnvironmentVariables($PathValue)
+        if ($expanded.StartsWith('~')) {
+            $home = [Environment]::GetFolderPath('UserProfile')
+            if ($home) {
+                $expanded = Join-Path $home ($expanded.Substring(1).TrimStart('\\','/'))
+            }
+        }
+
+        if ([System.IO.Path]::IsPathRooted($expanded)) {
+            return [System.IO.Path]::GetFullPath($expanded)
+        }
+
+        $basePath = if ($script:ConfigBase) { $script:ConfigBase } else { $PSScriptRoot }
+        return [System.IO.Path]::GetFullPath((Join-Path $basePath $expanded))
+    }
+    catch {
+        throw "Failed to resolve path '$PathValue'. $_"
+    }
+}
+
+function Get-ContentType {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$Path
+    )
+
+    $extension = [System.IO.Path]::GetExtension($Path).ToLowerInvariant()
+    switch ($extension) {
+        '.css'  { 'text/css' }
+        '.js'   { 'application/javascript' }
+        '.json' { 'application/json' }
+        '.svg'  { 'image/svg+xml' }
+        '.png'  { 'image/png' }
+        '.jpg'  { 'image/jpeg' }
+        '.jpeg' { 'image/jpeg' }
+        '.ico'  { 'image/x-icon' }
+        Default { 'text/html' }
+    }
+}
+
+function Ensure-UrlAcl {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string] $Prefix)
+    if (-not $IsWindows) { return }
+    try {
         $exists = netsh http show urlacl | Select-String -SimpleMatch $Prefix -Quiet    
         if (-not $exists) {      
             $user = "$env:USERDOMAIN\$env:USERNAME"      
@@ -73,8 +129,30 @@ function Start-SystemDashboardListener {
     if (-not $CssFile -and $script:Config.CssFile) { $CssFile = $script:Config.CssFile }
     if (-not $PingTarget) { $PingTarget = $script:Config.PingTarget }
     if (-not $PingTarget) { $PingTarget = '1.1.1.1' }
+    $Root = Resolve-ConfigPathValue $Root
+    if (-not $Root) {
+        throw 'Prefix, Root, IndexHtml, and CssFile are required.'
+    }
+    if (-not $IndexHtml) {
+        $IndexHtml = [System.IO.Path]::GetFullPath((Join-Path $Root 'index.html'))
+    } else {
+        $IndexHtml = Resolve-ConfigPathValue $IndexHtml
+    }
+    if (-not $CssFile) {
+        $CssFile = [System.IO.Path]::GetFullPath((Join-Path $Root 'styles.css'))
+    } else {
+        $CssFile = Resolve-ConfigPathValue $CssFile
+    }
     if (-not $Prefix -or -not $Root -or -not $IndexHtml -or -not $CssFile) {
         throw 'Prefix, Root, IndexHtml, and CssFile are required.'
+    }
+    if (-not (Test-Path -LiteralPath $Root -PathType Container)) {
+        throw "Root path not found: $Root"
+    }
+    foreach ($asset in @($IndexHtml, $CssFile)) {
+        if (-not (Test-Path -LiteralPath $asset -PathType Leaf)) {
+            throw "Static asset not found: $asset"
+        }
     }
     Ensure-UrlAcl -Prefix $Prefix
     $l = [System.Net.HttpListener]::new()
@@ -86,11 +164,13 @@ function Start-SystemDashboardListener {
 
     try {
         while ($true) {
-            $context = $l.GetContext()      
-            $req = $context.Request      
-            $res = $context.Response      
-            if ($req.RawUrl -eq '/metrics') {        
-                $nowUtc = (Get-Date).ToUniversalTime().ToString('o')        
+            $context = $l.GetContext()
+            $req = $context.Request
+            $res = $context.Response
+            $rawPath = $req.RawUrl.Split('?',2)[0]
+            $requestPath = [System.Uri]::UnescapeDataString($rawPath)
+            if ($requestPath -eq '/metrics') {
+                $nowUtc = (Get-Date).ToUniversalTime().ToString('o')
                 $computerName = $env:COMPUTERNAME        
                 # CPU        
                 $cpuPct = 0        
@@ -147,24 +227,26 @@ function Start-SystemDashboardListener {
                 $topProcs = Get-Process | Sort-Object CPU -Descending | Select-Object -First 5 | ForEach-Object {          
                     [pscustomobject]@{ Name=$_.ProcessName; CPU=$([math]::Round($_.CPU,2)); Id=$_.Id }        
                 }        
-                $metrics = [pscustomobject]@{          
-                    Time          = $nowUtc          
-                    ComputerName  = $computerName          
-                    CPU           = @{ Pct = $cpuPct }          
-                    Memory        = @{ TotalGB=$totalMemGB; FreeGB=$freeMemGB; UsedGB=$usedMemGB; Pct=$memPct }          
-                    Disk          = $disks          
-                    Uptime        = @{ Days=$uptime.Days; Hours=$uptime.Hours; Minutes=$uptime.Minutes }          
-                    Events        = @{ Warnings=$warnSummary; Errors=$errSummary }          
-                    Network       = @{ Usage=$netUsage; LatencyMs=$latencyMs }          
-                    Processes     = $topProcs        
-                }        
-                $json = $metrics | ConvertTo-Json -Depth 5        
-                $buf  = [Text.Encoding]::UTF8.GetBytes($json)        
-                $res.ContentType = 'application/json'        
-                $res.OutputStream.Write($buf,0,$buf.Length)        
-                $res.Close()        
-                continue      
-            } elseif ($req.RawUrl -eq '/scan-clients') {
+                $metrics = [pscustomobject]@{
+                    Time          = $nowUtc
+                    ComputerName  = $computerName
+                    CPU           = @{ Pct = $cpuPct }
+                    Memory        = @{ TotalGB=$totalMemGB; FreeGB=$freeMemGB; UsedGB=$usedMemGB; Pct=$memPct }
+                    Disk          = $disks
+                    Uptime        = @{ Days=$uptime.Days; Hours=$uptime.Hours; Minutes=$uptime.Minutes }
+                    Events        = @{ Warnings=$warnSummary; Errors=$errSummary }
+                    Network       = @{ Usage=$netUsage; LatencyMs=$latencyMs }
+                    Processes     = $topProcs
+                }
+                $json = $metrics | ConvertTo-Json -Depth 5
+                $buf  = [Text.Encoding]::UTF8.GetBytes($json)
+                $res.ContentType = 'application/json'
+                $res.Headers['Cache-Control'] = 'no-store'
+                $res.ContentLength64 = $buf.Length
+                $res.OutputStream.Write($buf,0,$buf.Length)
+                $res.Close()
+                continue
+            } elseif ($requestPath -eq '/scan-clients') {
                 # Scan for connected clients
                 $clients = Scan-ConnectedClients
                 $json = $clients | ConvertTo-Json -Depth 5
@@ -173,7 +255,7 @@ function Start-SystemDashboardListener {
                 $res.OutputStream.Write($buf,0,$buf.Length)
                 $res.Close()
                 continue
-            } elseif ($req.RawUrl -eq '/router-login') {
+            } elseif ($requestPath -eq '/router-login') {
                 # Handle router login
                 $credentials = Get-RouterCredentials
                 $json = $credentials | ConvertTo-Json -Depth 5
@@ -182,7 +264,7 @@ function Start-SystemDashboardListener {
                 $res.OutputStream.Write($buf,0,$buf.Length)
                 $res.Close()
                 continue
-            } elseif ($req.RawUrl -eq '/system-logs') {
+            } elseif ($requestPath -eq '/system-logs') {
                 # Retrieve system logs
                 $logs = Get-SystemLogs
                 $json = $logs | ConvertTo-Json -Depth 5
@@ -191,23 +273,37 @@ function Start-SystemDashboardListener {
                 $res.OutputStream.Write($buf,0,$buf.Length)
                 $res.Close()
                 continue
-            }      
-            # Static files      
-            $file = Switch ($req.RawUrl) {        
-                '/'           { $IndexHtml }        
-                '/index.html' { $IndexHtml }        
-                '/styles.css' { $CssFile }        
-                Default       { Join-Path $Root ($req.RawUrl.TrimStart('/')) }      
-            }      
-            if (Test-Path $file) {        
-                $bytes = [IO.File]::ReadAllBytes($file)        
-                $res.ContentType = if ($file -like '*.css') { 'text/css' } else { 'text/html' }        
-                $res.OutputStream.Write($bytes,0,$bytes.Length)      
-            } else {        
-                $res.StatusCode = 404        
-                $res.StatusDescription = 'Not Found'      
-            }      
-            $res.Close()    
+            }
+            # Static files
+            $file = switch ($requestPath) {
+                '/'           { $IndexHtml }
+                '/index.html' { $IndexHtml }
+                '/styles.css' { $CssFile }
+                Default {
+                    $relative = $requestPath.TrimStart('/')
+                    if ([string]::IsNullOrWhiteSpace($relative)) {
+                        $IndexHtml
+                    } else {
+                        $normalized = $relative -replace '/', [System.IO.Path]::DirectorySeparatorChar
+                        $candidate = [System.IO.Path]::GetFullPath((Join-Path $Root $normalized))
+                        if ($candidate.StartsWith($Root, [System.StringComparison]::OrdinalIgnoreCase)) {
+                            $candidate
+                        } else {
+                            $null
+                        }
+                    }
+                }
+            }
+            if ($file -and (Test-Path -LiteralPath $file -PathType Leaf)) {
+                $bytes = [IO.File]::ReadAllBytes($file)
+                $res.ContentType = Get-ContentType -Path $file
+                $res.ContentLength64 = $bytes.Length
+                $res.OutputStream.Write($bytes,0,$bytes.Length)
+            } else {
+                $res.StatusCode = 404
+                $res.StatusDescription = 'Not Found'
+            }
+            $res.Close()
         }
     } catch {
         Write-Log -Level 'ERROR' -Message $_
@@ -221,11 +317,13 @@ function Start-SystemDashboard {
     param(
         [string]$ConfigPath = (Join-Path $PSScriptRoot 'config.json')
     )
-    if (Test-Path $ConfigPath) {
-        $script:Config = Get-Content $ConfigPath -Raw | ConvertFrom-Json
-    } else {
+    if (-not (Test-Path -LiteralPath $ConfigPath)) {
         throw "Config file not found: $ConfigPath"
     }
+    $resolved = (Resolve-Path -LiteralPath $ConfigPath).Path
+    $script:ConfigPath = $resolved
+    $script:ConfigBase = Split-Path -Parent $resolved
+    $script:Config = Get-Content -LiteralPath $resolved -Raw | ConvertFrom-Json
     Start-SystemDashboardListener
 }
 
