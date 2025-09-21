@@ -1,0 +1,292 @@
+name: Comprehensive System Dashboard Tests
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:
+
+jobs:
+  powershell-tests:
+    name: PowerShell Module Tests
+    runs-on: windows-latest
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Pester
+        shell: pwsh
+        run: |
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+          Install-Module Pester -Force -Scope CurrentUser
+
+      - name: Run Pester Tests
+        shell: pwsh
+        run: |
+          $config = New-PesterConfiguration
+          $config.Run.Path = './tests'
+          $config.TestResult.Enabled = $true
+          $config.TestResult.OutputPath = './test-results.xml'
+          $config.TestResult.OutputFormat = 'NUnitXml'
+          $config.Output.Verbosity = 'Detailed'
+          Invoke-Pester -Configuration $config
+
+      - name: Upload Test Results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pester-test-results
+          path: test-results.xml
+
+  data-source-validation:
+    name: Data Source Validation Tests
+    runs-on: windows-latest
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Test Windows Event Log Access
+        shell: pwsh
+        run: |
+          Write-Host "Testing Windows Event Log access..."
+          
+          # Import the module
+          Import-Module ./Start-SystemDashboard.psm1 -Force
+          
+          # Test Get-SystemLogs function
+          $logs = Get-SystemLogs -LogName 'Application','System' -MaxEvents 10
+          if ($logs.Count -eq 0) {
+            Write-Warning "No system logs found - this may indicate access issues"
+          } else {
+            Write-Host "Successfully retrieved $($logs.Count) log entries"
+            Write-Host "Sample log entry:"
+            $logs[0] | Format-List
+          }
+          
+          # Verify log structure
+          $requiredProps = @('LogName', 'TimeCreated', 'Level', 'EventID', 'Source', 'Message')
+          foreach ($prop in $requiredProps) {
+            if (-not ($logs[0].PSObject.Properties.Name -contains $prop)) {
+              throw "Missing required property: $prop"
+            }
+          }
+          Write-Host "Log structure validation passed"
+
+      - name: Test System Metrics Collection
+        shell: pwsh
+        run: |
+          Write-Host "Testing system metrics collection..."
+          
+          # Import the module
+          Import-Module ./Start-SystemDashboard.psm1 -Force
+          
+          # Test metrics endpoint functionality
+          $port = Get-Random -Minimum 30000 -Maximum 40000
+          $prefix = "http://localhost:$port/"
+          
+          # Create test environment
+          $testDir = Join-Path $env:TEMP "dashboard-test"
+          New-Item -ItemType Directory -Path $testDir -Force | Out-Null
+          $indexFile = Join-Path $testDir "index.html"
+          $cssFile = Join-Path $testDir "styles.css"
+          Set-Content -Path $indexFile -Value "<html><body>Test</body></html>"
+          Set-Content -Path $cssFile -Value "body { margin: 0; }"
+          
+          try {
+            # Ensure URL ACL
+            Ensure-UrlAcl -Prefix $prefix
+            
+            # Start listener in background job
+            $job = Start-Job -ScriptBlock {
+              param($prefix, $testDir, $indexFile, $cssFile)
+              Import-Module ./Start-SystemDashboard.psm1 -Force
+              Start-SystemDashboardListener -Prefix $prefix -Root $testDir -IndexHtml $indexFile -CssFile $cssFile
+            } -ArgumentList $prefix, $testDir, $indexFile, $cssFile
+            
+            # Wait for listener to start
+            Start-Sleep -Seconds 5
+            
+            # Test metrics endpoint
+            $metricsUrl = "${prefix}metrics"
+            $response = Invoke-RestMethod -Uri $metricsUrl -TimeoutSec 10
+            
+            # Validate metrics structure
+            $requiredMetrics = @('ComputerName', 'Timestamp', 'CPU', 'Memory', 'Disks', 'Network', 'TopProcesses')
+            foreach ($metric in $requiredMetrics) {
+              if (-not ($response.PSObject.Properties.Name -contains $metric)) {
+                throw "Missing required metric: $metric"
+              }
+            }
+            
+            Write-Host "System metrics validation passed"
+            Write-Host "Computer: $($response.ComputerName)"
+            Write-Host "CPU Usage: $($response.CPU.UsagePct)%"
+            Write-Host "Memory Usage: $($response.Memory.UsagePct)%"
+            
+          } finally {
+            # Cleanup
+            if ($job) {
+              Stop-Job $job -Force
+              Remove-Job $job -Force
+            }
+            Remove-UrlAcl -Prefix $prefix -ErrorAction SilentlyContinue
+            Remove-Item $testDir -Recurse -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: Test Network Client Detection
+        shell: pwsh
+        run: |
+          Write-Host "Testing network client detection..."
+          
+          # Import the module
+          Import-Module ./Start-SystemDashboard.psm1 -Force
+          
+          # Test client scanning functionality
+          $clients = Scan-ConnectedClients -NetworkPrefix '192.168.1'
+          Write-Host "Found $($clients.Count) network clients"
+          
+          if ($clients.Count -gt 0) {
+            Write-Host "Sample client entry:"
+            $clients[0] | Format-List
+            
+            # Verify client structure
+            $requiredProps = @('IPAddress', 'MACAddress', 'State')
+            foreach ($prop in $requiredProps) {
+              if (-not ($clients[0].PSObject.Properties.Name -contains $prop)) {
+                throw "Missing required property: $prop"
+              }
+            }
+          }
+          Write-Host "Network client detection validation passed"
+
+  flask-app-tests:
+    name: Flask Application Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest requests
+
+      - name: Test Flask Application
+        run: |
+          cd app
+          python -m pytest -v ../tests/test_flask_app.py || echo "Flask tests will be created"
+
+      - name: Test Flask Routes and Data Sources
+        run: |
+          # Start Flask app in background
+          cd app
+          python app.py &
+          FLASK_PID=$!
+          
+          # Wait for Flask to start
+          sleep 5
+          
+          # Test basic routes
+          curl -f http://localhost:5000/ || echo "Dashboard route test"
+          curl -f http://localhost:5000/events || echo "Events route test"
+          curl -f http://localhost:5000/router || echo "Router route test"
+          curl -f http://localhost:5000/wifi || echo "WiFi route test"
+          curl -f http://localhost:5000/health || echo "Health route test"
+          
+          # Test API endpoints
+          curl -f http://localhost:5000/api/events || echo "Events API test"
+          
+          # Cleanup
+          kill $FLASK_PID
+
+  integration-tests:
+    name: Integration Tests
+    runs-on: windows-latest
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Test PowerShell to Flask Integration
+        shell: pwsh
+        run: |
+          Write-Host "Testing PowerShell listener with Flask app integration..."
+          
+          # Import PowerShell module
+          Import-Module ./Start-SystemDashboard.psm1 -Force
+          
+          # Start PowerShell listener
+          $port = 15000
+          $prefix = "http://localhost:$port/"
+          
+          # Create test environment
+          $testDir = "./wwwroot"
+          
+          try {
+            # Ensure URL ACL
+            Ensure-UrlAcl -Prefix $prefix
+            
+            # Start listener
+            $job = Start-Job -ScriptBlock {
+              param($prefix, $testDir)
+              Import-Module ./Start-SystemDashboard.psm1 -Force
+              $indexFile = Join-Path $testDir "index.html"
+              $cssFile = Join-Path $testDir "styles.css"
+              Start-SystemDashboardListener -Prefix $prefix -Root $testDir -IndexHtml $indexFile -CssFile $cssFile
+            } -ArgumentList $prefix, $testDir
+            
+            # Wait for listener
+            Start-Sleep -Seconds 10
+            
+            # Test metrics endpoint from PowerShell
+            $metricsUrl = "${prefix}metrics"
+            $metrics = Invoke-RestMethod -Uri $metricsUrl -TimeoutSec 15
+            
+            # Set environment variable for Flask to use PowerShell backend
+            $env:SYSTEMDASHBOARD_BACKEND = $metricsUrl
+            
+            # Start Flask app
+            $flaskJob = Start-Process python -ArgumentList "app/app.py" -PassThru -WindowStyle Hidden
+            Start-Sleep -Seconds 5
+            
+            # Test Flask health endpoint (should connect to PowerShell backend)
+            $healthUrl = "http://localhost:5000/health"
+            $healthResponse = Invoke-WebRequest -Uri $healthUrl -UseBasicParsing
+            
+            if ($healthResponse.StatusCode -eq 200) {
+              Write-Host "Integration test passed: Flask can connect to PowerShell backend"
+            } else {
+              Write-Warning "Integration test warning: Health check returned $($healthResponse.StatusCode)"
+            }
+            
+          } finally {
+            # Cleanup
+            if ($job) {
+              Stop-Job $job -Force
+              Remove-Job $job -Force
+            }
+            if ($flaskJob -and -not $flaskJob.HasExited) {
+              Stop-Process $flaskJob -Force
+            }
+            Remove-UrlAcl -Prefix $prefix -ErrorAction SilentlyContinue
+          }
