@@ -36,11 +36,11 @@ jobs:
           $ErrorActionPreference = 'Stop'
 
           # Find the dashboard script anywhere in the repo
-          $script = Get-ChildItem -Path $PWD -Filter 'SystemDashboard.ps1' -Recurse -File -ErrorAction Stop |
+          $script = Get-ChildItem -Path $PWD -Filter 'Start-SystemDashboard.ps1' -Recurse -File -ErrorAction Stop |
                     Select-Object -First 1 -ExpandProperty FullName
 
           if (-not $script) {
-            throw "Could not find 'SystemDashboard.ps1' anywhere under $PWD. Adjust the filter or rename."
+            throw "Could not find 'Start-SystemDashboard.ps1' anywhere under $PWD. Adjust the filter or rename."
           }
 
           # Where user-scoped modules live on Windows runners
