@@ -70,3 +70,5 @@ Thumbs.db
 # Logs
 logs/
 *.log
+# But allow sample files
+!sample-*.log
