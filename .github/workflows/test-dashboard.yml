@@ -11,7 +11,7 @@ jobs:
         shell: pwsh
         run: |
           $job = Start-Job -ScriptBlock {
-            .\start-SystemDashboard.ps1 -Port 8899
+            .\Start-SystemDashboard.ps1 -Port 8899
           }
           Start-Sleep -Seconds 5
           $response = Invoke-WebRequest -Uri "http://localhost:8899/" -UseBasicParsing
