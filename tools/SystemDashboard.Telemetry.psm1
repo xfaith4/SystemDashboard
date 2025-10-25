@@ -11,11 +11,12 @@ function Resolve-SystemDashboardPath {
 
     $expanded = [Environment]::ExpandEnvironmentVariables($Path)
     if ($expanded.StartsWith('~')) {
-        $home = [Environment]::GetFolderPath('UserProfile')
-        if ($home) {
-            $expanded = Join-Path $home ($expanded.Substring(1).TrimStart('\\','/'))
+        $userProfile = [Environment]::GetFolderPath('UserProfile')
+        if ($userProfile) {
+            $expanded = Join-Path $userProfile ($expanded.Substring(1).TrimStart('\\','/'))
         }
     }
+
     if ([System.IO.Path]::IsPathRooted($expanded)) {
         return [System.IO.Path]::GetFullPath($expanded)
     }
@@ -198,10 +199,10 @@ function ConvertFrom-SyslogLine {
 
     if ($rest -match '^(?<timestamp>[A-Za-z]{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2})\s+(?<host>[^\s]+)\s*(?<app>[^:]+)?:?\s*(?<msg>.*)$') {
         $timestamp = $Matches['timestamp']
-        $host = $Matches['host']
+        $sourceHost = $Matches['host']
         $app = ($Matches['app'] ?? '').Trim()
         $msg = ($Matches['msg'] ?? '').Trim()
-        $result.SourceHost = if ($host) { $host } else { $null }
+        $result.SourceHost = if ($sourceHost) { $sourceHost } else { $null }
         if ($app) { $result.AppName = $app }
         if ($msg) { $result.Message = $msg }
         try {
@@ -308,7 +309,7 @@ function Invoke-PostgresCopy {
         throw "psql executable '$psqlPath' not found in PATH. Set Database.PsqlPath in config.json."
     }
 
-    $host = $Database.Host ?? 'localhost'
+    $dbHost = $Database.Host ?? 'localhost'
     $port = $Database.Port ?? 5432
     $databaseName = $Database.Database ?? $Database.Name
     $username = $Database.Username ?? $Database.User
@@ -334,8 +335,8 @@ function Invoke-PostgresCopy {
             $table = $TableName
         }
         $copyCommand = "\\copy $table (received_utc, event_utc, source_host, app_name, facility, severity, message, raw_message, remote_endpoint, source) FROM '$CsvPath' WITH (FORMAT csv, HEADER true, DELIMITER ',')"
-        $args = @('-h', $host, '-p', [string]$port, '-U', $username, '-d', $databaseName, '-c', $copyCommand)
-        $process = Start-Process -FilePath $command.Source -ArgumentList $args -NoNewWindow -Wait -PassThru -ErrorAction Stop
+        $psqlArgs = @('-h', $dbHost, '-p', [string]$port, '-U', $username, '-d', $databaseName, '-c', $copyCommand)
+        $process = Start-Process -FilePath $command.Source -ArgumentList $psqlArgs -NoNewWindow -Wait -PassThru -ErrorAction Stop
         if ($process.ExitCode -ne 0) {
             throw "psql exited with code $($process.ExitCode)."
         }
@@ -358,7 +359,7 @@ function Invoke-PostgresStatement {
         throw "psql executable '$psqlPath' not found in PATH. Set Database.PsqlPath in config.json."
     }
 
-    $host = $Database.Host ?? 'localhost'
+    $dbHost = $Database.Host ?? 'localhost'
     $port = $Database.Port ?? 5432
     $databaseName = $Database.Database ?? $Database.Name
     $username = $Database.Username ?? $Database.User
@@ -373,8 +374,8 @@ function Invoke-PostgresStatement {
 
     $env:PGPASSWORD = $password
     try {
-        $args = @('-h', $host, '-p', [string]$port, '-U', $username, '-d', $databaseName, '-c', $Sql)
-        $process = Start-Process -FilePath $command.Source -ArgumentList $args -NoNewWindow -Wait -PassThru -ErrorAction Stop
+        $psqlArgs = @('-h', $dbHost, '-p', [string]$port, '-U', $username, '-d', $databaseName, '-c', $Sql)
+        $process = Start-Process -FilePath $command.Source -ArgumentList $psqlArgs -NoNewWindow -Wait -PassThru -ErrorAction Stop
         if ($process.ExitCode -ne 0) {
             throw "psql exited with code $($process.ExitCode) when executing statement."
         }
@@ -515,6 +516,108 @@ function Invoke-AsusLogFetch {
     return ,$events
 }
 
+function Invoke-AsusWifiClientScan {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][hashtable]$Config,
+        [Parameter()][hashtable]$State
+    )
+
+    # Check if SSH monitoring is enabled and configured
+    if (-not $Config.SSH -or -not $Config.SSH.Enabled) {
+        return @()
+    }
+
+    $routerIP = $Config.SSH.HostName ?? $Config.HostName ?? '192.168.50.1'
+    $username = $Config.SSH.Username ?? $Config.Username ?? 'admin'
+    $password = Resolve-SystemDashboardSecret -Secret ($Config.SSH.PasswordSecret ?? $Config.PasswordSecret) -Fallback ($Config.SSH.Password ?? $Config.Password)
+
+    if (-not $password) {
+        Write-Verbose "WiFi client scan skipped: SSH password not configured"
+        return @()
+    }
+
+    try {
+        # Commands to gather WiFi client information
+        $commands = @(
+            "nvram get wl0_assoclist",  # 2.4GHz clients
+            "nvram get wl1_assoclist",  # 5GHz clients
+            "nvram get wl2_assoclist",  # 6GHz clients (WiFi 6E)
+            "wl -i eth1 assoclist",     # Alternative method for 2.4GHz
+            "wl -i eth2 assoclist",     # Alternative method for 5GHz
+            "arp -a",                   # ARP table for IP assignments
+            "cat /proc/net/arp"         # Alternative ARP method
+        )
+
+        $events = @()
+        $timestamp = [DateTime]::UtcNow
+
+        # Note: This is a conceptual implementation
+        # In practice, you would need to use a PowerShell SSH module like Posh-SSH
+        # or implement SSH connectivity through .NET SSH libraries
+
+        foreach ($command in $commands) {
+            try {
+                # Placeholder for SSH command execution
+                # In real implementation, this would execute SSH commands
+                $output = Invoke-SSHCommand -ComputerName $routerIP -Username $username -Password $password -Command $command
+
+                if ($output -and $output.Length -gt 0) {
+                    $wifiEvent = [pscustomobject]@{
+                        ReceivedUtc    = $timestamp
+                        EventUtc       = $timestamp
+                        SourceHost     = $routerIP
+                        AppName        = 'asus-wifi-scan'
+                        Facility       = 16  # local0
+                        Severity       = 6   # info
+                        Message        = "WiFi scan: $command"
+                        RawMessage     = $output
+                        RemoteEndpoint = "ssh://${routerIP}"
+                        Source         = 'asus-wifi'
+                        Command        = $command
+                    }
+                    $events += $wifiEvent
+                }
+            }
+            catch {
+                Write-Verbose "WiFi scan command failed: $command - $($_.Exception.Message)"
+            }
+        }
+
+        return ,$events
+    }
+    catch {
+        Write-Verbose "WiFi client scan failed: $($_.Exception.Message)"
+        return @()
+    }
+}
+
+function Invoke-SSHCommand {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$ComputerName,
+        [Parameter(Mandatory)][string]$Username,
+        [Parameter(Mandatory)][string]$Password,
+        [Parameter(Mandatory)][string]$Command
+    )
+
+    # This is a placeholder function that would need to be implemented
+    # using a proper SSH library like Posh-SSH or SSH.NET
+    # For now, return empty to prevent errors
+
+    Write-Verbose "SSH Command placeholder: $Username@$ComputerName : $Command"
+
+    # Example of what this would look like with Posh-SSH:
+    # $securePassword = ConvertTo-SecureString $Password -AsPlainText -Force
+    # $credential = New-Object System.Management.Automation.PSCredential($Username, $securePassword)
+    # $session = New-SSHSession -ComputerName $ComputerName -Credential $credential -AcceptKey
+    # $result = Invoke-SSHCommand -SessionId $session.SessionId -Command $Command
+    # Remove-SSHSession -SessionId $session.SessionId
+    # return $result.Output
+
+    return ""
+}
+
 function Start-TelemetryService {
     [CmdletBinding()]
     param(
@@ -532,11 +635,12 @@ function Start-TelemetryService {
 
     $syslogBuffer = New-Object System.Collections.Generic.List[object]
     $asusBuffer = New-Object System.Collections.Generic.List[object]
+    $wifiBuffer = New-Object System.Collections.Generic.List[object]
     $ingestion = $config.Service.Ingestion
     $database = @{}
     $config.Database.PSObject.Properties | ForEach-Object { $database[$_.Name] = $_.Value }
 
-    foreach ($dir in @($config.Service.Syslog.BufferDirectory, $config.Service.Asus.DownloadPath, $config.Service.Asus.StatePath | Split-Path -Parent, $ingestion.StagingDirectory)) {
+    foreach ($dir in @($config.Service.Syslog.BufferDirectory, $config.Service.Asus.DownloadPath, ($config.Service.Asus.StatePath | Split-Path -Parent), $ingestion.StagingDirectory)) {
         if (-not [string]::IsNullOrWhiteSpace($dir)) {
             if (-not (Test-Path -LiteralPath $dir)) {
                 New-Item -ItemType Directory -Path $dir -Force | Out-Null
@@ -544,45 +648,60 @@ function Start-TelemetryService {
         }
     }
 
+    # Initialize UDP syslog listener with error handling
     $syslogEndpoint = [System.Net.IPEndPoint]::new([System.Net.IPAddress]::Parse($config.Service.Syslog.BindAddress), [int]$config.Service.Syslog.Port)
-    $udpClient = [System.Net.Sockets.UdpClient]::new()
-    $udpClient.Client.Bind($syslogEndpoint)
-    $udpClient.Client.ReceiveTimeout = 1000
+    $udpClient = $null
+
+    try {
+        $udpClient = [System.Net.Sockets.UdpClient]::new()
+        $udpClient.Client.Bind($syslogEndpoint)
+        $udpClient.Client.ReceiveTimeout = 1000
+        Write-TelemetryLog -LogPath $logPath -Message "Syslog UDP listener bound to $($config.Service.Syslog.BindAddress):$($config.Service.Syslog.Port)" -Level 'INFO'
+    }
+    catch {
+        Write-TelemetryLog -LogPath $logPath -Message "Failed to bind syslog UDP listener to $($config.Service.Syslog.BindAddress):$($config.Service.Syslog.Port) - $($_.Exception.Message)" -Level 'ERROR'
+        if ($udpClient) { $udpClient.Close() }
+        $udpClient = $null
+    }
 
     $nextFlush = (Get-Date).AddSeconds($ingestion.BatchIntervalSeconds)
     $nextAsus = (Get-Date)
+    $nextWifiScan = (Get-Date)
     $asusState = Load-AsusState -Path $config.Service.Asus.StatePath
 
     try {
         while (-not $cts.IsCancellationRequested) {
-            $remote = [System.Net.IPEndPoint]::new([System.Net.IPAddress]::Any, 0)
-            try {
-                $bytes = $udpClient.Receive([ref]$remote)
-                if ($bytes.Length -gt 0) {
-                    $text = [System.Text.Encoding]::UTF8.GetString($bytes)
-                    $parsed = ConvertFrom-SyslogLine -Line $text
-                    $event = [pscustomobject]@{
-                        ReceivedUtc    = [DateTime]::UtcNow
-                        EventUtc       = $parsed.EventUtc
-                        SourceHost     = $parsed.SourceHost
-                        AppName        = $parsed.AppName
-                        Facility       = $parsed.Facility
-                        Severity       = $parsed.Severity
-                        Message        = $parsed.Message
-                        RawMessage     = $parsed.RawMessage
-                        RemoteEndpoint = $remote.ToString()
-                        Source         = 'syslog'
+            # Syslog UDP listener (only if successfully bound)
+            if ($udpClient) {
+                $remote = [System.Net.IPEndPoint]::new([System.Net.IPAddress]::Any, 0)
+                try {
+                    $bytes = $udpClient.Receive([ref]$remote)
+                    if ($bytes.Length -gt 0) {
+                        $text = [System.Text.Encoding]::UTF8.GetString($bytes)
+                        $parsed = ConvertFrom-SyslogLine -Line $text
+                        $syslogEvent = [pscustomobject]@{
+                            ReceivedUtc    = [DateTime]::UtcNow
+                            EventUtc       = $parsed.EventUtc
+                            SourceHost     = $parsed.SourceHost
+                            AppName        = $parsed.AppName
+                            Facility       = $parsed.Facility
+                            Severity       = $parsed.Severity
+                            Message        = $parsed.Message
+                            RawMessage     = $parsed.RawMessage
+                            RemoteEndpoint = $remote.ToString()
+                            Source         = 'syslog'
+                        }
+                        $syslogBuffer.Add($syslogEvent) | Out-Null
                     }
-                    $syslogBuffer.Add($event) | Out-Null
                 }
-            }
-            catch [System.Net.Sockets.SocketException] {
-                if ($_.Exception.NativeErrorCode -ne 10060) {
-                    Write-TelemetryLog -LogPath $logPath -Message "Syslog listener error: $($_.Exception.Message)" -Level 'WARN'
+                catch [System.Net.Sockets.SocketException] {
+                    if ($_.Exception.NativeErrorCode -ne 10060) {
+                        Write-TelemetryLog -LogPath $logPath -Message "Syslog listener error: $($_.Exception.Message)" -Level 'WARN'
+                    }
                 }
-            }
-            catch {
-                Write-TelemetryLog -LogPath $logPath -Message "Unexpected error in syslog listener: $_" -Level 'WARN'
+                catch {
+                    Write-TelemetryLog -LogPath $logPath -Message "Unexpected error in syslog listener: $_" -Level 'WARN'
+                }
             }
 
             $now = Get-Date
@@ -599,6 +718,21 @@ function Start-TelemetryService {
                     Write-TelemetryLog -LogPath $logPath -Message "Failed to fetch ASUS logs: $_" -Level 'WARN'
                 }
                 $nextAsus = $now.AddSeconds($config.Service.Asus.PollIntervalSeconds)
+            }
+
+            # WiFi client scanning (every 5 minutes)
+            if ($config.Service.Asus.SSH -and $config.Service.Asus.SSH.Enabled -and $now -ge $nextWifiScan) {
+                try {
+                    $wifiEvents = Invoke-AsusWifiClientScan -Config $config.Service.Asus -State $asusState
+                    if ($wifiEvents.Count -gt 0) {
+                        foreach ($evt in $wifiEvents) { $wifiBuffer.Add($evt) | Out-Null }
+                        Write-TelemetryLog -LogPath $logPath -Message "Collected $($wifiEvents.Count) WiFi client scan results." -Level 'INFO'
+                    }
+                }
+                catch {
+                    Write-TelemetryLog -LogPath $logPath -Message "WiFi client scan failed: $_" -Level 'WARN'
+                }
+                $nextWifiScan = $now.AddMinutes(5)  # Scan every 5 minutes
             }
 
             if ($now -ge $nextFlush) {
@@ -624,6 +758,17 @@ function Start-TelemetryService {
                         Write-TelemetryLog -LogPath $logPath -Message "ASUS log ingestion failed: $_" -Level 'ERROR'
                     }
                 }
+                if ($wifiBuffer.Count -gt 0) {
+                    $batch = $wifiBuffer.ToArray()
+                    $wifiBuffer.Clear()
+                    try {
+                        Invoke-SyslogIngestion -Events $batch -Ingestion $ingestion -Database $database -SourceLabel 'asus-wifi'
+                        Write-TelemetryLog -LogPath $logPath -Message "Ingested $($batch.Count) WiFi scan entries." -Level 'INFO'
+                    }
+                    catch {
+                        Write-TelemetryLog -LogPath $logPath -Message "WiFi scan ingestion failed: $_" -Level 'ERROR'
+                    }
+                }
                 $nextFlush = (Get-Date).AddSeconds($ingestion.BatchIntervalSeconds)
             }
         }
@@ -645,6 +790,14 @@ function Start-TelemetryService {
                 Write-TelemetryLog -LogPath $logPath -Message "Final ASUS ingestion failed during shutdown: $_" -Level 'ERROR'
             }
         }
+        if ($wifiBuffer.Count -gt 0) {
+            try {
+                Invoke-SyslogIngestion -Events ($wifiBuffer.ToArray()) -Ingestion $ingestion -Database $database -SourceLabel 'asus-wifi'
+            }
+            catch {
+                Write-TelemetryLog -LogPath $logPath -Message "Final WiFi scan ingestion failed during shutdown: $_" -Level 'ERROR'
+            }
+        }
         if ($udpClient) {
             $udpClient.Dispose()
         }
@@ -653,4 +806,4 @@ function Start-TelemetryService {
     }
 }
 
-Export-ModuleMember -Function *-SystemDashboard*, Write-TelemetryLog, ConvertFrom-SyslogLine, ConvertFrom-AsusLine, Invoke-SyslogIngestion, Invoke-AsusLogFetch, Start-TelemetryService, Invoke-PostgresStatement
+Export-ModuleMember -Function *-SystemDashboard*, Write-TelemetryLog, ConvertFrom-SyslogLine, ConvertFrom-AsusLine, Invoke-SyslogIngestion, Invoke-AsusLogFetch, Invoke-AsusWifiClientScan, Start-TelemetryService, Invoke-PostgresStatement

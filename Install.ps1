@@ -47,7 +47,7 @@ if ($IsWindows) {
             }
         }
         catch {
-            Write-Warning "Failed to stop existing service $ServiceName: $_"
+            Write-Warning "Failed to stop existing service $ServiceName $_"
         }
         & sc.exe delete $ServiceName | Out-Null
         Start-Sleep -Seconds 2

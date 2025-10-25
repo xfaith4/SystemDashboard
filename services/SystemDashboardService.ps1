@@ -4,7 +4,7 @@ param(
     [string]$ConfigPath = (Join-Path $PSScriptRoot '..' 'config.json')
 )
 
-$modulePath = Join-Path $PSScriptRoot '..' 'tools' 'SystemDashboard.Telemetry.psm1'
+$modulePath = Join-Path $PSScriptRoot '..' 'tools' 'SystemDashboard.Telemetry-Minimal.psm1'
 if (-not (Test-Path -LiteralPath $modulePath)) {
     throw "Telemetry module not found at $modulePath"
 }
