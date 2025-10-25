@@ -18,7 +18,7 @@
     "LogPath": "./var/log/telemetry-service.log",
     "Syslog": {
       "BindAddress": "0.0.0.0",
-      "Port": 514,
+      "Port": 5514,
       "BufferDirectory": "./var/syslog",
       "MaxMessageBytes": 8192
     },
@@ -30,7 +30,15 @@
       "PasswordSecret": "env:ASUS_ROUTER_PASSWORD",
       "PollIntervalSeconds": 60,
       "DownloadPath": "./var/asus",
-      "StatePath": "./var/asus/state.json"
+      "StatePath": "./var/asus/state.json",
+      "SSH": {
+        "Enabled": false,
+        "Host": "192.168.50.1",
+        "Username": "admin",
+        "PasswordSecret": "env:ASUS_ROUTER_PASSWORD",
+        "Port": 22,
+        "TimeoutSeconds": 30
+      }
     },
     "Ingestion": {
       "BatchIntervalSeconds": 30,

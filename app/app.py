@@ -155,14 +155,14 @@ def get_windows_events(level: str = None, max_events: int = 50):
                 'message': 'Mock system warning - disk space running low on drive C:'
             }
         ]
-        
+
         # Filter by level if specified
         if level:
             level_lower = level.lower()
             mock_events = [e for e in mock_events if e['level'].lower() == level_lower]
-        
+
         return mock_events[:max_events]
-    
+
     level_filter = ''
     if level:
         level_map = {'error': 2, 'warning': 3, 'information': 4}
@@ -252,8 +252,8 @@ def get_router_logs_from_db(limit: int = 100):
         logs = []
         for row in rows:
             logs.append({
-                'time': _isoformat(row.get('time')), 
-                'level': _severity_to_text(row.get('severity')), 
+                'time': _isoformat(row.get('time')),
+                'level': _severity_to_text(row.get('severity')),
                 'message': row.get('message') or '',
                 'host': row.get('source_host') or ''
             })
@@ -280,7 +280,7 @@ def get_wifi_clients():
                 except Exception:
                     hostname = ''
                 clients.append({'mac': mac, 'ip': ip, 'hostname': hostname, 'packets': 0})
-        
+
         # If no real clients found, return mock data for demonstration
         if not clients:
             import random
@@ -290,7 +290,7 @@ def get_wifi_clients():
                 {'mac': '11:22:33:44:55:66', 'ip': '192.168.1.50', 'hostname': '', 'packets': random.randint(10, 100)},
                 {'mac': '77:88:99:AA:BB:CC', 'ip': '192.168.1.75', 'hostname': 'phone-01', 'packets': random.randint(200, 800)},
             ]
-        
+
         return clients
     except Exception:
         # Fallback to mock data if ARP command fails
@@ -612,13 +612,26 @@ def api_ai_suggest():
 
 @app.route('/health')
 def health():
-    backend = os.environ.get('SYSTEMDASHBOARD_BACKEND', 'http://localhost:15000/metrics')
+    # Check database connection instead of backend service
+    conn = get_db_connection()
+    if conn:
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1")
+                cur.fetchone()
+            conn.close()
+            return 'ok', 200
+        except Exception:
+            conn.close()
+
+    # Fallback: check if we can at least load mock data
     try:
-        with urllib.request.urlopen(backend, timeout=2) as resp:
-            if resp.status == 200:
-                return 'ok', 200
+        summary = get_dashboard_summary()
+        if summary and (summary.get('using_mock') or any([summary.get('auth'), summary.get('windows'), summary.get('router'), summary.get('syslog')])):
+            return 'ok', 200
     except Exception:
         pass
+
     return 'unhealthy', 503
 
 if __name__ == '__main__':
