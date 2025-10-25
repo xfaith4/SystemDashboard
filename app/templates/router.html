@@ -3,13 +3,14 @@
 <h1>Router Logs</h1>
 {% if logs %}
 <table class="data-table">
-    <thead><tr><th>Time</th><th>Level</th><th>Message</th></tr></thead>
+    <thead><tr><th>Time</th><th>Level</th><th>Message</th><th>Host</th></tr></thead>
     <tbody>
     {% for log in logs %}
         <tr>
             <td>{{ log.time }}</td>
             <td>{{ log.level }}</td>
             <td>{{ log.message }}</td>
+            <td>{{ log.host }}</td>
         </tr>
     {% endfor %}
     </tbody>
