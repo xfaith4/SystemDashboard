@@ -4,5 +4,38 @@
   "IndexHtml": "./wwwroot/index.html",
   "CssFile": "./wwwroot/styles.css",
   "PingTarget": "1.1.1.1",
-  "RouterIP": "192.168.50.1"
+  "RouterIP": "192.168.50.1",
+  "Database": {
+    "Host": "localhost",
+    "Port": 5432,
+    "Database": "system_dashboard",
+    "Username": "sysdash_ingest",
+    "PasswordSecret": "env:SYSTEMDASHBOARD_DB_PASSWORD",
+    "Schema": "telemetry",
+    "PsqlPath": "C:/Program Files/PostgreSQL/16/bin/psql.exe"
+  },
+  "Service": {
+    "LogPath": "./var/log/telemetry-service.log",
+    "Syslog": {
+      "BindAddress": "0.0.0.0",
+      "Port": 514,
+      "BufferDirectory": "./var/syslog",
+      "MaxMessageBytes": 8192
+    },
+    "Asus": {
+      "Enabled": true,
+      "Uri": "http://192.168.50.1/syslog.txt",
+      "HostName": "asus-router",
+      "Username": "admin",
+      "PasswordSecret": "env:ASUS_ROUTER_PASSWORD",
+      "PollIntervalSeconds": 60,
+      "DownloadPath": "./var/asus",
+      "StatePath": "./var/asus/state.json"
+    },
+    "Ingestion": {
+      "BatchIntervalSeconds": 30,
+      "MinBatchSize": 25,
+      "StagingDirectory": "./var/staging"
+    }
+  }
 }
