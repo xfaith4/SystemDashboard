@@ -1,7 +1,130 @@
 {% extends 'base.html' %}
 {% block content %}
 <section class="dashboard">
-    <h1>Welcome to System Dashboard</h1>
-    <p>Select a panel from the navigation bar to view details.</p>
+    <header class="dashboard-header">
+        <h1>Operations Telemetry Overview</h1>
+        {% if summary.using_mock %}
+        <p class="notice">Displaying sample data because the database connection could not be established.</p>
+        {% endif %}
+    </header>
+    <div class="kpi-grid">
+        <article class="kpi-card{% if summary.iis.spike %} alert{% endif %}">
+            <h2>IIS 5xx (last 5 min)</h2>
+            <p class="metric">{{ summary.iis.current_errors }}</p>
+            <p class="detail">Baseline {{ summary.iis.baseline_avg }} ± {{ summary.iis.baseline_std }}</p>
+            <p class="detail">Total requests {{ summary.iis.total_requests }}</p>
+            {% if summary.iis.spike %}
+            <p class="alert-text">Spike detected &mdash; investigate immediately.</p>
+            {% endif %}
+        </article>
+        <article class="kpi-card">
+            <h2>Auth Bursts (15 min)</h2>
+            <p class="metric">{{ summary.auth|length }}</p>
+            <p class="detail">Threshold ≥ {{ auth_threshold }} failures per client</p>
+        </article>
+        <article class="kpi-card">
+            <h2>Critical Windows Events</h2>
+            <p class="metric">{{ summary.windows|length }}</p>
+            <p class="detail">Evaluated across the last 10 minutes</p>
+        </article>
+        <article class="kpi-card">
+            <h2>Router Alerts</h2>
+            <p class="metric">{{ summary.router|length }}</p>
+            <p class="detail">ASUS WAN/DHCP/auth anomalies</p>
+        </article>
+    </div>
+</section>
+
+<section class="panel-grid">
+    <article class="panel">
+        <h2>Authentication Bursts (15 min window)</h2>
+        {% if summary.auth %}
+        <table class="data-table">
+            <thead>
+                <tr><th>Client IP</th><th>Failures</th><th>Last Seen</th></tr>
+            </thead>
+            <tbody>
+                {% for item in summary.auth %}
+                <tr>
+                    <td>{{ item.client_ip }}</td>
+                    <td>{{ item.count }}</td>
+                    <td>{{ item.last_seen }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="empty">No authentication storms detected in the last 15 minutes.</p>
+        {% endif %}
+    </article>
+    <article class="panel">
+        <h2>Windows Critical/Error Events (last 10 min)</h2>
+        {% if summary.windows %}
+        <table class="data-table">
+            <thead>
+                <tr><th>Time</th><th>Source</th><th>Level</th><th>ID</th><th>Message</th></tr>
+            </thead>
+            <tbody>
+                {% for evt in summary.windows %}
+                <tr>
+                    <td>{{ evt.time }}</td>
+                    <td>{{ evt.source }}</td>
+                    <td>{{ evt.level }}</td>
+                    <td>{{ evt.id }}</td>
+                    <td class="wrap">{{ evt.message }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="empty">No critical or error-level Windows events detected in the last ten minutes.</p>
+        {% endif %}
+    </article>
+</section>
+
+<section class="panel">
+    <h2>ASUS Router Alerts</h2>
+    {% if summary.router %}
+    <table class="data-table">
+        <thead>
+            <tr><th>Time</th><th>Severity</th><th>Message</th><th>Host</th></tr>
+        </thead>
+        <tbody>
+            {% for log in summary.router %}
+            <tr>
+                <td>{{ log.time }}</td>
+                <td>{{ log.severity }}</td>
+                <td class="wrap">{{ log.message }}</td>
+                <td>{{ log.host }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="empty">No router anomalies captured in the recent window.</p>
+    {% endif %}
+</section>
+
+<section class="panel">
+    <h2>Latest Syslog Entries</h2>
+    {% if summary.syslog %}
+    <table class="data-table">
+        <thead>
+            <tr><th>Time</th><th>Source</th><th>Severity</th><th>Message</th></tr>
+        </thead>
+        <tbody>
+            {% for entry in summary.syslog %}
+            <tr>
+                <td>{{ entry.time }}</td>
+                <td>{{ entry.source }}</td>
+                <td>{{ entry.severity }}</td>
+                <td class="wrap">{{ entry.message }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="empty">No recent syslog messages captured yet.</p>
+    {% endif %}
 </section>
 {% endblock %}
