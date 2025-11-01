@@ -163,13 +163,15 @@
             const container = document.getElementById(containerId);
             if (!container) return;
             
-            const maxValue = Math.max(...values, 1);
+            // Use Math.max.apply for safer max calculation
+            const maxValue = Math.max.apply(Math, values.concat([1]));
             
             const chartHTML = `
                 <div class="bar-chart">
                     ${data.dates.map((date, i) => {
                         const height = (values[i] / maxValue) * 100;
-                        const shortDate = date.substring(5); // MM-DD format
+                        // Extract MM-DD from YYYY-MM-DD format
+                        const shortDate = date.substring(5);
                         return `
                             <div class="bar-wrapper">
                                 <div class="bar-container">

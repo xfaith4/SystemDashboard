@@ -552,6 +552,7 @@ def api_events():
 def _mock_trend_data():
     """Generate mock 7-day trend data for development."""
     import random
+    import datetime
     now = datetime.datetime.utcnow()
     dates = [(now - datetime.timedelta(days=i)).strftime('%Y-%m-%d') for i in range(6, -1, -1)]
     
@@ -569,6 +570,9 @@ def get_trend_data():
     conn = get_db_connection()
     if conn is None:
         return _mock_trend_data()
+    
+    # Define trend metric keys
+    TREND_KEYS = ['iis_errors', 'auth_failures', 'windows_errors', 'router_alerts']
     
     trends = {
         'dates': [],
@@ -673,7 +677,7 @@ def get_trend_data():
         conn.close()
     
     # If all trends are empty, use mock data
-    if all(sum(trends[k]) == 0 for k in ['iis_errors', 'auth_failures', 'windows_errors', 'router_alerts']):
+    if all(sum(trends[k]) == 0 for k in TREND_KEYS):
         return _mock_trend_data()
     
     return trends
