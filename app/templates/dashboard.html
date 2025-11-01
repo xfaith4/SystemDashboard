@@ -7,6 +7,30 @@
         <p class="notice">Displaying sample data because the database connection could not be established.</p>
         {% endif %}
     </header>
+
+    <!-- 7-Day Trend Graphs Section -->
+    <section class="trends-section">
+        <h2>7-Day Trend Analysis</h2>
+        <div class="charts-grid">
+            <article class="chart-card">
+                <h3>IIS 5xx Errors</h3>
+                <div id="iisErrorsChart" class="chart-placeholder">Loading...</div>
+            </article>
+            <article class="chart-card">
+                <h3>Authentication Failures</h3>
+                <div id="authFailuresChart" class="chart-placeholder">Loading...</div>
+            </article>
+            <article class="chart-card">
+                <h3>Windows Critical/Error Events</h3>
+                <div id="windowsErrorsChart" class="chart-placeholder">Loading...</div>
+            </article>
+            <article class="chart-card">
+                <h3>Router Alerts</h3>
+                <div id="routerAlertsChart" class="chart-placeholder">Loading...</div>
+            </article>
+        </div>
+    </section>
+
     <div class="kpi-grid">
         <article class="kpi-card{% if summary.iis.spike %} alert{% endif %}">
             <h2>IIS 5xx (last 5 min)</h2>
@@ -127,4 +151,50 @@
     <p class="empty">No recent syslog messages captured yet.</p>
     {% endif %}
 </section>
+
+<script>
+// Initialize charts with trend data using CSS-based visualization
+(async function() {
+    try {
+        const response = await fetch('/api/trends');
+        const data = await response.json();
+        
+        function createBarChart(containerId, values, color) {
+            const container = document.getElementById(containerId);
+            if (!container) return;
+            
+            const maxValue = Math.max(...values, 1);
+            
+            const chartHTML = `
+                <div class="bar-chart">
+                    ${data.dates.map((date, i) => {
+                        const height = (values[i] / maxValue) * 100;
+                        const shortDate = date.substring(5); // MM-DD format
+                        return `
+                            <div class="bar-wrapper">
+                                <div class="bar-container">
+                                    <div class="bar" style="height: ${height}%; background-color: ${color};" title="${date}: ${values[i]}">
+                                        <span class="bar-value">${values[i]}</span>
+                                    </div>
+                                </div>
+                                <div class="bar-label">${shortDate}</div>
+                            </div>
+                        `;
+                    }).join('')}
+                </div>
+            `;
+            
+            container.innerHTML = chartHTML;
+        }
+        
+        createBarChart('iisErrorsChart', data.iis_errors, '#e74c3c');
+        createBarChart('authFailuresChart', data.auth_failures, '#f5a623');
+        createBarChart('windowsErrorsChart', data.windows_errors, '#4e9af1');
+        createBarChart('routerAlertsChart', data.router_alerts, '#9b59b6');
+        
+    } catch (error) {
+        console.error('Failed to load trend data:', error);
+    }
+})();
+</script>
 {% endblock %}
