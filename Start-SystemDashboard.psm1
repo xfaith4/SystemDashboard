@@ -10,11 +10,27 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$ConfigPath = if ($env:SYSTEMDASHBOARD_CONFIG) { $env:SYSTEMDASHBOARD_CONFIG } else { Join-Path $PSScriptRoot 'config.json' }
+# Determine config path with fallback for empty $PSScriptRoot
+# In some contexts (e.g., pwsh -Command), $PSScriptRoot may be empty
+# Use $PSCommandPath as fallback, then Get-Location as last resort
+$script:ModuleRoot = if ($PSScriptRoot) { 
+    $PSScriptRoot 
+} elseif ($PSCommandPath) { 
+    Split-Path -Parent $PSCommandPath 
+} else { 
+    Get-Location 
+}
+
+$ConfigPath = if ($env:SYSTEMDASHBOARD_CONFIG) { 
+    $env:SYSTEMDASHBOARD_CONFIG 
+} else { 
+    Join-Path $script:ModuleRoot 'config.json' 
+}
+
 $script:Config = @{}
 $script:ConfigPath = $null
-$script:ConfigBase = $PSScriptRoot
-if (Test-Path $ConfigPath) {
+$script:ConfigBase = $script:ModuleRoot
+if ($ConfigPath -and (Test-Path -LiteralPath $ConfigPath -ErrorAction SilentlyContinue)) {
     $resolvedConfig = (Resolve-Path -LiteralPath $ConfigPath).Path
     $script:ConfigPath = $resolvedConfig
     $script:ConfigBase = Split-Path -Parent $resolvedConfig
