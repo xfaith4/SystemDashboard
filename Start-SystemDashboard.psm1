@@ -10,11 +10,18 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$ConfigPath = if ($env:SYSTEMDASHBOARD_CONFIG) { $env:SYSTEMDASHBOARD_CONFIG } else { Join-Path $PSScriptRoot 'config.json' }
+# Determine config path with fallback for empty $PSScriptRoot
+$script:ModuleRoot = if ($PSScriptRoot) { $PSScriptRoot } else { Get-Location }
+$ConfigPath = if ($env:SYSTEMDASHBOARD_CONFIG) { 
+    $env:SYSTEMDASHBOARD_CONFIG 
+} else { 
+    Join-Path $script:ModuleRoot 'config.json' 
+}
+
 $script:Config = @{}
 $script:ConfigPath = $null
-$script:ConfigBase = $PSScriptRoot
-if (Test-Path $ConfigPath) {
+$script:ConfigBase = $script:ModuleRoot
+if ($ConfigPath -and (Test-Path -LiteralPath $ConfigPath -ErrorAction SilentlyContinue)) {
     $resolvedConfig = (Resolve-Path -LiteralPath $ConfigPath).Path
     $script:ConfigPath = $resolvedConfig
     $script:ConfigBase = Split-Path -Parent $resolvedConfig
