@@ -13,7 +13,7 @@ jobs:
           $job = Start-Job -ScriptBlock {
             .\Start-SystemDashboard.ps1 -Port 8899
           }
-          Start-Sleep -Seconds 5
+          Start-Sleep -Seconds 15
           $response = Invoke-WebRequest -Uri "http://localhost:8899/" -UseBasicParsing
           if ($response.StatusCode -ne 200) { throw "Dashboard failed to respond" }
           Stop-Job $job | Remove-Job -Force
