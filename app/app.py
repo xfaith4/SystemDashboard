@@ -549,6 +549,146 @@ def api_events():
     return jsonify({'events': data})
 
 
+def _mock_trend_data():
+    """Generate mock 7-day trend data for development."""
+    import random
+    import datetime
+    now = datetime.datetime.utcnow()
+    dates = [(now - datetime.timedelta(days=i)).strftime('%Y-%m-%d') for i in range(6, -1, -1)]
+    
+    return {
+        'dates': dates,
+        'iis_errors': [random.randint(5, 50) for _ in range(7)],
+        'auth_failures': [random.randint(0, 30) for _ in range(7)],
+        'windows_errors': [random.randint(2, 20) for _ in range(7)],
+        'router_alerts': [random.randint(0, 15) for _ in range(7)]
+    }
+
+
+def get_trend_data():
+    """Get 7-day trend data for dashboard graphs."""
+    conn = get_db_connection()
+    if conn is None:
+        return _mock_trend_data()
+    
+    # Define trend metric keys
+    TREND_KEYS = ['iis_errors', 'auth_failures', 'windows_errors', 'router_alerts']
+    
+    trends = {
+        'dates': [],
+        'iis_errors': [],
+        'auth_failures': [],
+        'windows_errors': [],
+        'router_alerts': []
+    }
+    
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            # Generate dates for last 7 days
+            now = datetime.datetime.utcnow()
+            dates = [(now - datetime.timedelta(days=i)).strftime('%Y-%m-%d') for i in range(6, -1, -1)]
+            trends['dates'] = dates
+            
+            # IIS 5xx errors by day
+            try:
+                cur.execute(
+                    """
+                    SELECT DATE(request_time) AS day,
+                           COUNT(*) FILTER (WHERE status BETWEEN 500 AND 599) AS errors
+                    FROM telemetry.iis_requests_recent
+                    WHERE request_time >= NOW() - INTERVAL '7 days'
+                    GROUP BY day
+                    ORDER BY day
+                    """
+                )
+                rows = cur.fetchall()
+                errors_by_day = {row['day'].strftime('%Y-%m-%d'): row['errors'] for row in rows}
+                trends['iis_errors'] = [errors_by_day.get(d, 0) for d in dates]
+            except Exception as exc:
+                app.logger.debug('IIS trend query failed: %s', exc)
+                trends['iis_errors'] = [0] * 7
+            
+            # Auth failures by day
+            try:
+                cur.execute(
+                    """
+                    SELECT DATE(request_time) AS day,
+                           COUNT(*) AS failures
+                    FROM telemetry.iis_requests_recent
+                    WHERE request_time >= NOW() - INTERVAL '7 days'
+                      AND status IN (401, 403)
+                    GROUP BY day
+                    ORDER BY day
+                    """
+                )
+                rows = cur.fetchall()
+                failures_by_day = {row['day'].strftime('%Y-%m-%d'): row['failures'] for row in rows}
+                trends['auth_failures'] = [failures_by_day.get(d, 0) for d in dates]
+            except Exception as exc:
+                app.logger.debug('Auth trend query failed: %s', exc)
+                trends['auth_failures'] = [0] * 7
+            
+            # Windows errors by day
+            try:
+                cur.execute(
+                    """
+                    SELECT DATE(COALESCE(event_utc, received_utc)) AS day,
+                           COUNT(*) AS errors
+                    FROM telemetry.eventlog_windows_recent
+                    WHERE COALESCE(event_utc, received_utc) >= NOW() - INTERVAL '7 days'
+                      AND (COALESCE(level, 0) <= 2 OR COALESCE(level_text, '') ILIKE '%error%' OR COALESCE(level_text, '') ILIKE '%critical%')
+                    GROUP BY day
+                    ORDER BY day
+                    """
+                )
+                rows = cur.fetchall()
+                errors_by_day = {row['day'].strftime('%Y-%m-%d'): row['errors'] for row in rows}
+                trends['windows_errors'] = [errors_by_day.get(d, 0) for d in dates]
+            except Exception as exc:
+                app.logger.debug('Windows trend query failed: %s', exc)
+                trends['windows_errors'] = [0] * 7
+            
+            # Router alerts by day
+            try:
+                cur.execute(
+                    """
+                    SELECT DATE(received_utc) AS day,
+                           COUNT(*) AS alerts
+                    FROM telemetry.syslog_recent
+                    WHERE source = 'asus'
+                      AND received_utc >= NOW() - INTERVAL '7 days'
+                      AND (severity <= 3
+                           OR message ILIKE '%wan%'
+                           OR message ILIKE '%dhcp%'
+                           OR message ILIKE '%failed%'
+                           OR message ILIKE '%drop%')
+                    GROUP BY day
+                    ORDER BY day
+                    """
+                )
+                rows = cur.fetchall()
+                alerts_by_day = {row['day'].strftime('%Y-%m-%d'): row['alerts'] for row in rows}
+                trends['router_alerts'] = [alerts_by_day.get(d, 0) for d in dates]
+            except Exception as exc:
+                app.logger.debug('Router trend query failed: %s', exc)
+                trends['router_alerts'] = [0] * 7
+    
+    finally:
+        conn.close()
+    
+    # If all trends are empty, use mock data
+    if all(sum(trends[k]) == 0 for k in TREND_KEYS):
+        return _mock_trend_data()
+    
+    return trends
+
+
+@app.route('/api/trends')
+def api_trends():
+    """API endpoint to get 7-day trend data."""
+    return jsonify(get_trend_data())
+
+
 def call_openai_chat(prompt: str):
     """Call OpenAI Chat Completions API using urllib to avoid extra deps.
     Returns suggestion string or error message.
