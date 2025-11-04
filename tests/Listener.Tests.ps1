@@ -2,6 +2,15 @@ Describe 'SystemDashboard listener - HTTP Endpoints & Real Data' {
     BeforeAll {
         Import-Module "$PSScriptRoot/../Start-SystemDashboard.psm1" -Force
 
+        # Ensure TestDrive is available (fallback for non-standard environments)
+        # Use unique path to avoid conflicts with other test runs
+        if (-not $TestDrive) {
+            $script:TestDrive = Join-Path ([System.IO.Path]::GetTempPath()) "pester-test-drive-$PID"
+            if (-not (Test-Path $script:TestDrive)) {
+                New-Item -ItemType Directory -Path $script:TestDrive -Force | Out-Null
+            }
+        }
+
         $script:IsAdmin = $false
         if ($IsWindows) {
             $id = [Security.Principal.WindowsIdentity]::GetCurrent()
