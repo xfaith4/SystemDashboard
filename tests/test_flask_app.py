@@ -225,6 +225,30 @@ class TestAPIEndpoints:
             data = json.loads(response.data)
             assert 'error' in data
 
+    def test_api_trends_endpoint(self, client):
+        """Test trends API endpoint returns 7-day data."""
+        response = client.get('/api/trends')
+        assert response.status_code == 200
+        
+        data = json.loads(response.data)
+        assert 'dates' in data
+        assert 'iis_errors' in data
+        assert 'auth_failures' in data
+        assert 'windows_errors' in data
+        assert 'router_alerts' in data
+        
+        # Should return 7 days of data
+        assert len(data['dates']) == 7
+        assert len(data['iis_errors']) == 7
+        assert len(data['auth_failures']) == 7
+        assert len(data['windows_errors']) == 7
+        assert len(data['router_alerts']) == 7
+        
+        # All values should be non-negative integers
+        for value in data['iis_errors'] + data['auth_failures'] + data['windows_errors'] + data['router_alerts']:
+            assert isinstance(value, int)
+            assert value >= 0
+
 
 class TestConfigurationValidation:
     """Test configuration and environment variable handling."""
