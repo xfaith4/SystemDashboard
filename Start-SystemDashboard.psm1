@@ -11,7 +11,16 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 # Determine config path with fallback for empty $PSScriptRoot
-$script:ModuleRoot = if ($PSScriptRoot) { $PSScriptRoot } else { Get-Location }
+# In some contexts (e.g., pwsh -Command), $PSScriptRoot may be empty
+# Use $PSCommandPath as fallback, then Get-Location as last resort
+$script:ModuleRoot = if ($PSScriptRoot) { 
+    $PSScriptRoot 
+} elseif ($PSCommandPath) { 
+    Split-Path -Parent $PSCommandPath 
+} else { 
+    Get-Location 
+}
+
 $ConfigPath = if ($env:SYSTEMDASHBOARD_CONFIG) { 
     $env:SYSTEMDASHBOARD_CONFIG 
 } else { 
