@@ -303,7 +303,7 @@ def get_wifi_clients():
 
 
 def _mock_dashboard_summary():
-    now = datetime.datetime.utcnow()
+    now = datetime.datetime.now(datetime.UTC)
     return {
         'using_mock': True,
         'iis': {
@@ -553,7 +553,7 @@ def _mock_trend_data():
     """Generate mock 7-day trend data for development."""
     import random
     import datetime
-    now = datetime.datetime.utcnow()
+    now = datetime.datetime.now(datetime.UTC)
     dates = [(now - datetime.timedelta(days=i)).strftime('%Y-%m-%d') for i in range(6, -1, -1)]
     
     return {
@@ -585,7 +585,7 @@ def get_trend_data():
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             # Generate dates for last 7 days
-            now = datetime.datetime.utcnow()
+            now = datetime.datetime.now(datetime.UTC)
             dates = [(now - datetime.timedelta(days=i)).strftime('%Y-%m-%d') for i in range(6, -1, -1)]
             trends['dates'] = dates
             
