@@ -10,10 +10,44 @@ jobs:
       - name: Run dashboard script headless
         shell: pwsh
         run: |
+          # Import module and start listener in background
+          Import-Module .\Start-SystemDashboard.psm1 -Force
+          
+          # Start the dashboard in a background job
           $job = Start-Job -ScriptBlock {
-            .\Start-SystemDashboard.ps1 -Port 8899
+            param($scriptRoot)
+            Import-Module "$scriptRoot\Start-SystemDashboard.psm1" -Force
+            . "$scriptRoot\Start-SystemDashboard.ps1"
+          } -ArgumentList $PWD
+          
+          # Wait for the HTTP endpoint to come up
+          $maxAttempts = 15
+          $attempt = 0
+          $uri = 'http://localhost:8899/'
+          
+          Write-Host "Polling for dashboard readiness..."
+          while ($attempt -lt $maxAttempts) {
+            Start-Sleep -Seconds 2
+            $attempt++
+            try {
+              $response = Invoke-WebRequest -Uri $uri -UseBasicParsing -TimeoutSec 2
+              if ($response.StatusCode -eq 200) {
+                Write-Host "✓ Dashboard responded after $($attempt * 2) seconds"
+                break
+              }
+            } catch {
+              Write-Host "Attempt ${attempt}/${maxAttempts}: Waiting for dashboard..."
+            }
           }
-          Start-Sleep -Seconds 15
-          $response = Invoke-WebRequest -Uri "http://localhost:8899/" -UseBasicParsing
-          if ($response.StatusCode -ne 200) { throw "Dashboard failed to respond" }
-          Stop-Job $job | Remove-Job -Force
+          
+          if ($attempt -ge $maxAttempts) {
+            # Clean up and fail with a clear message
+            Stop-Job $job -ErrorAction SilentlyContinue
+            Remove-Job $job -ErrorAction SilentlyContinue
+            throw "Dashboard failed to respond at $uri after $($maxAttempts * 2) seconds."
+          }
+          
+          Write-Host "✓ Dashboard is running successfully"
+          
+          # Cleanup
+          Stop-Job $job | Remove-Job
