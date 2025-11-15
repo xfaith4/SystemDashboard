@@ -27,13 +27,8 @@ $ConfigPath = if ($env:SYSTEMDASHBOARD_CONFIG) {
     Join-Path $script:ModuleRoot 'config.json' 
 }
 
-try {
-    $env:SYSTEMDASHBOARD_CONFIG = $ConfigPath
-    Import-Module (Join-Path $PSScriptRoot 'Start-SystemDashboard.psm1') -Force
-} catch {
-    Write-Error "Failed to start dashboard: $_"
-    exit 1  # Add this line
-}
+# Configuration is already set by the importing script via $env:SYSTEMDASHBOARD_CONFIG
+# No need to re-import the module here - this would cause circular reference
 
 $script:Config = @{}
 $script:ConfigPath = $null
