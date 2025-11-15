@@ -27,6 +27,9 @@ $ConfigPath = if ($env:SYSTEMDASHBOARD_CONFIG) {
     Join-Path $script:ModuleRoot 'config.json' 
 }
 
+# Configuration is already set by the importing script via $env:SYSTEMDASHBOARD_CONFIG
+# No need to re-import the module here - this would cause circular reference
+
 $script:Config = @{}
 $script:ConfigPath = $null
 $script:ConfigBase = $script:ModuleRoot
