@@ -1,0 +1,40 @@
+# IDE / tooling
+.vs/
+.vscode/
+*.user
+*.suo
+*.slnx.sqlite
+*.swp
+
+# Node / Python environments
+node_modules/
+.venv/
+__pycache__/
+*.pyc
+
+# Build / publish outputs
+bin/
+obj/
+out/
+dist/
+publish/
+*.zip
+*.tgz
+*.nupkg
+*.exe
+*.dll
+*.pdb
+
+# Runtime data
+logs/
+var/
+*.log
+*.tmp
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+
+# Repo-specific archives
+SystemDashboard-1.zip
+SystemDashboard.zip

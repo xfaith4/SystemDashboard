@@ -1,0 +1,63 @@
+{
+  "http": {
+    "bind": "127.0.0.1",
+    "port": 5000
+  },
+  "database": {
+    "kind": "sqlite",
+    "sqlitePath": ".\\data\\monitor.db",
+    "postgresConnection": ""
+  },
+  "router": {
+    "provider": "AsuswrtSsh",
+    "host": "192.168.1.1",
+    "port": 22,
+    "user": "xfaith4"
+  },
+  "syslog": {
+    "paths": [
+      "C:\\ProgramData\\SolarWinds\\Syslog\\*.log",
+      "F:\\Logs\\Syslog\\*.log"
+    ],
+    "enableUdp": false,
+    "udpPort": 514
+  },
+  "ai": {
+    "apiKey": "",
+    "enableRedaction": true
+  },
+  "telemetry": {
+    "enabled": false,
+    "logPath": ".\\var\\log\\telemetry-service.log",
+    "database": {
+      "host": "localhost",
+      "port": 5432,
+      "database": "system_dashboard",
+      "username": "sysdash_ingest",
+      "passwordSecret": "env:SYSTEMDASHBOARD_DB_PASSWORD",
+      "schema": "telemetry",
+      "psqlPath": "psql"
+    },
+    "syslog": {
+      "bindAddress": "0.0.0.0",
+      "port": 514,
+      "bufferDirectory": ".\\var\\syslog",
+      "maxMessageBytes": 8192
+    },
+    "asus": {
+      "enabled": false,
+      "uri": "http://192.168.50.1/syslog.txt",
+      "hostName": "asus-router",
+      "username": "xfaith4",
+      "passwordSecret": "env:ASUS_ROUTER_PASSWORD",
+      "pollIntervalSeconds": 60,
+      "downloadPath": ".\\var\\asus",
+      "statePath": ".\\var\\asus\\state.json"
+    },
+    "ingestion": {
+      "batchIntervalSeconds": 30,
+      "minBatchSize": 25,
+      "stagingDirectory": ".\\var\\staging"
+    }
+  }
+}
