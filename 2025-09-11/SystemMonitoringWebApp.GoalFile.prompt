@@ -1,0 +1,256 @@
+{
+  "version": "1.0",
+  "goal_id": "system-monitoring-webapp-pode-htmx",
+  "title": "Production-Ready System Monitoring Web Application (Windows + Home LAN)",
+  "owner": "Ben",
+  "priority": "High",
+  "deadline_hint": null,
+
+  "context": {
+    "persona": "Senior SRE • IT Ops Architect • PowerShell lead. Direct, pragmatic, hopeful.",
+    "summary": "Design and ship a secure, local-first monitoring web app for a Windows PC + home network. Collect Windows Event Logs, system/network telemetry, router clients, and syslog. Provide an HTMX-based UI, a Pode (PS7+) backend, SQLite default with optional PostgreSQL, streaming updates, and an OpenAI advisory feature with redaction + cost controls. Ship with tests, docs, and hardening guidance.",
+    "non_goals": [
+      "No heavy JS frameworks or front-end build steps.",
+      "No internet-required runtime for core monitoring (OpenAI advisory is optional/guarded)."
+    ],
+    "definitions": {
+      "Collectors": "Background runspaces/timers that gather data and persist to DB.",
+      "Advisory": "Batch analysis of errors/traces with OpenAI, returning redacted recommendations.",
+      "Router Provider": "Interface + adapters (ASUSWRT over SSH default; Generic SNMP fallback)."
+    }
+  },
+
+  "inputs": {
+    "config_file": "config.json",
+    "env_overrides": true,
+    "config_keys": {
+      "Server:BindAddress": "127.0.0.1",
+      "Server:Port": 6065,
+      "Server:UseHttps": false,
+      "Security:AuthMode": "None|Basic|Token",
+      "Security:AllowedOrigins": ["http://localhost:6065"],
+      "Storage:Provider": "sqlite|postgres",
+      "Storage:SqlitePath": ".\\data\\monitor.db",
+      "Storage:Postgres:ConnectionString": "",
+      "Telemetry:SampleIntervalSec": 5,
+      "Collectors:EventLogs:Enabled": true,
+      "Collectors:Syslog:Enabled": true,
+      "Collectors:Syslog:UdpPort": 5140,
+      "Collectors:Router:Provider": "Asuswrt|Snmp",
+      "Collectors:Router:Host": "",
+      "Collectors:Router:SshUser": "",
+      "Collectors:Router:SshKeyPath": "",
+      "OpenAI:Enabled": false,
+      "OpenAI:Model": "o4-mini-high",
+      "OpenAI:ApiKeyEnv": "OPENAI_API_KEY",
+      "OpenAI:CostCeilingUSDPerDay": 0.50,
+      "OpenAI:RedactionRules": ["ip", "mac", "usernames", "paths"]
+    }
+  },
+
+  "deliverables": {
+    "repo_scaffold": [
+      "src/Backend/Start-Server.ps1",
+      "src/Backend/Modules/Monitoring.psm1",
+      "src/Backend/Modules/Storage.psm1",
+      "src/Backend/Modules/RouterProviders/Asuswrt.psm1",
+      "src/Backend/Modules/RouterProviders/SnmpGeneric.psm1",
+      "src/Backend/Modules/Advisory.psm1",
+      "src/Backend/Routes/Public.ps1",
+      "src/Backend/Routes/Secure.ps1",
+      "src/Frontend/index.html",
+      "src/Frontend/assets/site.css",
+      "src/Frontend/assets/htmx.min.js",
+      "src/Frontend/partials/*.html",
+      "src/Scripts/Install-Service.ps1",
+      "src/Scripts/Seed-SampleData.ps1",
+      "tests/Pester/*.Tests.ps1",
+      "data/.gitkeep",
+      "config.json",
+      "README.md",
+      "CHANGELOG.md",
+      ".github/workflows/ci.yml"
+    ],
+    "docs": [
+      "Architecture overview with sequence diagrams and data flow",
+      "Endpoint reference (REST + streaming)",
+      "Security hardening + reverse proxy guide",
+      "Service install, log rotation, backup/restore notes",
+      "Screenshots of each page"
+    ]
+  },
+
+  "quality_bar": {
+    "powershell": "PS 7+; perfect syntax; strong typing; verbose inline comments; explicit errors",
+    "ui": "Dark-mode-first, responsive, accessible; HTMX partials; no build step",
+    "security": "Localhost by default; secure headers; input validation; optional auth for sensitive endpoints; redaction hooks",
+    "ops": "Structured logging, health/readiness endpoints, graceful shutdown, retention policies",
+    "tests": "Pester for collectors, routes, storage, advisory redaction; CI matrix on PS 7.2/7.4",
+    "perf": "Runspace collectors with backoff; streaming via SSE or WebSocket; zero UI jank"
+  },
+
+  "acceptance_criteria": [
+    "App launches via Start-Server.ps1 and serves index.html on http://127.0.0.1:6065",
+    "Event logs, telemetry, router clients, and syslog are collected and queryable via REST",
+    "Streaming updates feed the Overview dashboard (SSE or WebSocket)",
+    "OpenAI advisory runs only when enabled, applies redaction, and respects daily cost ceiling",
+    "Auth protects /api/advisory and any PII-adjacent endpoints when enabled",
+    "All commands pass PSScriptAnalyzer (default rules) and Pester tests succeed",
+    "README Quick Start works end-to-end on a clean Windows machine"
+  ],
+
+  "milestones": [
+    {
+      "id": "M1",
+      "title": "Architecture + Scaffold",
+      "exit": [
+        "README with architecture summary and setup",
+        "Pode bootstrap with secure headers and public/secure route split",
+        "SQLite schema + DAL; config.json with env overrides"
+      ]
+    },
+    {
+      "id": "M2",
+      "title": "Collectors + Storage",
+      "exit": [
+        "Event Log collector (Application/System; filters; persistence)",
+        "Telemetry collector (CPU/Mem/Disk/NIC/TCP/UDP)",
+        "Router provider interface + Asuswrt + SnmpGeneric",
+        "Syslog UDP listener + file tail (SolarWinds) + normalization"
+      ]
+    },
+    {
+      "id": "M3",
+      "title": "API + Streaming",
+      "exit": [
+        "REST endpoints for all resources with pagination/filters",
+        "SSE or WebSocket streaming endpoint for live metrics",
+        "Health/readiness endpoints; structured logs"
+      ]
+    },
+    {
+      "id": "M4",
+      "title": "Frontend (HTMX)",
+      "exit": [
+        "Overview, Event Logs, Network, Router Clients, Syslog, Ask AI pages",
+        "Filtering/search/sort; details drawers; simple charts without build tools"
+      ]
+    },
+    {
+      "id": "M5",
+      "title": "Advisory + Safety",
+      "exit": [
+        "OpenAI advisory module with redaction + cost ceiling",
+        "Auth modes (None/Basic/Token) for sensitive routes"
+      ]
+    },
+    {
+      "id": "M6",
+      "title": "Ops, Tests, Hardening",
+      "exit": [
+        "Install-Service.ps1, log rotation, retention policies",
+        "Pester coverage for collectors/routes/storage/advisory",
+        "CI workflow (lint + test), reverse-proxy doc, screenshots"
+      ]
+    }
+  ],
+
+  "agent_instructions": {
+    "gpt-5": {
+      "role": "Planner • Architect • Reviewer",
+      "objectives": [
+        "Produce a precise architecture and repository plan before code.",
+        "Define schemas, config keys, interfaces, and route contracts.",
+        "Specify streaming choice (SSE vs WebSocket) with tradeoffs.",
+        "Write acceptance tests and Pester test outlines first.",
+        "Gate cost/PII with explicit redaction and budget controls."
+      ],
+      "constraints": [
+        "No heavy front-end frameworks or build steps.",
+        "Keep security local-first; auth required for advisory.",
+        "Be explicit about file paths, endpoints, and keys."
+      ],
+      "deliverables": [
+        "Architecture overview (bulleted + diagrams-as-text where useful).",
+        "Exact file list + scaffold with descriptions.",
+        "DB schema (SQLite baseline; optional Postgres migration path).",
+        "API contracts (routes, verbs, query params, response shapes).",
+        "Config matrix with defaults and env var mappings.",
+        "Test plan + Pester skeletons.",
+        "Risk list + mitigations + hardening checklist."
+      ],
+      "review_gates": [
+        "Block codex codegen until contracts + schema + config are final.",
+        "After M2, verify collectors backoff/retention designs."
+      ],
+      "handoff_artifacts": [
+        "contracts/api.json",
+        "schemas/sqlite.sql",
+        "plans/streaming-decision.md",
+        "tests/outline.md"
+      ]
+    },
+
+    "gpt-5-codex": {
+      "role": "Implementation Swarm • Builders • Fixers",
+      "swarm_shape": [
+        "Spec Reader → Storage Engineer → Backend Routes → Collectors → Streaming → Frontend → Advisory → Security → Tests → Integrator"
+      ],
+      "global_requirements": [
+        "Target PowerShell 7+; Pode for HTTP.",
+        "Strong typing, perfect syntax, thorough inline comments explaining design, intent, and failure modes.",
+        "No external build tooling for the frontend; HTMX + minimal CSS.",
+        "SSE or WebSocket as chosen by Planner; implement and document.",
+        "All code blocks wrapped with unique file markers for copy/paste."
+      ],
+      "tasks": [
+        "Implement Storage.psm1 with SQLite DAL; optional Postgres switch via config.",
+        "Implement Monitoring.psm1 (event logs, telemetry, retention, backoff).",
+        "Implement RouterProviders (Asuswrt via SSH; SnmpGeneric via SNMP).",
+        "Implement Syslog UDP listener + file tailer with normalization.",
+        "Implement Routes (Public/Secure) referencing contracts/api.json.",
+        "Implement Advisory.psm1 with redaction + budget ceiling (fail-closed).",
+        "Build HTMX pages + partials with filters/sort/details.",
+        "Write Pester tests and GitHub Actions CI.",
+        "Seed script + service installer + log rotation."
+      ],
+      "acceptance_hooks": [
+        "Invoke-Pester should pass.",
+        "PSScriptAnalyzer with default rules should pass.",
+        "README Quick Start must succeed on clean machine."
+      ],
+      "error_policy": [
+        "Fail fast on misconfig; emit actionable messages and hints to config keys.",
+        "When OpenAI off, disable advisory UI with clear banner."
+      ]
+    }
+  },
+
+  "concrete_prompt_seed": {
+    "master_prompt": "Design and implement a production-ready System Monitoring web app using PowerShell 7+ (Pode) and HTMX + vanilla HTML/CSS, for Windows Event Logs, system/network telemetry, router client lists, and syslogs. Include OpenAI advisory with redaction and cost ceiling. Produce multi-file output with clear file markers. Start with architecture summary, then DB schema, route contracts, config keys, and finally code with tests. Enforce local-first security, optional auth, streaming updates, robust error handling, retention, graceful shutdown, and CI. PowerShell code must have perfect syntax and thorough inline comments. SQLite default, optional PostgreSQL via config.",
+    "followups": [
+      "Add pluggable router providers (interface + Asuswrt + Snmp adapter).",
+      "Enable PostgreSQL support + schema migration + connection health checks.",
+      "Implement streaming telemetry via SSE or WebSocket; justify choice.",
+      "Expand auth (None/Basic/Token) and secure headers.",
+      "Integrate redaction + daily cost ceiling for advisory.",
+      "Provide Windows Service install script + log rotation.",
+      "Add metrics endpoint + compact status widget.",
+      "Document reverse proxy + hardening.",
+      "Increase Pester coverage on collectors + API handlers."
+    ]
+  },
+
+  "orchestrator_bindings": {
+    "entry_script": "src/Backend/Start-Server.ps1",
+    "ci_command": "pwsh -NoProfile -File .\\tests\\Run-Tests.ps1",
+    "lint_command": "pwsh -NoProfile -Command \"Invoke-ScriptAnalyzer -Path ./src -Recurse -Severity Warning -ReportSummary\"",
+    "package_artifacts": [
+      "src/**",
+      "tests/**",
+      "README.md",
+      "CHANGELOG.md",
+      "config.json"
+    ]
+  }
+}

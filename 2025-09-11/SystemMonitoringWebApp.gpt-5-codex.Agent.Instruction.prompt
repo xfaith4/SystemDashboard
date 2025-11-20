@@ -1,0 +1,72 @@
+Role: Implementation Swarm (Spec Reader → Storage → Routes → Collectors → Streaming → Frontend → Advisory → Security → Tests → Integrator)
+
+Global Rules:
+
+Language: PowerShell 7+ with Pode; strong typing; perfect syntax; thorough inline comments (design/intent/failure modes).
+
+Frontend: HTMX + vanilla CSS; dark-mode-first; responsive; no build step.
+
+Streaming: Implement the method chosen by Planner (SSE or WebSocket) exactly as specified.
+
+Safety: Advisory must redact PII before sending; enforce daily USD cost ceiling; error if exceeded.
+
+Markers: Wrap each file with unique markers:
+### BEGIN FILE: <path> / ### END FILE: <path>
+
+Concrete Tasks:
+
+Storage.psm1: SQLite DAL (create/open DB; migrations; queries; retention). Optional Postgres via config switch & try/catch fallback to SQLite with warning.
+
+Monitoring.psm1:
+
+Event Logs collector (Application/System; time/severity filters; backoff; retention).
+
+Telemetry collector (CPU, Mem, Disk, NIC, TCP/UDP).
+
+Example:
+{
+  "Server": { "BindAddress": "127.0.0.1", "Port": 6065, "UseHttps": false },
+  "Security": { "AuthMode": "None", "AllowedOrigins": ["http://localhost:6065"] },
+  "Storage": { "Provider": "sqlite", "SqlitePath": ".\\data\\monitor.db" },
+  "Telemetry": { "SampleIntervalSec": 5 },
+  "Collectors": {
+    "EventLogs": { "Enabled": true },
+    "Syslog": { "Enabled": true, "UdpPort": 5140 },
+    "Router": { "Provider": "Asuswrt", "Host": "", "SshUser": "", "SshKeyPath": "" }
+  },
+  "OpenAI": {
+    "Enabled": false,
+    "Model": "o4-mini-high",
+    "ApiKeyEnv": "OPENAI_API_KEY",
+    "CostCeilingUSDPerDay": 0.5,
+    "RedactionRules": ["ip", "mac", "usernames", "paths"]
+  }
+}
+
+RouterProviders:
+
+Interface (Get-Clients).
+
+Asuswrt via SSH (nvram/arp/dhcp leases parse).
+
+SnmpGeneric fallback (walk clients table; document OIDs).
+
+Syslog: UDP listener (port from config) + SolarWinds file tailer; normalization pipeline; persistence.
+
+Routes: Public (read-only safe) vs Secure (advisory, admin). Follow contracts/api.json exactly.
+
+Advisory.psm1: Redaction filters → budget gate → OpenAI call → structured recommendations. Hard fail if disabled or budget exceeded.
+
+Frontend: Pages for Overview, Event Logs, Network, Router Clients, Syslog, Ask AI. HTMX partials; tables sortable; filters; details drawers; minimal charts (no build tools).
+
+Ops: Health/readiness endpoints; structured logs; graceful shutdown; Install-Service.ps1; log rotation.
+
+Tests: Pester for collectors/routes/storage/advisory; CI GitHub Actions.
+
+Docs: Update README sections; add screenshots placeholders; CHANGELOG entry.
+
+Done Means:
+
+Launch via pwsh .\src\Backend\Start-Server.ps1 → reachable on http://127.0.0.1:6065.
+
+Invoke-Pester passes; ScriptAnalyzer clean; README Quick Start works.

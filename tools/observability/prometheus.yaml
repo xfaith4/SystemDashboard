@@ -1,0 +1,40 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  # Windows host metrics with event logs
+  - job_name: 'windows'
+    static_configs:
+      - targets: ['localhost:9182']
+    scrape_interval: 30s
+    metrics_path: /metrics
+    params:
+      collect[]:
+        - cpu
+        - cs
+        - logical_disk
+        - net
+        - os
+        - service
+        - system
+        - process
+        - logon
+        - eventlog  # Enable event log collection
+
+  # Windows Event Log exporter (dedicated)
+  - job_name: 'windows-eventlog'
+    static_configs:
+      - targets: ['localhost:9417']
+    scrape_interval: 60s
+
+  # Custom PowerShell Event Log exporter
+  - job_name: 'windows-eventlog-custom'
+    static_configs:
+      - targets: ['localhost:9417']  # Using the working port
+    scrape_interval: 30s
+
+  # Promtail's own metrics (optional but handy)
+  - job_name: 'promtail'
+    static_configs:
+      - targets: ['localhost:9080']

@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>System Monitor</title>
+  <link rel="stylesheet" href="/styles.css" />
+  <script src="https://unpkg.com/htmx.org@1.9.12" defer></script>
+  <script src="/app.js" defer></script>
+</head>
+<body>
+<header>
+  <h1>System Monitor</h1>
+  <nav>
+    <a href="#" hx-get="/api/metrics" hx-target="#content" hx-swap="innerHTML">Overview</a>
+    <a href="#" hx-get="/api/events?since=PT24H" hx-target="#content" hx-swap="innerHTML">Event Logs</a>
+    <a href="#" hx-get="/api/router/clients" hx-target="#content" hx-swap="innerHTML">Router Clients</a>
+    <a href="#" hx-get="/api/syslog?since=PT1H" hx-target="#content" hx-swap="innerHTML">Syslog</a>
+    <a href="#" onclick="showAskAI()">Ask AI</a>
+  </nav>
+</header>
+
+<main>
+  <section id="overview">
+    <div class="cards">
+      <div class="card">
+        <h3>Live Metrics</h3>
+        <div id="live-metrics">
+          <div class="kpi"><span id="kpi-cpu">--</span><label>CPU %</label></div>
+          <div class="kpi"><span id="kpi-mem">--</span><label>Mem %</label></div>
+          <div class="kpi"><span id="kpi-tcp">--</span><label>TCP</label></div>
+        </div>
+        <div class="bar" aria-label="CPU meter"><div id="bar-cpu"></div></div>
+        <div class="bar" aria-label="Mem meter"><div id="bar-mem"></div></div>
+      </div>
+      <div class="card">
+        <h3>Health</h3>
+        <div id="health">
+          <button onclick="checkHealth()">Check /healthz</button>
+          <pre id="health-out" class="pre"></pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="content" class="content">
+    <p>Use the nav to load Event Logs, Router Clients, or Syslog. Overview updates live.</p>
+  </section>
+
+  <section id="askai" class="drawer hidden">
+    <h3>Ask AI</h3>
+    <p>Paste up to 50 error lines. They will be lightly redacted before analysis.</p>
+    <textarea id="ai-input" rows="8" placeholder="Paste logs here..."></textarea>
+    <div>
+      <label>API Key</label>
+      <input id="ai-key" type="password" placeholder="X-API-Key configured in config.json" />
+    </div>
+    <button onclick="sendToAI()">Analyze</button>
+    <pre id="ai-out" class="pre"></pre>
+  </section>
+</main>
+
+<footer>
+  <small>Local only by default. See README for hardening & service install.</small>
+</footer>
+</body>
+</html>

@@ -1,0 +1,240 @@
+{
+  "name": "system-monitoring-webapp-master-prompt",
+  "version": "1.0.0",
+  "created": "2025-11-01",
+  "description": "Generate a production-ready home PC monitoring web application that collects Windows Event Logs, network telemetry, router client lists, and syslogs, then uses the OpenAI API to assess errors/trace logs and suggest configuration fixes. Outputs should be shippable, secure-by-default, and easy to operate.",
+  "persona": {
+    "role": "Senior SRE + IT Operations Architect and PowerShell lead",
+    "tone": "direct, pragmatic, hopeful; no fluff; tell it like it is on tradeoffs",
+    "code_style": "PowerShell-first, perfect syntax, ideal inline comments explaining design intent and failure modes",
+    "ux_style": "clean, fast, dark-mode by default, responsive, minimal dependencies"
+  },
+  "stack": {
+    "backend": "PowerShell 7+ with Pode (HTTP server + routing); avoid heavyweight frameworks",
+    "frontend": "Vanilla HTML + HTMX for partial updates; small CSS; no SPA build step",
+    "data_store": "SQLite by default; optional PostgreSQL behind feature flag/environment variable",
+    "background_collection": "PowerShell runspaces + timers for scheduled collectors; resilient error handling and backoff",
+    "streaming_updates": "Server-Sent Events (SSE) or WebSocket (choose one and implement) for near-real-time UI updates",
+    "config": "config.json with environment variable overrides; sensible defaults",
+    "security_default": "Bind to http://localhost:5000 by default; provide HTTPS guidance; input validation; log redaction hooks"
+  },
+  "capabilities": {
+    "event_logs": {
+      "sources": [
+        "Application",
+        "System"
+      ],
+      "collection": "Get-WinEvent with filters for time range and severity",
+      "persistence": "Persist recent windows (e.g., last 7 days) to SQLite (or Postgres if enabled)",
+      "rest": [
+        "GET /api/events?log=System&level=Error&since=PT24H&skip=0&take=200"
+      ]
+    },
+    "network_telemetry": {
+      "metrics": [
+        "CPU",
+        "memory",
+        "disk",
+        "NIC throughput"
+      ],
+      "commands": [
+        "Get-Counter",
+        "Get-NetTCPConnection (for TCP/UDP counts)"
+      ],
+      "rest": [
+        "GET /api/metrics",
+        "STREAM /stream/metrics (SSE or WebSocket)"
+      ]
+    },
+    "router_clients": {
+      "model": "Provider interface + adapters",
+      "providers": [
+        "AsuswrtSsh (default) - SSH commands to list DHCP/ARP clients",
+        "GenericSnmp (fallback) - read-only basic OIDs"
+      ],
+      "config": {
+        "Router": {
+          "Provider": "AsuswrtSsh",
+          "Host": "192.168.1.1",
+          "Port": 22,
+          "User": "admin"
+        }
+      },
+      "rest": [
+        "GET /api/router/clients"
+      ]
+    },
+    "syslog_ingestion": {
+      "options": [
+        "A) Poll existing SolarWinds Free Syslog Server files",
+        "B) Optional lightweight UDP 514 listener (off by default)"
+      ],
+      "normalize": [
+        "timestamp",
+        "host",
+        "facility",
+        "severity",
+        "message",
+        "tags"
+      ],
+      "rest": [
+        "GET /api/syslog?host=&severity=&since=PT1H"
+      ]
+    },
+    "openai_integration": {
+      "purpose": "Advisory engine to analyze errors/trace logs and propose configuration suggestions",
+      "endpoints": [
+        "POST /api/ai/assess"
+      ],
+      "input": "Batch of errors/trace lines",
+      "output": "Root-cause hypotheses and configuration suggestions with confidence and references/pattern matches",
+      "guardrails": {
+        "auth": "OPENAI_API_KEY via environment variable only",
+        "redaction": "PII redaction pass (regex masks for IPs, emails, usernames) before sending to OpenAI (toggleable)",
+        "cost_controls": "Batch + dedupe similar errors; rate limiting; max tokens; retries with jitter"
+      },
+      "analysis_persona": "Seasoned Ops diagnostician — concise, actionable, explains why"
+    },
+    "web_ui": {
+      "pages": [
+        "Overview",
+        "Event Logs",
+        "Network",
+        "Router Clients",
+        "Syslog",
+        "Ask AI"
+      ],
+      "features": [
+        "Time-range quick filters (15m/1h/24h/7d), search, severity chips",
+        "Tables with column sort and client-side filtering via HTMX requests",
+        "Color-coded severities; details drawer with raw JSON and 'Send to AI' button",
+        "Graphs without external chart libs (simple SVG/HTML bars are fine)"
+      ]
+    },
+    "operations": {
+      "logging": "Structured JSONL logs to .\\logs\\app.log; configurable retention; graceful shutdown",
+      "health": [
+        "GET /healthz (dependencies)",
+        "GET /readyz (db + collectors ready)"
+      ],
+      "tests_ci": "Pester tests for core modules; GitHub Actions (lint + Pester)",
+      "service_install": "Optional Windows service install script (NSSM or sc.exe guidance)"
+    },
+    "security_posture": {
+      "binding": "Localhost by default; optional LAN flag",
+      "auth": "Basic auth or API key header (configurable) for write endpoints like /api/ai/assess",
+      "headers": [
+        "X-Content-Type-Options",
+        "Referrer-Policy",
+        "Content-Security-Policy (documented)"
+      ]
+    },
+    "docs": {
+      "deliverables": [
+        "README.md with screenshots, setup, env vars, endpoints, test plan, hardening tips",
+        "CHANGELOG.md (Keep a Changelog style)"
+      ]
+    },
+    "style_quality": {
+      "principles": [
+        "Strong typing where applicable",
+        "Explicit error messages; try/catch with user-friendly explanations",
+        "Modular functions (Start-MetricsCollector, Get-EventRows, Get-RouterClients, Invoke-AIAnalysis, Initialize-Database, Write-AppLog, etc.)",
+        "No hidden magic; clear comments for any nontrivial line"
+      ]
+    }
+  },
+  "api_routes": [
+    "GET /api/events",
+    "GET /api/metrics",
+    "GET /api/router/clients",
+    "GET /api/syslog",
+    "POST /api/ai/assess",
+    "GET /healthz",
+    "GET /readyz",
+    "STREAM /stream/metrics (SSE or WebSocket)"
+  ],
+  "env_overrides": [
+    "MON_PORT",
+    "MON_BIND",
+    "OPENAI_API_KEY",
+    "ROUTER_PROVIDER",
+    "ROUTER_HOST",
+    "ROUTER_PORT",
+    "ROUTER_USER",
+    "MON_DB",
+    "POSTGRES_CONN_STRING"
+  ],
+  "output": {
+    "repo_scaffold_files": [
+      "modules/SystemDashboard.psm1",
+      "modules/SystemDashboard.psd1",
+      "webroot/index.html",
+      "webroot/styles.css",
+      "webroot/app.js",
+      "config.json",
+      "scripts/Install-WindowsService.ps1",
+      "tests/Pester.Tests.ps1",
+      "README.md"
+    ],
+    "architecture_overview_required": true,
+    "include_sample_data_seeds": true,
+    "feature_flags": [
+      "postgres_optional",
+      "syslog_udp_optional"
+    ]
+  },
+  "concrete_example_prompt": "Write a production-ready System Monitoring web application using PowerShell 7+ with Pode (backend) and HTMX + vanilla HTML/CSS (frontend). It must monitor Windows Event Logs (Application, System); network telemetry (CPU, memory, disk, NIC throughput; TCP connection stats); router client list (provider model: default ASUSWRT over SSH; optional SNMP fallback); syslogs (poll SolarWinds files OR optional UDP 514 listener); and provide OpenAI advisory to analyze batched errors/trace logs and suggest configuration remediations with redaction and rate-limit guards.\n\nAuthoring persona: Senior SRE/IT Ops Architect + PowerShell lead; direct and hopeful; perfect PowerShell; excellent inline comments; production-first design.\n\nKey features:\n- Backend routes: GET /api/events, GET /api/metrics, GET /api/router/clients, GET /api/syslog, POST /api/ai/assess, GET /healthz, GET /readyz; plus one streaming endpoint: /stream/metrics (SSE).\n- Storage: SQLite by default, Postgres optional (MON_DB=sqlite|postgres with connection string).\n- Config: config.json + env overrides (MON_PORT, MON_BIND, OPENAI_API_KEY, ROUTER_*).\n- Security: localhost-only by default; simple API key or Basic Auth for write paths; CSP headers.\n- UI: Overview dashboard + 5 detail tabs; filters, search, severity chips, and details drawers; HTMX partials.\n- Logging: .\\logs\\app.log JSONL; retention config; graceful shutdown.\n- Tests: Pester for core collectors and API handlers.\n- Docs: README with setup, screenshots, endpoints table, security hardening, troubleshooting, and manual test plan.\n\nOutput format: multiple files wrapped with '### BEGIN FILE: <path>' / '### END FILE' fences for:\n- modules/SystemDashboard.psm1, modules/SystemDashboard.psd1\n- webroot/index.html, webroot/styles.css, webroot/app.js\n- config.json\n- scripts/Install-WindowsService.ps1\n- tests/Pester.Tests.ps1\n- README.md\n\nInclude an architecture summary first, then deliver all files. Keep external dependencies minimal; no Node build step.",
+  "refinement_prompts": [
+    {
+      "title": "Router provider adapters",
+      "prompt": "Add a pluggable router provider interface with IRouterProvider and implement two providers: AsuswrtSsh and GenericSnmp. Switchable via config.json. Include connection tests and timeouts."
+    },
+    {
+      "title": "PostgreSQL switch + schema",
+      "prompt": "Add Postgres support behind MON_DB=postgres. Provide schema migration for events/syslog tables, parameterized queries, and a connection health check surfaced on /readyz."
+    },
+    {
+      "title": "Streaming telemetry",
+      "prompt": "Replace or augment SSE with WebSocket ws://.../stream/metrics broadcasting JSON frames every 2s. Add client reconnection logic."
+    },
+    {
+      "title": "Auth + roles",
+      "prompt": "Add cookie auth with a hardcoded admin user from env vars, and an API key header for /api/ai/assess. Gate write endpoints; leave read endpoints public on localhost."
+    },
+    {
+      "title": "Redaction & cost controls",
+      "prompt": "Implement a preflight redaction pipeline for /api/ai/assess (mask IPs, emails, usernames). Batch dedupe similar messages, limit 50 per call, exponential backoff retries."
+    },
+    {
+      "title": "Packaging & service",
+      "prompt": "Provide Install-WindowsService.ps1 using NSSM; add a Start-AsService entrypoint with safe defaults and log rotation."
+    },
+    {
+      "title": "Observability",
+      "prompt": "Emit app metrics (/metrics) for request counts, collector lag, AI calls, and error rates; add a simple HTML status widget on the Overview page."
+    },
+    {
+      "title": "Hardening",
+      "prompt": "Bind to 127.0.0.1 by default; add CSP, X-Content-Type-Options, Referrer-Policy headers; document reverse-proxy TLS (IIS/NGINX) setup."
+    },
+    {
+      "title": "Pester coverage",
+      "prompt": "Add Pester tests for collectors (event logs, syslog parser), router providers (mock SSH/SNMP), and API handlers, including failure paths."
+    }
+  ],
+  "meta_guidance_for_model": [
+    "Be explicit: specify every endpoint, file path, and config key you need.",
+    "Chunk if needed: if code truncates, ask for the first half up to modules/SystemDashboard.psm1, then the rest.",
+    "Start with an architecture summary before code to align on design.",
+    "Include Pester tests verifying collectors, routing, auth, and failure paths.",
+    "Wrap each file in a single fenced code block with ### BEGIN FILE / ### END FILE so I can copy/paste."
+  ],
+  "dialog_necessary": false,
+  "workflow": [
+    "Start with the comprehensive master prompt.",
+    "Review the output and send targeted refinements (provider adapters, Postgres, streaming).",
+    "Iterate on security, performance, UX polish, and test coverage.",
+    "When in doubt, ask the model to summarize assumptions at the top of the response, then continue with code."
+  ]
+}
