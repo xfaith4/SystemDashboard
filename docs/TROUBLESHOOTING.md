@@ -1,0 +1,428 @@
+# System Dashboard - Troubleshooting Guide
+
+This guide covers common issues and their solutions.
+
+## Service Issues
+
+### Windows Service vs Scheduled Task
+
+The System Dashboard uses **Scheduled Tasks** instead of traditional Windows Services for better reliability with PowerShell-based applications.
+
+**Benefits:**
+- More reliable for long-running PowerShell scripts
+- Automatic restart on failure
+- Better logging and monitoring
+- No service timeout issues
+
+**Management:**
+```powershell
+# View status
+Get-ScheduledTask -TaskName "SystemDashboard-*"
+
+# Start/Stop
+Start-ScheduledTask -TaskName "SystemDashboard-Telemetry"
+Stop-ScheduledTask -TaskName "SystemDashboard-Telemetry"
+
+# View history
+Get-ScheduledTaskInfo -TaskName "SystemDashboard-Telemetry"
+```
+
+### Service Fails to Start
+
+**Symptoms:**
+- Scheduled task shows "Ready" but never runs
+- Task runs but stops immediately
+- Error in Windows Event Log
+
+**Solutions:**
+1. Check service logs:
+   ```powershell
+   Get-Content ".\var\log\telemetry-service.log" -Tail 50
+   ```
+
+2. Verify PowerShell 7 is installed:
+   ```powershell
+   pwsh --version
+   ```
+
+3. Test service script manually:
+   ```powershell
+   pwsh -File .\services\SystemDashboardService.ps1
+   ```
+
+4. Check environment variables:
+   ```powershell
+   [Environment]::GetEnvironmentVariable("SYSTEMDASHBOARD_DB_PASSWORD", "User")
+   ```
+
+5. Reinstall scheduled tasks:
+   ```powershell
+   .\setup-permanent-services.ps1 -Uninstall
+   .\setup-permanent-services.ps1 -Install
+   ```
+
+## Database Issues
+
+### Connection Failed
+
+**Symptoms:**
+- "Connection refused" or "could not connect to server"
+- Flask app shows database errors
+
+**Solutions:**
+1. Verify PostgreSQL is running:
+   ```powershell
+   # For Docker
+   docker ps | Select-String postgres
+   docker start postgres-container
+   
+   # For local PostgreSQL
+   Get-Service -Name postgresql*
+   ```
+
+2. Test connection:
+   ```powershell
+   docker exec -it postgres-container psql -U postgres -d system_dashboard -c "SELECT 1;"
+   ```
+
+3. Check connection settings in `config.json`:
+   - Hostname (default: `localhost`)
+   - Port (default: `5432`)
+   - Database name (default: `system_dashboard`)
+
+### Missing Partition
+
+**Symptoms:**
+- "No partition of relation" error in logs
+- Data not being inserted
+
+**Solutions:**
+1. Create partition for current month:
+   ```sql
+   SELECT telemetry.ensure_syslog_partition(CURRENT_DATE);
+   ```
+
+2. Verify partitions exist:
+   ```sql
+   SELECT tablename FROM pg_tables 
+   WHERE schemaname = 'telemetry' 
+   AND tablename LIKE 'syslog_generic_%';
+   ```
+
+3. Automate partition creation (add to monthly scheduled task):
+   ```powershell
+   $query = "SELECT telemetry.ensure_syslog_partition(CURRENT_DATE);"
+   docker exec postgres-container psql -U sysdash_ingest -d system_dashboard -c $query
+   ```
+
+### Permission Denied
+
+**Symptoms:**
+- "permission denied for schema telemetry"
+- INSERT/SELECT failures
+
+**Solutions:**
+1. Grant appropriate permissions:
+   ```sql
+   -- For ingest user
+   GRANT USAGE ON SCHEMA telemetry TO sysdash_ingest;
+   GRANT INSERT, SELECT ON ALL TABLES IN SCHEMA telemetry TO sysdash_ingest;
+   
+   -- For reader user
+   GRANT USAGE ON SCHEMA telemetry TO sysdash_reader;
+   GRANT SELECT ON ALL TABLES IN SCHEMA telemetry TO sysdash_reader;
+   ```
+
+2. Check current permissions:
+   ```sql
+   SELECT grantee, privilege_type 
+   FROM information_schema.role_table_grants 
+   WHERE table_schema = 'telemetry';
+   ```
+
+## Data Collection Issues
+
+### No Syslog Data
+
+**Symptoms:**
+- Syslog table is empty
+- Router logs not appearing
+
+**Solutions:**
+1. Check if service is listening:
+   ```powershell
+   Get-NetUDPEndpoint | Where-Object LocalPort -eq 514
+   ```
+
+2. Test syslog reception:
+   ```powershell
+   .\test-syslog-sender.ps1
+   ```
+
+3. Configure router to send syslog:
+   - Router admin page → System Log
+   - Enable remote syslog
+   - Set server IP to this machine
+   - Set port to 514 (or configured port)
+
+4. Check firewall rules:
+   ```powershell
+   Get-NetFirewallRule | Where-Object DisplayName -like "*SystemDashboard*"
+   ```
+
+### Router Polling Fails
+
+**Symptoms:**
+- "Failed to fetch ASUS router logs" in service log
+- No router data in database
+
+**Solutions:**
+1. Verify router credentials:
+   ```powershell
+   $env:ASUS_ROUTER_PASSWORD
+   ```
+
+2. Test router endpoint:
+   ```powershell
+   $uri = "http://192.168.50.1/syslog.txt"
+   Invoke-WebRequest -Uri $uri -UseBasicParsing
+   ```
+
+3. Check router configuration in `config.json`:
+   ```json
+   "Service": {
+     "Asus": {
+       "Enabled": true,
+       "Uri": "http://192.168.50.1/syslog.txt",
+       "HostName": "asus-router"
+     }
+   }
+   ```
+
+4. Enable router log export (router admin page)
+
+### Windows Events Not Collected
+
+**Symptoms:**
+- Event logs empty in dashboard
+- "Access denied" errors
+
+**Solutions:**
+1. Run PowerShell as Administrator (for Security log access)
+
+2. Check Event Log service:
+   ```powershell
+   Get-Service -Name EventLog
+   ```
+
+3. Test event log access:
+   ```powershell
+   Get-WinEvent -LogName Application -MaxEvents 10
+   ```
+
+4. Verify permissions for reading Event Logs
+
+## Web Dashboard Issues
+
+### Dashboard Won't Load
+
+**Symptoms:**
+- Browser shows "Connection refused"
+- 404 or 500 errors
+
+**Solutions:**
+1. Check Flask app is running:
+   ```powershell
+   Get-ScheduledTask -TaskName "SystemDashboard-WebUI"
+   netstat -ano | Select-String ":5000"
+   ```
+
+2. Check Flask logs:
+   ```powershell
+   Get-Content ".\var\log\webui-service.log" -Tail 50
+   ```
+
+3. Test manually:
+   ```powershell
+   .\.venv\Scripts\Activate.ps1
+   python .\app\app.py
+   ```
+
+4. Verify Python virtual environment exists:
+   ```powershell
+   Test-Path .\.venv
+   ```
+
+### Dashboard Shows No Data
+
+**Symptoms:**
+- Dashboard loads but shows empty tables
+- "No data available" messages
+
+**Solutions:**
+1. Check database connection:
+   ```powershell
+   Invoke-RestMethod http://localhost:5000/health
+   ```
+
+2. Verify data exists:
+   ```sql
+   SELECT COUNT(*) FROM telemetry.syslog_recent;
+   ```
+
+3. Check database environment variables:
+   ```powershell
+   $env:DASHBOARD_DB_HOST
+   $env:DASHBOARD_DB_NAME
+   $env:DASHBOARD_DB_USER
+   $env:DASHBOARD_DB_PASSWORD
+   ```
+
+4. Generate test data:
+   ```powershell
+   .\test-data-collection.ps1
+   ```
+
+## LAN Observability Issues
+
+### No Devices Appearing
+
+**Symptoms:**
+- Device list is empty
+- LAN dashboard shows no data
+
+**Solutions:**
+1. Check LAN collector service logs
+
+2. Verify LAN schema is applied:
+   ```powershell
+   .\apply-lan-schema.ps1
+   ```
+
+3. Test router connection:
+   ```powershell
+   .\asus-wifi-monitor.ps1 -TestConnection
+   ```
+
+4. Check device snapshots partition exists:
+   ```sql
+   SELECT telemetry.ensure_device_snapshot_partition(CURRENT_DATE);
+   ```
+
+### Syslog Events Not Correlating
+
+**Symptoms:**
+- Device details show no associated events
+- Correlation seems broken
+
+**Solutions:**
+1. Enable correlation in settings:
+   ```sql
+   UPDATE telemetry.lan_settings 
+   SET setting_value = 'true' 
+   WHERE setting_key = 'syslog_correlation_enabled';
+   ```
+
+2. Manually trigger correlation:
+   ```powershell
+   Import-Module .\tools\LanObservability.psm1
+   Invoke-SyslogDeviceCorrelation
+   ```
+
+3. Check correlation table:
+   ```sql
+   SELECT COUNT(*) FROM telemetry.syslog_device_links;
+   ```
+
+## Environment Issues
+
+### Python Virtual Environment
+
+**Symptoms:**
+- "python not found" or module import errors
+- Flask won't start
+
+**Solutions:**
+1. Recreate virtual environment:
+   ```powershell
+   Remove-Item .\.venv -Recurse -Force
+   python -m venv .venv
+   .\.venv\Scripts\Activate.ps1
+   pip install -r requirements.txt
+   ```
+
+2. Verify Python version:
+   ```powershell
+   python --version  # Should be 3.10+
+   ```
+
+### PowerShell Module Issues
+
+**Symptoms:**
+- "Module not found" errors
+- Function not recognized
+
+**Solutions:**
+1. Check module installation:
+   ```powershell
+   Get-Module -ListAvailable SystemDashboard
+   ```
+
+2. Reinstall modules:
+   ```powershell
+   .\Install.ps1
+   ```
+
+3. Import manually:
+   ```powershell
+   Import-Module .\tools\SystemDashboard.Telemetry.psm1 -Force
+   ```
+
+## Performance Issues
+
+### High CPU Usage
+
+**Possible causes:**
+- Polling interval too short
+- Too many syslog messages
+- Inefficient queries
+
+**Solutions:**
+1. Increase polling interval in `config.json`
+2. Add indexes to frequently queried columns
+3. Enable query logging to find slow queries
+4. Implement retention policies
+
+### Disk Space Issues
+
+**Solutions:**
+1. Check disk usage:
+   ```powershell
+   Get-PSDrive C | Select-Object Used,Free
+   ```
+
+2. Clean old logs:
+   ```powershell
+   Remove-Item ".\var\log\*.log.old" -Force
+   ```
+
+3. Drop old partitions:
+   ```sql
+   DROP TABLE IF EXISTS telemetry.syslog_generic_2310;  -- October 2023
+   ```
+
+4. Implement retention policy for snapshots
+
+## Getting Help
+
+If issues persist:
+
+1. Check service logs in `var/log/`
+2. Review Windows Event Logs
+3. Enable debug logging in `config.json`
+4. Run validation script: `python validate-environment.py`
+5. Create an issue on GitHub with:
+   - Error messages from logs
+   - Service status output
+   - Configuration (redact passwords)
+   - Steps to reproduce

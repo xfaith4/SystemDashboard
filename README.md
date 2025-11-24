@@ -28,7 +28,7 @@ To get started with LAN Observability:
 .\services\LanCollectorService.ps1
 ```
 
-For complete documentation, see [LAN-OBSERVABILITY-README.md](LAN-OBSERVABILITY-README.md).
+For complete documentation, see [docs/LAN-OBSERVABILITY-README.md](docs/LAN-OBSERVABILITY-README.md).
 
 ## Architecture
 
@@ -147,10 +147,23 @@ $env:AUTH_FAILURE_THRESHOLD = '10'   # optional override for auth burst detectio
 
 ## Troubleshooting
 
+For detailed troubleshooting, see [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md).
+
+**Quick fixes:**
 - **Service fails to start** – Check `var/log/telemetry-service.log`. Missing `psql` or incorrect credentials are the most common causes.
 - **No data in PostgreSQL** – Ensure `telemetry.ensure_syslog_partition` has been called for the current month and that the service account has `INSERT` permissions on the schema.
 - **ASUS fetch errors** – Verify the router URI allows HTTP GET and that credentials/environment variables are configured. The service backs off quietly but logs warnings.
 - **Flask app shows placeholders** – Confirm database environment variables are set and that the reader role can execute the dashboard queries.
+
+## Documentation
+
+- **[Setup Guide](docs/SETUP.md)** - Complete installation and configuration instructions
+- **[Troubleshooting](docs/TROUBLESHOOTING.md)** - Common issues and solutions
+- **[LAN Observability](docs/LAN-OBSERVABILITY-README.md)** - Network device monitoring
+- **[Advanced Features](docs/ADVANCED-FEATURES.md)** - Router monitoring, scaling, and maintenance
+- **[Data Sources](docs/DATA-SOURCES.md)** - Configuring Windows Events, router logs, and system metrics
+- **[Security Summary](docs/SECURITY-SUMMARY.md)** - Security analysis and recommendations
+- **[Changelog](docs/CHANGELOG.md)** - Version history
 
 ## Tests
 
