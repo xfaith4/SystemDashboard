@@ -10,7 +10,7 @@
     "Port": 5432,
     "Database": "system_dashboard",
     "Username": "sysdash_ingest",
-    "PasswordSecret": "env:SYSTEMDASHBOARD_DB_PASSWORD",
+    "PasswordSecret": "mysecretpassword",
     "Schema": "telemetry",
     "PsqlPath": "C:/Program Files/PostgreSQL/16/bin/psql.exe"
   },
@@ -26,7 +26,7 @@
       "Enabled": true,
       "Uri": "http://192.168.50.1/syslog.txt",
       "HostName": "asus-router",
-      "Username": "admin",
+      "Username": "xfaith",
       "PasswordSecret": "env:ASUS_ROUTER_PASSWORD",
       "PollIntervalSeconds": 60,
       "DownloadPath": "./var/asus",
@@ -34,9 +34,9 @@
       "SSH": {
         "Enabled": false,
         "Host": "192.168.50.1",
-        "Username": "admin",
+        "Username": "xfaith",
         "PasswordSecret": "env:ASUS_ROUTER_PASSWORD",
-        "Port": 22,
+        "Port": 1099,
         "TimeoutSeconds": 30
       }
     },
