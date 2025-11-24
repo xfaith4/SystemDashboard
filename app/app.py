@@ -419,7 +419,7 @@ def get_dashboard_summary():
                     SELECT COALESCE(event_utc, received_utc) AS evt_time,
                            COALESCE(source, provider_name) AS source,
                            event_id,
-                           COALESCE(level_text, level)::text AS level,
+                           COALESCE(level_text, level::text) AS level,
                            message
                     FROM telemetry.eventlog_windows_recent
                     WHERE (event_utc >= NOW() - INTERVAL '10 minutes'

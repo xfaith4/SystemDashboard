@@ -3,7 +3,7 @@ CREATE SCHEMA IF NOT EXISTS telemetry;
 
 -- Base template table for syslog style data
 CREATE TABLE IF NOT EXISTS telemetry.syslog_generic_template (
-    id              BIGSERIAL PRIMARY KEY,
+    id              BIGSERIAL,
     received_utc    TIMESTAMPTZ NOT NULL,
     event_utc       TIMESTAMPTZ,
     source_host     TEXT,
@@ -14,7 +14,8 @@ CREATE TABLE IF NOT EXISTS telemetry.syslog_generic_template (
     raw_message     TEXT,
     remote_endpoint TEXT,
     source          TEXT NOT NULL DEFAULT 'syslog',
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (id, received_utc)
 ) PARTITION BY RANGE (received_utc);
 
 -- Helper function to create monthly partitions on demand
