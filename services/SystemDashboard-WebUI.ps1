@@ -76,7 +76,8 @@ function Start-WebUIService {
     }
 
     $env:DASHBOARD_DB_PASSWORD = $readerPassword
-    $env:DASHBOARD_PORT = "5000"
+    # Allow caller to override; default to 5001
+    if (-not $env:DASHBOARD_PORT) { $env:DASHBOARD_PORT = "5001" }
     $env:FLASK_ENV = "production"
 
     Write-ServiceLog "Database config: Host=$($env:DASHBOARD_DB_HOST), Port=$($env:DASHBOARD_DB_PORT), DB=$($env:DASHBOARD_DB_NAME), User=$($env:DASHBOARD_DB_USER)"    # Verify prerequisites
