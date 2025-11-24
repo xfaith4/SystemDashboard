@@ -774,6 +774,385 @@ def health():
 
     return 'unhealthy', 503
 
+
+# LAN Observability API Endpoints
+
+def _mock_lan_stats():
+    """Generate mock LAN statistics for development."""
+    import random
+    return {
+        'total_devices': random.randint(10, 30),
+        'active_devices': random.randint(5, 15),
+        'inactive_devices': random.randint(5, 15),
+        'wired_devices_24h': random.randint(2, 8),
+        'wifi_24ghz_devices_24h': random.randint(3, 10),
+        'wifi_5ghz_devices_24h': random.randint(2, 7)
+    }
+
+
+def _mock_lan_devices():
+    """Generate mock device list for development."""
+    import random
+    now = datetime.datetime.now(datetime.UTC)
+    
+    devices = [
+        {
+            'device_id': 1,
+            'mac_address': '00:11:22:33:44:55',
+            'primary_ip_address': '192.168.50.10',
+            'hostname': 'laptop-work',
+            'vendor': 'Dell Inc.',
+            'first_seen_utc': (now - datetime.timedelta(days=30)).isoformat(),
+            'last_seen_utc': (now - datetime.timedelta(minutes=2)).isoformat(),
+            'is_active': True
+        },
+        {
+            'device_id': 2,
+            'mac_address': 'AA:BB:CC:DD:EE:FF',
+            'primary_ip_address': '192.168.50.25',
+            'hostname': 'phone-android',
+            'vendor': 'Samsung',
+            'first_seen_utc': (now - datetime.timedelta(days=60)).isoformat(),
+            'last_seen_utc': (now - datetime.timedelta(minutes=5)).isoformat(),
+            'is_active': True
+        },
+        {
+            'device_id': 3,
+            'mac_address': '11:22:33:44:55:66',
+            'primary_ip_address': '192.168.50.50',
+            'hostname': 'iot-camera',
+            'vendor': 'Hikvision',
+            'first_seen_utc': (now - datetime.timedelta(days=90)).isoformat(),
+            'last_seen_utc': (now - datetime.timedelta(hours=2)).isoformat(),
+            'is_active': False
+        }
+    ]
+    
+    return devices
+
+
+@app.route('/api/lan/stats')
+def api_lan_stats():
+    """Get LAN overview statistics."""
+    conn = get_db_connection()
+    if conn is None:
+        return jsonify(_mock_lan_stats())
+    
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("SELECT * FROM telemetry.lan_summary_stats")
+            row = cur.fetchone()
+            
+            if row:
+                stats = dict(row)
+            else:
+                stats = _mock_lan_stats()
+    except Exception as exc:
+        app.logger.debug('LAN stats query failed: %s', exc)
+        stats = _mock_lan_stats()
+    finally:
+        conn.close()
+    
+    return jsonify(stats)
+
+
+@app.route('/api/lan/devices')
+def api_lan_devices():
+    """List all LAN devices with optional filtering."""
+    state = request.args.get('state')  # 'active', 'inactive', or None for all
+    interface = request.args.get('interface')  # filter by interface type
+    limit = int(request.args.get('limit', '100'))
+    
+    conn = get_db_connection()
+    if conn is None:
+        devices = _mock_lan_devices()
+        if state == 'active':
+            devices = [d for d in devices if d['is_active']]
+        elif state == 'inactive':
+            devices = [d for d in devices if not d['is_active']]
+        return jsonify({'devices': devices})
+    
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            query = """
+                SELECT 
+                    d.device_id,
+                    d.mac_address,
+                    d.primary_ip_address,
+                    d.hostname,
+                    d.nickname,
+                    d.manufacturer,
+                    d.vendor,
+                    d.first_seen_utc,
+                    d.last_seen_utc,
+                    d.is_active,
+                    d.tags,
+                    ds.interface AS last_interface,
+                    ds.rssi AS last_rssi
+                FROM telemetry.devices d
+                LEFT JOIN LATERAL (
+                    SELECT interface, rssi
+                    FROM telemetry.device_snapshots_template
+                    WHERE device_id = d.device_id
+                    ORDER BY sample_time_utc DESC
+                    LIMIT 1
+                ) ds ON true
+                WHERE 1=1
+            """
+            
+            params = []
+            if state == 'active':
+                query += " AND d.is_active = true"
+            elif state == 'inactive':
+                query += " AND d.is_active = false"
+            
+            if interface:
+                query += " AND ds.interface ILIKE %s"
+                params.append(f'%{interface}%')
+            
+            query += " ORDER BY d.last_seen_utc DESC LIMIT %s"
+            params.append(limit)
+            
+            cur.execute(query, params)
+            rows = cur.fetchall()
+            
+            devices = []
+            for row in rows:
+                device = dict(row)
+                device['first_seen_utc'] = _isoformat(device.get('first_seen_utc'))
+                device['last_seen_utc'] = _isoformat(device.get('last_seen_utc'))
+                devices.append(device)
+    except Exception as exc:
+        app.logger.debug('LAN devices query failed: %s', exc)
+        devices = _mock_lan_devices()
+    finally:
+        conn.close()
+    
+    return jsonify({'devices': devices})
+
+
+@app.route('/api/lan/devices/online')
+def api_lan_devices_online():
+    """List currently online devices."""
+    conn = get_db_connection()
+    if conn is None:
+        devices = [d for d in _mock_lan_devices() if d['is_active']]
+        return jsonify({'devices': devices})
+    
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("""
+                SELECT 
+                    d.device_id,
+                    d.mac_address,
+                    d.primary_ip_address,
+                    d.hostname,
+                    d.vendor,
+                    d.last_seen_utc,
+                    ds.current_ip,
+                    ds.current_interface,
+                    ds.current_rssi,
+                    ds.last_snapshot_time
+                FROM telemetry.devices_online d
+                INNER JOIN (
+                    SELECT 
+                        device_id,
+                        ip_address AS current_ip,
+                        interface AS current_interface,
+                        rssi AS current_rssi,
+                        sample_time_utc AS last_snapshot_time
+                    FROM telemetry.device_snapshots_template
+                    WHERE sample_time_utc >= NOW() - INTERVAL '10 minutes'
+                      AND is_online = true
+                ) ds ON d.device_id = ds.device_id
+                ORDER BY d.last_seen_utc DESC
+            """)
+            rows = cur.fetchall()
+            
+            devices = []
+            for row in rows:
+                device = dict(row)
+                device['last_seen_utc'] = _isoformat(device.get('last_seen_utc'))
+                device['last_snapshot_time'] = _isoformat(device.get('last_snapshot_time'))
+                devices.append(device)
+    except Exception as exc:
+        app.logger.debug('Online devices query failed: %s', exc)
+        devices = [d for d in _mock_lan_devices() if d['is_active']]
+    finally:
+        conn.close()
+    
+    return jsonify({'devices': devices})
+
+
+@app.route('/api/lan/device/<device_id>')
+def api_lan_device_detail(device_id):
+    """Get detailed information for a specific device."""
+    conn = get_db_connection()
+    if conn is None:
+        # Return mock data
+        devices = _mock_lan_devices()
+        device = next((d for d in devices if d['device_id'] == int(device_id)), None)
+        if device:
+            return jsonify(device)
+        return jsonify({'error': 'Device not found'}), 404
+    
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("""
+                SELECT 
+                    d.*,
+                    (SELECT COUNT(*) FROM telemetry.device_snapshots_template WHERE device_id = d.device_id) AS total_snapshots
+                FROM telemetry.devices d
+                WHERE d.device_id = %s
+            """, (device_id,))
+            row = cur.fetchone()
+            
+            if not row:
+                return jsonify({'error': 'Device not found'}), 404
+            
+            device = dict(row)
+            device['first_seen_utc'] = _isoformat(device.get('first_seen_utc'))
+            device['last_seen_utc'] = _isoformat(device.get('last_seen_utc'))
+            device['created_at'] = _isoformat(device.get('created_at'))
+            device['updated_at'] = _isoformat(device.get('updated_at'))
+    except Exception as exc:
+        app.logger.debug('Device detail query failed: %s', exc)
+        return jsonify({'error': 'Database error'}), 500
+    finally:
+        conn.close()
+    
+    return jsonify(device)
+
+
+@app.route('/api/lan/device/<device_id>/timeline')
+def api_lan_device_timeline(device_id):
+    """Get time-series data for a device."""
+    hours = int(request.args.get('hours', '24'))
+    
+    conn = get_db_connection()
+    if conn is None:
+        # Return mock timeline data
+        import random
+        now = datetime.datetime.now(datetime.UTC)
+        timeline = []
+        for i in range(20):
+            timeline.append({
+                'sample_time_utc': (now - datetime.timedelta(hours=hours * i / 20)).isoformat(),
+                'rssi': random.randint(-70, -30),
+                'tx_rate_mbps': random.uniform(50, 150),
+                'rx_rate_mbps': random.uniform(50, 150),
+                'is_online': random.choice([True, True, True, False])
+            })
+        return jsonify({'timeline': timeline})
+    
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("""
+                SELECT 
+                    sample_time_utc,
+                    ip_address,
+                    interface,
+                    rssi,
+                    tx_rate_mbps,
+                    rx_rate_mbps,
+                    is_online
+                FROM telemetry.device_snapshots_template
+                WHERE device_id = %s
+                  AND sample_time_utc >= NOW() - INTERVAL '%s hours'
+                ORDER BY sample_time_utc ASC
+            """, (device_id, hours))
+            rows = cur.fetchall()
+            
+            timeline = []
+            for row in rows:
+                point = dict(row)
+                point['sample_time_utc'] = _isoformat(point.get('sample_time_utc'))
+                timeline.append(point)
+    except Exception as exc:
+        app.logger.debug('Device timeline query failed: %s', exc)
+        return jsonify({'error': 'Database error'}), 500
+    finally:
+        conn.close()
+    
+    return jsonify({'timeline': timeline})
+
+
+@app.route('/api/lan/device/<device_id>/events')
+def api_lan_device_events(device_id):
+    """Get syslog events associated with a device."""
+    limit = int(request.args.get('limit', '50'))
+    
+    conn = get_db_connection()
+    if conn is None:
+        # Return mock events
+        now = datetime.datetime.now(datetime.UTC)
+        events = [
+            {
+                'timestamp': (now - datetime.timedelta(hours=1)).isoformat(),
+                'severity': 'Notice',
+                'message': 'Device connected to network',
+                'match_type': 'mac'
+            },
+            {
+                'timestamp': (now - datetime.timedelta(hours=3)).isoformat(),
+                'severity': 'Info',
+                'message': 'DHCP lease renewed',
+                'match_type': 'ip'
+            }
+        ]
+        return jsonify({'events': events})
+    
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("""
+                SELECT 
+                    s.received_utc AS timestamp,
+                    s.severity,
+                    s.message,
+                    s.source_host,
+                    l.match_type,
+                    l.confidence
+                FROM telemetry.syslog_device_links l
+                INNER JOIN telemetry.syslog_generic_template s ON l.syslog_id = s.id
+                WHERE l.device_id = %s
+                ORDER BY s.received_utc DESC
+                LIMIT %s
+            """, (device_id, limit))
+            rows = cur.fetchall()
+            
+            events = []
+            for row in rows:
+                event = dict(row)
+                event['timestamp'] = _isoformat(event.get('timestamp'))
+                event['severity'] = _severity_to_text(event.get('severity'))
+                events.append(event)
+    except Exception as exc:
+        app.logger.debug('Device events query failed: %s', exc)
+        return jsonify({'error': 'Database error'}), 500
+    finally:
+        conn.close()
+    
+    return jsonify({'events': events})
+
+
+@app.route('/lan')
+def lan_overview():
+    """LAN overview dashboard page."""
+    return render_template('lan_overview.html')
+
+
+@app.route('/lan/devices')
+def lan_devices():
+    """LAN devices list page."""
+    return render_template('lan_devices.html')
+
+
+@app.route('/lan/device/<device_id>')
+def lan_device_detail(device_id):
+    """LAN device detail page."""
+    return render_template('lan_device.html', device_id=device_id)
+
+
 if __name__ == '__main__':
     # Enable debug for development convenience
     port = int(os.environ.get('DASHBOARD_PORT', '5000'))

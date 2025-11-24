@@ -1,0 +1,233 @@
+-- LAN Observability Schema for System Dashboard
+-- This schema supports device inventory and time-series monitoring
+
+-- Create devices table (stable inventory)
+CREATE TABLE IF NOT EXISTS telemetry.devices (
+    device_id           SERIAL PRIMARY KEY,
+    mac_address         TEXT NOT NULL UNIQUE,
+    primary_ip_address  TEXT,
+    hostname            TEXT,
+    nickname            TEXT,
+    manufacturer        TEXT,
+    vendor              TEXT,
+    first_seen_utc      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_seen_utc       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    is_active           BOOLEAN DEFAULT false,
+    tags                TEXT,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Index for fast MAC lookups
+CREATE INDEX IF NOT EXISTS idx_devices_mac ON telemetry.devices (mac_address);
+CREATE INDEX IF NOT EXISTS idx_devices_active ON telemetry.devices (is_active, last_seen_utc DESC);
+CREATE INDEX IF NOT EXISTS idx_devices_last_seen ON telemetry.devices (last_seen_utc DESC);
+
+-- Device snapshots table (time-series data) - partitioned by time
+CREATE TABLE IF NOT EXISTS telemetry.device_snapshots_template (
+    snapshot_id         BIGSERIAL,
+    device_id           INTEGER NOT NULL REFERENCES telemetry.devices(device_id) ON DELETE CASCADE,
+    sample_time_utc     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    ip_address          TEXT,
+    interface           TEXT,
+    rssi                INTEGER,
+    tx_rate_mbps        REAL,
+    rx_rate_mbps        REAL,
+    is_online           BOOLEAN DEFAULT true,
+    raw_json            TEXT,
+    source_payload      TEXT,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (snapshot_id, sample_time_utc)
+) PARTITION BY RANGE (sample_time_utc);
+
+-- Helper function to create monthly partitions for device snapshots
+CREATE OR REPLACE FUNCTION telemetry.ensure_device_snapshot_partition(target_month DATE)
+RETURNS VOID
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    partition_name TEXT;
+    start_ts       DATE;
+    end_ts         DATE;
+    stmt           TEXT;
+BEGIN
+    start_ts := date_trunc('month', target_month);
+    end_ts := (start_ts + INTERVAL '1 month');
+    partition_name := format('device_snapshots_%s', to_char(start_ts, 'YYMM'));
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE c.relname = partition_name
+          AND n.nspname = 'telemetry'
+    ) THEN
+        stmt := format(
+            'CREATE TABLE telemetry.%I PARTITION OF telemetry.device_snapshots_template
+             FOR VALUES FROM (%L) TO (%L);',
+            partition_name,
+            start_ts,
+            end_ts
+        );
+        EXECUTE stmt;
+        
+        -- Create indexes on the partition
+        EXECUTE format('CREATE INDEX IF NOT EXISTS idx_%I_device_time ON telemetry.%I (device_id, sample_time_utc DESC)', 
+                      partition_name, partition_name);
+        EXECUTE format('CREATE INDEX IF NOT EXISTS idx_%I_time ON telemetry.%I (sample_time_utc DESC)', 
+                      partition_name, partition_name);
+    END IF;
+END;
+$$;
+
+-- Create indexes on template (will be inherited by partitions)
+CREATE INDEX IF NOT EXISTS idx_device_snapshots_device_time ON telemetry.device_snapshots_template (device_id, sample_time_utc DESC);
+CREATE INDEX IF NOT EXISTS idx_device_snapshots_time ON telemetry.device_snapshots_template (sample_time_utc DESC);
+CREATE INDEX IF NOT EXISTS idx_device_snapshots_online ON telemetry.device_snapshots_template (is_online, sample_time_utc DESC);
+
+-- Recent device snapshots view (last 7 days for fast queries)
+CREATE OR REPLACE VIEW telemetry.device_snapshots_recent AS
+SELECT *
+FROM telemetry.device_snapshots_template
+WHERE sample_time_utc >= NOW() - INTERVAL '7 days';
+
+-- Link table for syslog events to devices
+CREATE TABLE IF NOT EXISTS telemetry.syslog_device_links (
+    link_id             BIGSERIAL PRIMARY KEY,
+    syslog_id           BIGINT NOT NULL,
+    device_id           INTEGER NOT NULL REFERENCES telemetry.devices(device_id) ON DELETE CASCADE,
+    match_type          TEXT,
+    confidence          REAL DEFAULT 1.0,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_syslog_device_links_syslog ON telemetry.syslog_device_links (syslog_id);
+CREATE INDEX IF NOT EXISTS idx_syslog_device_links_device ON telemetry.syslog_device_links (device_id, created_at DESC);
+
+-- Retention cleanup function for device snapshots
+CREATE OR REPLACE FUNCTION telemetry.cleanup_old_device_snapshots(retention_days INTEGER DEFAULT 7)
+RETURNS TABLE(deleted_count BIGINT)
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    cutoff_date TIMESTAMPTZ;
+    rows_deleted BIGINT;
+BEGIN
+    cutoff_date := NOW() - (retention_days || ' days')::INTERVAL;
+    
+    DELETE FROM telemetry.device_snapshots_template
+    WHERE sample_time_utc < cutoff_date;
+    
+    GET DIAGNOSTICS rows_deleted = ROW_COUNT;
+    
+    RETURN QUERY SELECT rows_deleted;
+END;
+$$;
+
+-- Helper view for currently online devices
+CREATE OR REPLACE VIEW telemetry.devices_online AS
+SELECT d.*,
+       ds.sample_time_utc AS last_snapshot_time,
+       ds.ip_address AS current_ip,
+       ds.interface AS current_interface,
+       ds.rssi AS current_rssi
+FROM telemetry.devices d
+INNER JOIN LATERAL (
+    SELECT *
+    FROM telemetry.device_snapshots_template
+    WHERE device_id = d.device_id
+      AND sample_time_utc >= NOW() - INTERVAL '10 minutes'
+      AND is_online = true
+    ORDER BY sample_time_utc DESC
+    LIMIT 1
+) ds ON true
+WHERE d.is_active = true;
+
+-- Helper function to update device activity status
+CREATE OR REPLACE FUNCTION telemetry.update_device_activity_status(inactive_threshold_minutes INTEGER DEFAULT 10)
+RETURNS TABLE(updated_count INTEGER)
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    cutoff_time TIMESTAMPTZ;
+    rows_updated INTEGER;
+BEGIN
+    cutoff_time := NOW() - (inactive_threshold_minutes || ' minutes')::INTERVAL;
+    
+    -- Mark devices as inactive if no recent snapshots
+    UPDATE telemetry.devices
+    SET is_active = false,
+        updated_at = NOW()
+    WHERE is_active = true
+      AND last_seen_utc < cutoff_time;
+    
+    GET DIAGNOSTICS rows_updated = ROW_COUNT;
+    
+    RETURN QUERY SELECT rows_updated;
+END;
+$$;
+
+-- Create initial partition for current month
+SELECT telemetry.ensure_device_snapshot_partition(CURRENT_DATE);
+
+-- Grant permissions to existing users
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA telemetry TO sysdash_ingest;
+GRANT SELECT ON ALL TABLES IN SCHEMA telemetry TO sysdash_reader;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA telemetry TO sysdash_ingest;
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA telemetry TO sysdash_ingest;
+
+-- Update default privileges for future objects
+ALTER DEFAULT PRIVILEGES IN SCHEMA telemetry GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO sysdash_ingest;
+ALTER DEFAULT PRIVILEGES IN SCHEMA telemetry GRANT SELECT ON TABLES TO sysdash_reader;
+ALTER DEFAULT PRIVILEGES IN SCHEMA telemetry GRANT USAGE, SELECT ON SEQUENCES TO sysdash_ingest;
+ALTER DEFAULT PRIVILEGES IN SCHEMA telemetry GRANT EXECUTE ON FUNCTIONS TO sysdash_ingest;
+
+-- Create a settings table for LAN observability configuration
+CREATE TABLE IF NOT EXISTS telemetry.lan_settings (
+    setting_key         TEXT PRIMARY KEY,
+    setting_value       TEXT,
+    description         TEXT,
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Insert default settings
+INSERT INTO telemetry.lan_settings (setting_key, setting_value, description)
+VALUES 
+    ('snapshot_retention_days', '7', 'Number of days to retain device snapshot data'),
+    ('inactive_threshold_minutes', '10', 'Minutes without snapshot before marking device inactive'),
+    ('poll_interval_seconds', '300', 'Seconds between router polling attempts'),
+    ('syslog_correlation_enabled', 'true', 'Whether to correlate syslog events with devices')
+ON CONFLICT (setting_key) DO NOTHING;
+
+GRANT SELECT, INSERT, UPDATE ON telemetry.lan_settings TO sysdash_ingest;
+GRANT SELECT ON telemetry.lan_settings TO sysdash_reader;
+
+-- Summary view for dashboard statistics
+CREATE OR REPLACE VIEW telemetry.lan_summary_stats AS
+SELECT
+    (SELECT COUNT(*) FROM telemetry.devices) AS total_devices,
+    (SELECT COUNT(*) FROM telemetry.devices WHERE is_active = true) AS active_devices,
+    (SELECT COUNT(*) FROM telemetry.devices WHERE is_active = false) AS inactive_devices,
+    (SELECT COUNT(DISTINCT d.device_id)
+     FROM telemetry.devices d
+     INNER JOIN telemetry.device_snapshots_template ds ON d.device_id = ds.device_id
+     WHERE ds.sample_time_utc >= NOW() - INTERVAL '24 hours'
+       AND ds.interface ILIKE '%wired%') AS wired_devices_24h,
+    (SELECT COUNT(DISTINCT d.device_id)
+     FROM telemetry.devices d
+     INNER JOIN telemetry.device_snapshots_template ds ON d.device_id = ds.device_id
+     WHERE ds.sample_time_utc >= NOW() - INTERVAL '24 hours'
+       AND ds.interface ILIKE '%2.4%') AS wifi_24ghz_devices_24h,
+    (SELECT COUNT(DISTINCT d.device_id)
+     FROM telemetry.devices d
+     INNER JOIN telemetry.device_snapshots_template ds ON d.device_id = ds.device_id
+     WHERE ds.sample_time_utc >= NOW() - INTERVAL '24 hours'
+       AND ds.interface ILIKE '%5%') AS wifi_5ghz_devices_24h;
+
+GRANT SELECT ON telemetry.lan_summary_stats TO sysdash_reader;
+
+-- Add comment for documentation
+COMMENT ON TABLE telemetry.devices IS 'Stable inventory of all LAN devices identified by MAC address';
+COMMENT ON TABLE telemetry.device_snapshots_template IS 'Time-series snapshots of device network statistics (RSSI, rates, online status)';
+COMMENT ON TABLE telemetry.syslog_device_links IS 'Links syslog events to specific devices for correlation';
+COMMENT ON TABLE telemetry.lan_settings IS 'Configuration settings for LAN observability features';

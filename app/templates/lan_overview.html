@@ -1,0 +1,380 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="dashboard lan-dashboard">
+    <header class="dashboard-header">
+        <h1>LAN Observability Overview</h1>
+        <p class="subtitle">Real-time network device monitoring and tracking</p>
+    </header>
+
+    <!-- Summary Stats Cards -->
+    <div class="stats-grid">
+        <article class="stat-card">
+            <h3>Total Devices</h3>
+            <p class="metric" id="total-devices">--</p>
+            <p class="detail">Ever seen on network</p>
+        </article>
+        <article class="stat-card active">
+            <h3>Active Now</h3>
+            <p class="metric" id="active-devices">--</p>
+            <p class="detail">Currently online</p>
+        </article>
+        <article class="stat-card">
+            <h3>Wired Devices</h3>
+            <p class="metric" id="wired-devices">--</p>
+            <p class="detail">Last 24 hours</p>
+        </article>
+        <article class="stat-card">
+            <h3>2.4 GHz WiFi</h3>
+            <p class="metric" id="wifi-24-devices">--</p>
+            <p class="detail">Last 24 hours</p>
+        </article>
+        <article class="stat-card">
+            <h3>5 GHz WiFi</h3>
+            <p class="metric" id="wifi-5-devices">--</p>
+            <p class="detail">Last 24 hours</p>
+        </article>
+        <article class="stat-card">
+            <h3>Inactive</h3>
+            <p class="metric" id="inactive-devices">--</p>
+            <p class="detail">Not recently seen</p>
+        </article>
+    </div>
+
+    <!-- Currently Online Devices -->
+    <section class="content-section">
+        <header class="section-header">
+            <h2>Currently Online Devices</h2>
+            <button onclick="refreshOnlineDevices()" class="btn-refresh">Refresh</button>
+        </header>
+        <div class="table-container">
+            <table class="data-table" id="online-devices-table">
+                <thead>
+                    <tr>
+                        <th>Hostname</th>
+                        <th>IP Address</th>
+                        <th>MAC Address</th>
+                        <th>Interface</th>
+                        <th>RSSI</th>
+                        <th>Last Seen</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="online-devices-body">
+                    <tr>
+                        <td colspan="7" class="loading">Loading devices...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <!-- Recent Issues Widget -->
+    <section class="content-section">
+        <header class="section-header">
+            <h2>Potential Issues</h2>
+            <p class="subtitle-sm">Devices with connectivity problems or weak signal</p>
+        </header>
+        <div id="issues-container">
+            <p class="muted">Checking for issues...</p>
+        </div>
+    </section>
+</section>
+
+<script>
+// Auto-refresh every 30 seconds
+let refreshTimer;
+
+function formatTimestamp(isoString) {
+    if (!isoString) return '--';
+    const date = new Date(isoString);
+    const now = new Date();
+    const diffMs = now - date;
+    const diffMins = Math.floor(diffMs / 60000);
+    
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    const diffHours = Math.floor(diffMins / 60);
+    if (diffHours < 24) return `${diffHours}h ago`;
+    return date.toLocaleDateString();
+}
+
+function formatRssi(rssi) {
+    if (!rssi) return '--';
+    const strength = rssi >= -50 ? 'excellent' : rssi >= -60 ? 'good' : rssi >= -70 ? 'fair' : 'poor';
+    return `${rssi} dBm (${strength})`;
+}
+
+async function loadStats() {
+    try {
+        const response = await fetch('/api/lan/stats');
+        const stats = await response.json();
+        
+        document.getElementById('total-devices').textContent = stats.total_devices || 0;
+        document.getElementById('active-devices').textContent = stats.active_devices || 0;
+        document.getElementById('inactive-devices').textContent = stats.inactive_devices || 0;
+        document.getElementById('wired-devices').textContent = stats.wired_devices_24h || 0;
+        document.getElementById('wifi-24-devices').textContent = stats.wifi_24ghz_devices_24h || 0;
+        document.getElementById('wifi-5-devices').textContent = stats.wifi_5ghz_devices_24h || 0;
+    } catch (error) {
+        console.error('Failed to load stats:', error);
+    }
+}
+
+async function loadOnlineDevices() {
+    try {
+        const response = await fetch('/api/lan/devices/online');
+        const data = await response.json();
+        const devices = data.devices || [];
+        
+        const tbody = document.getElementById('online-devices-body');
+        
+        if (devices.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="7" class="empty">No devices currently online</td></tr>';
+            return;
+        }
+        
+        tbody.innerHTML = devices.map(device => `
+            <tr>
+                <td>${device.hostname || device.mac_address}</td>
+                <td>${device.current_ip || device.primary_ip_address || '--'}</td>
+                <td><code>${device.mac_address}</code></td>
+                <td><span class="badge">${device.current_interface || '--'}</span></td>
+                <td>${device.current_rssi ? formatRssi(device.current_rssi) : '--'}</td>
+                <td>${formatTimestamp(device.last_seen_utc)}</td>
+                <td><a href="/lan/device/${device.device_id}" class="btn-link">Details</a></td>
+            </tr>
+        `).join('');
+        
+        // Check for issues
+        checkForIssues(devices);
+    } catch (error) {
+        console.error('Failed to load online devices:', error);
+        document.getElementById('online-devices-body').innerHTML = 
+            '<tr><td colspan="7" class="error">Error loading devices</td></tr>';
+    }
+}
+
+function checkForIssues(devices) {
+    const issues = [];
+    
+    devices.forEach(device => {
+        // Check for weak signal
+        if (device.current_rssi && device.current_rssi < -70) {
+            issues.push({
+                device: device.hostname || device.mac_address,
+                issue: `Weak signal: ${device.current_rssi} dBm`,
+                severity: 'warning'
+            });
+        }
+    });
+    
+    const issuesContainer = document.getElementById('issues-container');
+    
+    if (issues.length === 0) {
+        issuesContainer.innerHTML = '<p class="success">No issues detected</p>';
+    } else {
+        issuesContainer.innerHTML = '<ul class="issues-list">' + 
+            issues.map(i => `
+                <li class="issue-item ${i.severity}">
+                    <strong>${i.device}</strong>: ${i.issue}
+                </li>
+            `).join('') + 
+            '</ul>';
+    }
+}
+
+function refreshOnlineDevices() {
+    loadOnlineDevices();
+    loadStats();
+}
+
+function startAutoRefresh() {
+    refreshTimer = setInterval(refreshOnlineDevices, 30000);
+}
+
+function stopAutoRefresh() {
+    if (refreshTimer) {
+        clearInterval(refreshTimer);
+    }
+}
+
+// Initial load
+document.addEventListener('DOMContentLoaded', () => {
+    loadStats();
+    loadOnlineDevices();
+    startAutoRefresh();
+});
+
+// Stop refresh when leaving page
+window.addEventListener('beforeunload', stopAutoRefresh);
+</script>
+
+<style>
+.lan-dashboard {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 2rem;
+}
+
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1.5rem;
+    margin: 2rem 0;
+}
+
+.stat-card {
+    background: #fff;
+    padding: 1.5rem;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    text-align: center;
+}
+
+.stat-card.active {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+}
+
+.stat-card h3 {
+    margin: 0 0 0.5rem 0;
+    font-size: 0.9rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    opacity: 0.8;
+}
+
+.stat-card .metric {
+    font-size: 2.5rem;
+    font-weight: bold;
+    margin: 0.5rem 0;
+}
+
+.stat-card .detail {
+    font-size: 0.85rem;
+    opacity: 0.7;
+    margin: 0;
+}
+
+.content-section {
+    background: #fff;
+    padding: 2rem;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    margin: 2rem 0;
+}
+
+.section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.5rem;
+}
+
+.section-header h2 {
+    margin: 0;
+    font-size: 1.5rem;
+}
+
+.btn-refresh {
+    padding: 0.5rem 1rem;
+    background: #667eea;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: 500;
+}
+
+.btn-refresh:hover {
+    background: #5568d3;
+}
+
+.table-container {
+    overflow-x: auto;
+}
+
+.data-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.data-table th {
+    background: #f7fafc;
+    padding: 0.75rem;
+    text-align: left;
+    font-weight: 600;
+    border-bottom: 2px solid #e2e8f0;
+}
+
+.data-table td {
+    padding: 0.75rem;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.data-table code {
+    background: #f7fafc;
+    padding: 0.25rem 0.5rem;
+    border-radius: 3px;
+    font-size: 0.85rem;
+}
+
+.badge {
+    display: inline-block;
+    padding: 0.25rem 0.75rem;
+    background: #e2e8f0;
+    border-radius: 12px;
+    font-size: 0.85rem;
+    font-weight: 500;
+}
+
+.btn-link {
+    color: #667eea;
+    text-decoration: none;
+    font-weight: 500;
+}
+
+.btn-link:hover {
+    text-decoration: underline;
+}
+
+.loading, .empty, .error {
+    text-align: center;
+    padding: 2rem;
+    color: #718096;
+}
+
+.error {
+    color: #e53e3e;
+}
+
+.success {
+    color: #38a169;
+    font-weight: 500;
+}
+
+.issues-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.issue-item {
+    padding: 0.75rem;
+    margin: 0.5rem 0;
+    border-radius: 4px;
+    border-left: 4px solid;
+}
+
+.issue-item.warning {
+    background: #fef5e7;
+    border-color: #f39c12;
+}
+
+.subtitle-sm {
+    font-size: 0.9rem;
+    color: #718096;
+    margin: 0;
+}
+</style>
+{% endblock %}
