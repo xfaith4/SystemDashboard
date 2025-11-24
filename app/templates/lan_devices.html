@@ -1,0 +1,278 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="dashboard lan-devices-page">
+    <header class="dashboard-header">
+        <h1>LAN Devices</h1>
+        <p class="subtitle">Complete device inventory and history</p>
+    </header>
+
+    <!-- Filters -->
+    <section class="filters-section">
+        <div class="filters">
+            <label>
+                Status:
+                <select id="filter-state" onchange="applyFilters()">
+                    <option value="">All Devices</option>
+                    <option value="active" selected>Active Only</option>
+                    <option value="inactive">Inactive Only</option>
+                </select>
+            </label>
+            <label>
+                Interface:
+                <select id="filter-interface" onchange="applyFilters()">
+                    <option value="">All Interfaces</option>
+                    <option value="wired">Wired</option>
+                    <option value="2.4">2.4 GHz WiFi</option>
+                    <option value="5">5 GHz WiFi</option>
+                </select>
+            </label>
+            <label>
+                Search:
+                <input type="text" id="search-text" placeholder="Hostname, IP, or MAC" onkeyup="applySearch()" />
+            </label>
+        </div>
+    </section>
+
+    <!-- Devices Table -->
+    <section class="content-section">
+        <div class="table-container">
+            <table class="data-table" id="devices-table">
+                <thead>
+                    <tr>
+                        <th>Status</th>
+                        <th>Hostname / Nickname</th>
+                        <th>IP Address</th>
+                        <th>MAC Address</th>
+                        <th>Vendor</th>
+                        <th>Interface</th>
+                        <th>First Seen</th>
+                        <th>Last Seen</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="devices-body">
+                    <tr>
+                        <td colspan="9" class="loading">Loading devices...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+</section>
+
+<script>
+let allDevices = [];
+let currentFilters = {
+    state: 'active',
+    interface: '',
+    search: ''
+};
+
+function formatTimestamp(isoString) {
+    if (!isoString) return '--';
+    const date = new Date(isoString);
+    return date.toLocaleString();
+}
+
+async function loadDevices() {
+    try {
+        const state = currentFilters.state;
+        const iface = currentFilters.interface;
+        
+        let url = '/api/lan/devices?limit=500';
+        if (state) url += `&state=${state}`;
+        if (iface) url += `&interface=${iface}`;
+        
+        const response = await fetch(url);
+        const data = await response.json();
+        allDevices = data.devices || [];
+        
+        renderDevices();
+    } catch (error) {
+        console.error('Failed to load devices:', error);
+        document.getElementById('devices-body').innerHTML = 
+            '<tr><td colspan="9" class="error">Error loading devices</td></tr>';
+    }
+}
+
+function renderDevices() {
+    const tbody = document.getElementById('devices-body');
+    
+    // Apply search filter
+    let filteredDevices = allDevices;
+    if (currentFilters.search) {
+        const searchLower = currentFilters.search.toLowerCase();
+        filteredDevices = allDevices.filter(d => 
+            (d.hostname && d.hostname.toLowerCase().includes(searchLower)) ||
+            (d.nickname && d.nickname.toLowerCase().includes(searchLower)) ||
+            (d.primary_ip_address && d.primary_ip_address.includes(searchLower)) ||
+            (d.mac_address && d.mac_address.toLowerCase().includes(searchLower))
+        );
+    }
+    
+    if (filteredDevices.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="9" class="empty">No devices found</td></tr>';
+        return;
+    }
+    
+    tbody.innerHTML = filteredDevices.map(device => {
+        const statusClass = device.is_active ? 'status-active' : 'status-inactive';
+        const statusText = device.is_active ? 'Online' : 'Offline';
+        const displayName = device.nickname || device.hostname || device.mac_address;
+        
+        return `
+            <tr>
+                <td><span class="status-badge ${statusClass}">${statusText}</span></td>
+                <td><strong>${displayName}</strong></td>
+                <td>${device.primary_ip_address || '--'}</td>
+                <td><code>${device.mac_address}</code></td>
+                <td>${device.vendor || '--'}</td>
+                <td><span class="badge">${device.last_interface || '--'}</span></td>
+                <td>${formatTimestamp(device.first_seen_utc)}</td>
+                <td>${formatTimestamp(device.last_seen_utc)}</td>
+                <td><a href="/lan/device/${device.device_id}" class="btn-link">View</a></td>
+            </tr>
+        `;
+    }).join('');
+}
+
+function applyFilters() {
+    currentFilters.state = document.getElementById('filter-state').value;
+    currentFilters.interface = document.getElementById('filter-interface').value;
+    loadDevices();
+}
+
+function applySearch() {
+    currentFilters.search = document.getElementById('search-text').value;
+    renderDevices();
+}
+
+// Initial load
+document.addEventListener('DOMContentLoaded', () => {
+    loadDevices();
+});
+</script>
+
+<style>
+.lan-devices-page {
+    max-width: 1600px;
+    margin: 0 auto;
+    padding: 2rem;
+}
+
+.filters-section {
+    background: #fff;
+    padding: 1.5rem;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    margin: 2rem 0;
+}
+
+.filters {
+    display: flex;
+    gap: 1.5rem;
+    flex-wrap: wrap;
+}
+
+.filters label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    font-weight: 500;
+}
+
+.filters select,
+.filters input[type="text"] {
+    padding: 0.5rem;
+    border: 1px solid #e2e8f0;
+    border-radius: 4px;
+    font-size: 0.95rem;
+    min-width: 200px;
+}
+
+.content-section {
+    background: #fff;
+    padding: 2rem;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    margin: 2rem 0;
+}
+
+.table-container {
+    overflow-x: auto;
+}
+
+.data-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.data-table th {
+    background: #f7fafc;
+    padding: 0.75rem;
+    text-align: left;
+    font-weight: 600;
+    border-bottom: 2px solid #e2e8f0;
+    white-space: nowrap;
+}
+
+.data-table td {
+    padding: 0.75rem;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.data-table code {
+    background: #f7fafc;
+    padding: 0.25rem 0.5rem;
+    border-radius: 3px;
+    font-size: 0.85rem;
+}
+
+.status-badge {
+    display: inline-block;
+    padding: 0.25rem 0.75rem;
+    border-radius: 12px;
+    font-size: 0.85rem;
+    font-weight: 600;
+}
+
+.status-active {
+    background: #c6f6d5;
+    color: #22543d;
+}
+
+.status-inactive {
+    background: #fed7d7;
+    color: #742a2a;
+}
+
+.badge {
+    display: inline-block;
+    padding: 0.25rem 0.75rem;
+    background: #e2e8f0;
+    border-radius: 12px;
+    font-size: 0.85rem;
+    font-weight: 500;
+}
+
+.btn-link {
+    color: #667eea;
+    text-decoration: none;
+    font-weight: 500;
+}
+
+.btn-link:hover {
+    text-decoration: underline;
+}
+
+.loading, .empty, .error {
+    text-align: center;
+    padding: 2rem;
+    color: #718096;
+}
+
+.error {
+    color: #e53e3e;
+}
+</style>
+{% endblock %}
