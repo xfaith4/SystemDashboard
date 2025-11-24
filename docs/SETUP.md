@@ -169,7 +169,7 @@ psql -h localhost -U sysdash_ingest -d system_dashboard -c "SELECT telemetry.ens
 After installation:
 1. Monitor the dashboard for data collection
 2. Configure router to send syslog to this machine
-3. Set up LAN observability if needed (see [LAN-OBSERVABILITY-README.md](../LAN-OBSERVABILITY-README.md))
+3. Set up LAN observability if needed (see [LAN-OBSERVABILITY-README.md](LAN-OBSERVABILITY-README.md))
 4. Customize alert thresholds in the Flask app
 5. Set up scheduled partition creation (monthly)
 
