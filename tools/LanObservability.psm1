@@ -562,7 +562,7 @@ LIMIT 1000;
         while ($reader.Read()) {
             $syslogs += [PSCustomObject]@{
                 Id = $reader.GetInt64(0)
-                Message = $reader.GetString(2)
+                Message = $reader.GetString(1)
             }
         }
         $reader.Close()
