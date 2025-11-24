@@ -1,0 +1,522 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="dashboard lan-device-page">
+    <header class="dashboard-header">
+        <div>
+            <h1 id="device-title">Device Details</h1>
+            <p class="subtitle" id="device-subtitle">Loading...</p>
+        </div>
+        <a href="/lan/devices" class="btn-back">← Back to Devices</a>
+    </header>
+
+    <!-- Device Info Card -->
+    <section class="content-section">
+        <h2>Device Information</h2>
+        <div class="info-grid" id="device-info">
+            <div class="info-item">
+                <span class="label">Status:</span>
+                <span class="value" id="info-status">--</span>
+            </div>
+            <div class="info-item">
+                <span class="label">MAC Address:</span>
+                <span class="value"><code id="info-mac">--</code></span>
+            </div>
+            <div class="info-item">
+                <span class="label">IP Address:</span>
+                <span class="value" id="info-ip">--</span>
+            </div>
+            <div class="info-item">
+                <span class="label">Hostname:</span>
+                <span class="value" id="info-hostname">--</span>
+            </div>
+            <div class="info-item">
+                <span class="label">Vendor:</span>
+                <span class="value" id="info-vendor">--</span>
+            </div>
+            <div class="info-item">
+                <span class="label">First Seen:</span>
+                <span class="value" id="info-first-seen">--</span>
+            </div>
+            <div class="info-item">
+                <span class="label">Last Seen:</span>
+                <span class="value" id="info-last-seen">--</span>
+            </div>
+            <div class="info-item">
+                <span class="label">Total Snapshots:</span>
+                <span class="value" id="info-snapshots">--</span>
+            </div>
+        </div>
+    </section>
+
+    <!-- Time Period Selector -->
+    <section class="period-selector">
+        <label>
+            Time Range:
+            <select id="period-select" onchange="loadTimeline()">
+                <option value="24">Last 24 Hours</option>
+                <option value="72">Last 3 Days</option>
+                <option value="168">Last 7 Days</option>
+            </select>
+        </label>
+    </section>
+
+    <!-- Charts Section -->
+    <section class="content-section">
+        <h2>Signal Strength (RSSI) Over Time</h2>
+        <div class="chart-container">
+            <canvas id="rssi-chart"></canvas>
+        </div>
+    </section>
+
+    <section class="content-section">
+        <h2>Transfer Rates Over Time</h2>
+        <div class="chart-container">
+            <canvas id="rates-chart"></canvas>
+        </div>
+    </section>
+
+    <!-- Recent Events -->
+    <section class="content-section">
+        <h2>Associated Syslog Events</h2>
+        <div class="table-container">
+            <table class="data-table" id="events-table">
+                <thead>
+                    <tr>
+                        <th>Timestamp</th>
+                        <th>Severity</th>
+                        <th>Message</th>
+                        <th>Match Type</th>
+                    </tr>
+                </thead>
+                <tbody id="events-body">
+                    <tr>
+                        <td colspan="4" class="loading">Loading events...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+</section>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+const deviceId = {{ device_id }};
+let rssiChart = null;
+let ratesChart = null;
+
+function formatTimestamp(isoString) {
+    if (!isoString) return '--';
+    const date = new Date(isoString);
+    return date.toLocaleString();
+}
+
+function formatShortTime(isoString) {
+    if (!isoString) return '--';
+    const date = new Date(isoString);
+    return date.toLocaleTimeString();
+}
+
+async function loadDeviceInfo() {
+    try {
+        const response = await fetch(`/api/lan/device/${deviceId}`);
+        const device = await response.json();
+        
+        if (device.error) {
+            document.getElementById('device-title').textContent = 'Device Not Found';
+            document.getElementById('device-subtitle').textContent = device.error;
+            return;
+        }
+        
+        const displayName = device.nickname || device.hostname || device.mac_address;
+        document.getElementById('device-title').textContent = displayName;
+        document.getElementById('device-subtitle').textContent = `Device ID: ${device.device_id}`;
+        
+        const statusClass = device.is_active ? 'status-active' : 'status-inactive';
+        const statusText = device.is_active ? 'Online' : 'Offline';
+        document.getElementById('info-status').innerHTML = `<span class="status-badge ${statusClass}">${statusText}</span>`;
+        
+        document.getElementById('info-mac').textContent = device.mac_address;
+        document.getElementById('info-ip').textContent = device.primary_ip_address || '--';
+        document.getElementById('info-hostname').textContent = device.hostname || '--';
+        document.getElementById('info-vendor').textContent = device.vendor || '--';
+        document.getElementById('info-first-seen').textContent = formatTimestamp(device.first_seen_utc);
+        document.getElementById('info-last-seen').textContent = formatTimestamp(device.last_seen_utc);
+        document.getElementById('info-snapshots').textContent = device.total_snapshots || 0;
+    } catch (error) {
+        console.error('Failed to load device info:', error);
+    }
+}
+
+async function loadTimeline() {
+    const hours = document.getElementById('period-select').value;
+    
+    try {
+        const response = await fetch(`/api/lan/device/${deviceId}/timeline?hours=${hours}`);
+        const data = await response.json();
+        const timeline = data.timeline || [];
+        
+        if (timeline.length === 0) {
+            console.log('No timeline data available');
+            return;
+        }
+        
+        // Prepare data for charts
+        const labels = timeline.map(p => formatShortTime(p.sample_time_utc));
+        const rssiData = timeline.map(p => p.rssi);
+        const txData = timeline.map(p => p.tx_rate_mbps);
+        const rxData = timeline.map(p => p.rx_rate_mbps);
+        
+        // Update RSSI chart
+        updateRssiChart(labels, rssiData);
+        
+        // Update rates chart
+        updateRatesChart(labels, txData, rxData);
+    } catch (error) {
+        console.error('Failed to load timeline:', error);
+    }
+}
+
+function updateRssiChart(labels, data) {
+    const ctx = document.getElementById('rssi-chart').getContext('2d');
+    
+    if (rssiChart) {
+        rssiChart.destroy();
+    }
+    
+    rssiChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'RSSI (dBm)',
+                data: data,
+                borderColor: '#667eea',
+                backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                fill: true,
+                tension: 0.4
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            scales: {
+                y: {
+                    beginAtZero: false,
+                    title: {
+                        display: true,
+                        text: 'Signal Strength (dBm)'
+                    }
+                },
+                x: {
+                    ticks: {
+                        maxRotation: 45,
+                        minRotation: 45
+                    }
+                }
+            },
+            plugins: {
+                legend: {
+                    display: true
+                },
+                tooltip: {
+                    mode: 'index',
+                    intersect: false
+                }
+            }
+        }
+    });
+}
+
+function updateRatesChart(labels, txData, rxData) {
+    const ctx = document.getElementById('rates-chart').getContext('2d');
+    
+    if (ratesChart) {
+        ratesChart.destroy();
+    }
+    
+    ratesChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [
+                {
+                    label: 'TX Rate (Mbps)',
+                    data: txData,
+                    borderColor: '#48bb78',
+                    backgroundColor: 'rgba(72, 187, 120, 0.1)',
+                    fill: true,
+                    tension: 0.4
+                },
+                {
+                    label: 'RX Rate (Mbps)',
+                    data: rxData,
+                    borderColor: '#f56565',
+                    backgroundColor: 'rgba(245, 101, 101, 0.1)',
+                    fill: true,
+                    tension: 0.4
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    title: {
+                        display: true,
+                        text: 'Rate (Mbps)'
+                    }
+                },
+                x: {
+                    ticks: {
+                        maxRotation: 45,
+                        minRotation: 45
+                    }
+                }
+            },
+            plugins: {
+                legend: {
+                    display: true
+                },
+                tooltip: {
+                    mode: 'index',
+                    intersect: false
+                }
+            }
+        }
+    });
+}
+
+async function loadEvents() {
+    try {
+        const response = await fetch(`/api/lan/device/${deviceId}/events?limit=50`);
+        const data = await response.json();
+        const events = data.events || [];
+        
+        const tbody = document.getElementById('events-body');
+        
+        if (events.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="4" class="empty">No associated syslog events</td></tr>';
+            return;
+        }
+        
+        tbody.innerHTML = events.map(event => {
+            const severityClass = getSeverityClass(event.severity);
+            return `
+                <tr>
+                    <td>${formatTimestamp(event.timestamp)}</td>
+                    <td><span class="severity-badge ${severityClass}">${event.severity}</span></td>
+                    <td>${event.message}</td>
+                    <td><span class="badge">${event.match_type || '--'}</span></td>
+                </tr>
+            `;
+        }).join('');
+    } catch (error) {
+        console.error('Failed to load events:', error);
+        document.getElementById('events-body').innerHTML = 
+            '<tr><td colspan="4" class="error">Error loading events</td></tr>';
+    }
+}
+
+function getSeverityClass(severity) {
+    if (!severity) return '';
+    const s = severity.toLowerCase();
+    if (s.includes('error') || s.includes('critical') || s.includes('alert') || s.includes('emergency')) {
+        return 'severity-error';
+    }
+    if (s.includes('warning')) {
+        return 'severity-warning';
+    }
+    return 'severity-info';
+}
+
+// Initial load
+document.addEventListener('DOMContentLoaded', () => {
+    loadDeviceInfo();
+    loadTimeline();
+    loadEvents();
+});
+</script>
+
+<style>
+.lan-device-page {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 2rem;
+}
+
+.dashboard-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 2rem;
+}
+
+.btn-back {
+    padding: 0.75rem 1.5rem;
+    background: #667eea;
+    color: white;
+    text-decoration: none;
+    border-radius: 4px;
+    font-weight: 500;
+}
+
+.btn-back:hover {
+    background: #5568d3;
+}
+
+.content-section {
+    background: #fff;
+    padding: 2rem;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    margin: 2rem 0;
+}
+
+.content-section h2 {
+    margin-top: 0;
+    margin-bottom: 1.5rem;
+    font-size: 1.25rem;
+}
+
+.info-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 1.5rem;
+}
+
+.info-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.info-item .label {
+    font-weight: 600;
+    color: #4a5568;
+    font-size: 0.9rem;
+}
+
+.info-item .value {
+    font-size: 1rem;
+    color: #1a202c;
+}
+
+.info-item code {
+    background: #f7fafc;
+    padding: 0.25rem 0.5rem;
+    border-radius: 3px;
+    font-size: 0.9rem;
+}
+
+.status-badge {
+    display: inline-block;
+    padding: 0.25rem 0.75rem;
+    border-radius: 12px;
+    font-size: 0.85rem;
+    font-weight: 600;
+}
+
+.status-active {
+    background: #c6f6d5;
+    color: #22543d;
+}
+
+.status-inactive {
+    background: #fed7d7;
+    color: #742a2a;
+}
+
+.period-selector {
+    background: #fff;
+    padding: 1rem 2rem;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.period-selector label {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    font-weight: 500;
+}
+
+.period-selector select {
+    padding: 0.5rem;
+    border: 1px solid #e2e8f0;
+    border-radius: 4px;
+    font-size: 0.95rem;
+}
+
+.chart-container {
+    position: relative;
+    height: 300px;
+    padding: 1rem 0;
+}
+
+.table-container {
+    overflow-x: auto;
+}
+
+.data-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.data-table th {
+    background: #f7fafc;
+    padding: 0.75rem;
+    text-align: left;
+    font-weight: 600;
+    border-bottom: 2px solid #e2e8f0;
+}
+
+.data-table td {
+    padding: 0.75rem;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.severity-badge {
+    display: inline-block;
+    padding: 0.25rem 0.75rem;
+    border-radius: 12px;
+    font-size: 0.85rem;
+    font-weight: 600;
+}
+
+.severity-error {
+    background: #fed7d7;
+    color: #742a2a;
+}
+
+.severity-warning {
+    background: #fef5e7;
+    color: #975a16;
+}
+
+.severity-info {
+    background: #bee3f8;
+    color: #2c5282;
+}
+
+.badge {
+    display: inline-block;
+    padding: 0.25rem 0.75rem;
+    background: #e2e8f0;
+    border-radius: 12px;
+    font-size: 0.85rem;
+    font-weight: 500;
+}
+
+.loading, .empty, .error {
+    text-align: center;
+    padding: 2rem;
+    color: #718096;
+}
+
+.error {
+    color: #e53e3e;
+}
+</style>
+{% endblock %}
