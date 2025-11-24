@@ -50,7 +50,7 @@ if %errorlevel% neq 0 (
     call :log "Web UI service task already running"
 )
 
-call :log "System Dashboard startup complete! Web interface should be at http://localhost:5000"
+call :log "System Dashboard startup complete! Web interface should be at http://localhost:5001"
 echo See log: %LOGFILE%
 echo.
 pause

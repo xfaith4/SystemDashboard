@@ -6,13 +6,13 @@
   "PingTarget": "1.1.1.1",
   "RouterIP": "192.168.50.1",
   "Database": {
-    "Host": "localhost",
+    "Host": "127.0.0.1",
     "Port": 5432,
     "Database": "system_dashboard",
     "Username": "sysdash_ingest",
-    "PasswordSecret": "mysecretpassword",
+    "PasswordSecret": "$env:SYSTEMDASHBOARD_DB_PASSWORD",
     "Schema": "telemetry",
-    "PsqlPath": "C:/Program Files/PostgreSQL/16/bin/psql.exe"
+    "PsqlPath": "C:/Program Files/PostgreSQL/18/bin/psql.exe"
   },
   "Service": {
     "LogPath": "./var/log/telemetry-service.log",
@@ -32,7 +32,7 @@
       "DownloadPath": "./var/asus",
       "StatePath": "./var/asus/state.json",
       "SSH": {
-        "Enabled": false,
+        "Enabled": true,
         "Host": "192.168.50.1",
         "Username": "xfaith",
         "PasswordSecret": "env:ASUS_ROUTER_PASSWORD",

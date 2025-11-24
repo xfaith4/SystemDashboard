@@ -60,8 +60,8 @@ function Install-DashboardTasks {
         # Create trigger (start at boot, repeat every 5 minutes if stops)
         $trigger = New-ScheduledTaskTrigger -AtStartup
 
-        # Create settings
-        $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnDemand -DontStopIfGoingOnBatteries -DontStopOnIdleEnd -ExecutionTimeLimit (New-TimeSpan -Hours 0) -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1)
+        # Create settings (use flags available on older Windows builds)
+        $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -DontStopOnIdleEnd -ExecutionTimeLimit (New-TimeSpan -Hours 0) -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1)
 
         # Create principal (run as SYSTEM)
         $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest

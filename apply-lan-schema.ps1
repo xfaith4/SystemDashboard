@@ -30,7 +30,8 @@ if (-not $ConfigPath) {
 }
 
 Write-Host "Loading configuration from: $ConfigPath" -ForegroundColor Cyan
-$config = Read-SystemDashboardConfig -ConfigPath $ConfigPath
+$configInfo = Read-SystemDashboardConfig -ConfigPath $ConfigPath
+$config = $configInfo.Config ?? $configInfo
 
 # Get database settings
 $dbHost = $config.Database.Host
@@ -83,7 +84,7 @@ Write-Host "`nChecking for existing LAN tables..." -ForegroundColor Yellow
 
 $env:PGPASSWORD = $dbPassword
 $checkCmd = "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'telemetry' AND table_name = 'devices';"
-$checkResult = & $psqlPath -h $dbHost -p $dbPort -U $dbUser -d $dbName -t -c $checkCmd 2>&1
+$checkResult = & "$psqlPath" -h $dbHost -p $dbPort -U $dbUser -d $dbName -t -c $checkCmd 2>&1
 
 if ($LASTEXITCODE -eq 0 -and $checkResult -match '^\s*(\d+)') {
     $tableCount = [int]$matches[1]
@@ -106,7 +107,7 @@ if ($LASTEXITCODE -eq 0 -and $checkResult -match '^\s*(\d+)') {
 Write-Host "`nApplying LAN Observability schema..." -ForegroundColor Green
 
 try {
-    $output = & $psqlPath -h $dbHost -p $dbPort -U $dbUser -d $dbName -f $schemaFile 2>&1
+    $output = & "$psqlPath" -h $dbHost -p $dbPort -U $dbUser -d $dbName -f $schemaFile 2>&1
     
     if ($LASTEXITCODE -ne 0) {
         Write-Error "Failed to apply schema. Exit code: $LASTEXITCODE"
@@ -138,7 +139,7 @@ WHERE table_schema = 'telemetry'
 ORDER BY table_name;
 "@
     
-    $verifyResult = & $psqlPath -h $dbHost -p $dbPort -U $dbUser -d $dbName -c $verifyCmd 2>&1
+    $verifyResult = & "$psqlPath" -h $dbHost -p $dbPort -U $dbUser -d $dbName -c $verifyCmd 2>&1
     Write-Host $verifyResult
     
     Write-Host "`n✅ All LAN Observability tables verified!" -ForegroundColor Green
