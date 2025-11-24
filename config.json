@@ -9,8 +9,8 @@
     "Host": "127.0.0.1",
     "Port": 5432,
     "Database": "system_dashboard",
-    "Username": "sysdash_ingest",
-    "PasswordSecret": "$env:SYSTEMDASHBOARD_DB_PASSWORD",
+    "Username": "postgres",
+    "PasswordSecret": "mysecretpassword",
     "Schema": "telemetry",
     "PsqlPath": "C:/Program Files/PostgreSQL/18/bin/psql.exe"
   },
