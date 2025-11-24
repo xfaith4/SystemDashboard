@@ -1,12 +1,34 @@
 # System Dashboard Telemetry Stack
 
-A Windows-first operations telemetry stack that collects logs, enriches them with PowerShell, stores the data in PostgreSQL, and serves professional dashboards for investigation. The repository now ships with three primary components:
+A Windows-first operations telemetry stack that collects logs, enriches them with PowerShell, stores the data in PostgreSQL, and serves professional dashboards for investigation. The repository now ships with four primary components:
 
 1. **Telemetry Windows Service** (`services/SystemDashboardService.ps1`) – a long-running PowerShell service that listens for inbound syslog messages, polls ASUS routers for log exports, and hands batches to the ingestion helpers in `tools/SystemDashboard.Telemetry.psm1` for loading into PostgreSQL.
-2. **PowerShell HTTP listener** (`Start-SystemDashboard.ps1`/`.psm1`) – exposes metrics and can continue to serve the static dashboard located under `wwwroot/` when you want a lightweight view hosted on Windows.
-3. **Flask analytics UI** (`app/app.py`) – a richer dashboard experience that queries PostgreSQL directly, highlights actionable issues (IIS 5xx bursts, authentication storms, Windows event spikes, router anomalies), and provides drill-down views.
+2. **LAN Observability Collector** (`services/LanCollectorService.ps1`) – a dedicated service for network device monitoring that tracks device presence, signal strength, and behavior over time. See [LAN-OBSERVABILITY-README.md](LAN-OBSERVABILITY-README.md) for details.
+3. **PowerShell HTTP listener** (`Start-SystemDashboard.ps1`/`.psm1`) – exposes metrics and can continue to serve the static dashboard located under `wwwroot/` when you want a lightweight view hosted on Windows.
+4. **Flask analytics UI** (`app/app.py`) – a richer dashboard experience that queries PostgreSQL directly, highlights actionable issues (IIS 5xx bursts, authentication storms, Windows event spikes, router anomalies), and provides LAN device visibility and tracking.
 
 The service, ingestion helpers, and UI follow the project guidance of “PowerShell first” for orchestration and “PostgreSQL first-class” for storage. Scheduled tasks can still be layered on for Windows Event Log and IIS ingestion as described in the project charter.
+
+## New: LAN Observability
+
+The SystemDashboard now includes comprehensive network device monitoring:
+
+- **Device Inventory**: Tracks all devices (by MAC address) that have ever appeared on your network
+- **Time-Series Metrics**: Records signal strength (RSSI), transfer rates, and online/offline behavior  
+- **Syslog Correlation**: Links router events to specific devices for troubleshooting
+- **Web Dashboard**: Real-time visibility with charts and filtering at `/lan`
+
+To get started with LAN Observability:
+
+```powershell
+# Apply the database schema
+.\apply-lan-schema.ps1
+
+# Start the collector service  
+.\services\LanCollectorService.ps1
+```
+
+For complete documentation, see [LAN-OBSERVABILITY-README.md](LAN-OBSERVABILITY-README.md).
 
 ## Architecture
 
@@ -15,13 +37,15 @@ The service, ingestion helpers, and UI follow the project guidance of “PowerSh
 │ Windows endpoints  │  Syslog  │ SystemDashboard       │ COPY/SQL │ PostgreSQL (telemetry│
 │ IIS / Event logs   │────────▶│ Telemetry Service     │────────▶│ schema + partitions) │
 │ ASUS router        │  HTTPS  │  • UDP 514 listener    │          │  • syslog_generic_*  │
-│                    │────────▶│  • ASUS log poller     │          │  • materialized views │
+│                    │────────▶│  • ASUS log poller     │          │  • devices + snapshots│
+│                    │          │  • LAN collector       │          │  • materialized views │
 └────────────────────┘          │  • PowerShell ingest   │          └──────────────────────┘
                                 └──────────────────────┘                    │
                                                                                ▼
                                                                     ┌────────────────────┐
                                                                     │ IIS/static UI      │
                                                                     │ Flask analytics    │
+                                                                    │ LAN dashboard      │
                                                                     └────────────────────┘
 ```
 
