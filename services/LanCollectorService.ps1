@@ -69,9 +69,29 @@ function Get-DatabaseConnection {
         $connString = "Host=$dbHost;Port=$dbPort;Database=$dbName;Username=$dbUser;Password=$dbPassword;Timeout=30;"
         
         # Load Npgsql if not already loaded
-        $npgsqlPath = Join-Path ([System.IO.Path]::GetDirectoryName([System.Reflection.Assembly]::GetExecutingAssembly().Location)) "Npgsql.dll"
-        if (Test-Path $npgsqlPath) {
-            Add-Type -Path $npgsqlPath -ErrorAction SilentlyContinue
+        # Try common locations for Npgsql assembly
+        $npgsqlLocations = @(
+            (Join-Path ([System.IO.Path]::GetDirectoryName([System.Reflection.Assembly]::GetExecutingAssembly().Location)) "Npgsql.dll"),
+            (Join-Path $PSScriptRoot "..\lib\Npgsql.dll"),
+            "Npgsql.dll"  # Will use GAC or already loaded assembly
+        )
+        
+        $loaded = $false
+        foreach ($npgsqlPath in $npgsqlLocations) {
+            if (Test-Path $npgsqlPath) {
+                try {
+                    Add-Type -Path $npgsqlPath -ErrorAction Stop
+                    $loaded = $true
+                    break
+                } catch {
+                    # Try next location
+                }
+            }
+        }
+        
+        if (-not $loaded) {
+            Write-Log "Npgsql assembly not found. Please install it or place Npgsql.dll in the lib/ directory." -Level 'ERROR'
+            throw "Npgsql assembly not available"
         }
         
         $conn = New-Object Npgsql.NpgsqlConnection($connString)

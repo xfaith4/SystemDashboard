@@ -80,9 +80,12 @@ Three main pages:
 
 - PostgreSQL database (already configured for SystemDashboard)
 - PowerShell 7+
+- Npgsql assembly (for direct database connection in LanCollectorService)
+  - Place `Npgsql.dll` in a `lib/` directory, or
+  - Install via NuGet: `Install-Package Npgsql`
 - ASUS router with either:
   - HTTP access (web UI credentials)
-  - SSH access (requires Posh-SSH module)
+  - SSH access (requires Posh-SSH module: `Install-Module Posh-SSH`)
 
 ### Step 1: Apply Database Schema
 

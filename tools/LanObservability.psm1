@@ -274,7 +274,12 @@ function Invoke-RouterClientPoll {
     # Normalize MAC addresses to consistent format (uppercase with colons)
     foreach ($client in $clients) {
         if ($client.MacAddress) {
-            $client.MacAddress = $client.MacAddress.ToUpper() -replace '[^0-9A-F]', '' -replace '(..)(?=.)', '$1:'
+            # First, remove all non-hex characters to get a clean hex string
+            $hexOnly = $client.MacAddress.ToUpper() -replace '[^0-9A-F]', ''
+            # Then add colons between each pair of characters
+            if ($hexOnly.Length -eq 12) {
+                $client.MacAddress = $hexOnly -replace '(..)(?=.)', '$1:'
+            }
         }
     }
     
