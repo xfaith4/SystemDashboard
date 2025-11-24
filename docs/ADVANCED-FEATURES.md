@@ -163,7 +163,9 @@ Start-HealthMonitoring -IntervalMinutes 15
 - **Syslog Entries**: 6+ records (UDP listener active on port 5514)
 - **Database Size**: Optimized with partitioning
 - **Free Disk Space**: 4,455 GB (60% available)
-- **Syslog Listener**: ✅ Active and receiving messages## 🚀 Quick Start Commands
+- **Syslog Listener**: ✅ Active and receiving messages
+
+## 🚀 Quick Start Commands
 
 ### Check System Health
 ```powershell
