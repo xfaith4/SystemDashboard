@@ -1,16 +1,20 @@
 {% extends 'base.html' %}
+{% block title %}NOC Dashboard - LAN Devices{% endblock %}
 {% block content %}
-<section class="dashboard lan-devices-page">
+<section class="page-container">
     <header class="dashboard-header">
-        <h1>LAN Devices</h1>
-        <p class="subtitle">Complete device inventory and history</p>
+        <div>
+            <h1>LAN Devices</h1>
+            <p class="subtitle">Complete device inventory and history</p>
+        </div>
+        <a href="/lan" class="btn-secondary">← Back to Overview</a>
     </header>
 
     <!-- Filters -->
-    <section class="filters-section">
+    <section class="filters-panel">
         <div class="filters">
             <label>
-                Status:
+                <span>Status</span>
                 <select id="filter-state" onchange="applyFilters()">
                     <option value="">All Devices</option>
                     <option value="active" selected>Active Only</option>
@@ -18,7 +22,7 @@
                 </select>
             </label>
             <label>
-                Interface:
+                <span>Interface</span>
                 <select id="filter-interface" onchange="applyFilters()">
                     <option value="">All Interfaces</option>
                     <option value="wired">Wired</option>
@@ -26,36 +30,36 @@
                 </select>
             </label>
             <label>
-                Search:
+                <span>Search</span>
                 <input type="text" id="search-text" placeholder="Hostname, IP, or MAC" onkeyup="applySearch()" />
             </label>
         </div>
     </section>
 
     <!-- Devices Table -->
-    <section class="content-section">
+    <section class="panel">
         <div class="table-container">
             <table class="data-table" id="devices-table">
                 <thead>
                     <tr>
                         <th>Status</th>
-                        <th>Hostname / Nickname</th>
+                        <th>Device Name</th>
                         <th>IP Address</th>
                         <th>MAC Address</th>
                         <th>Vendor</th>
                         <th>Location</th>
                         <th>Interface</th>
-                        <th>RSSI</th>
-                        <th>Tx / Rx (Mbps)</th>
+                        <th>Signal</th>
+                        <th>Rates (Tx/Rx)</th>
                         <th>Lease</th>
                         <th>First Seen</th>
                         <th>Last Seen</th>
-                        <th>Actions</th>
+                        <th></th>
                     </tr>
                 </thead>
                 <tbody id="devices-body">
                     <tr>
-                        <td colspan="9" class="loading">Loading devices...</td>
+                        <td colspan="100%" class="loading">Loading devices...</td>
                     </tr>
                 </tbody>
             </table>
@@ -74,7 +78,7 @@ let currentFilters = {
 function formatTimestamp(isoString) {
     if (!isoString) return '--';
     const date = new Date(isoString);
-    return date.toLocaleString();
+    return date.toLocaleDateString();
 }
 
 async function loadDevices() {
@@ -94,14 +98,13 @@ async function loadDevices() {
     } catch (error) {
         console.error('Failed to load devices:', error);
         document.getElementById('devices-body').innerHTML = 
-            '<tr><td colspan="9" class="error">Error loading devices</td></tr>';
+            '<tr><td colspan="100%" class="empty">Error loading devices</td></tr>';
     }
 }
 
 function renderDevices() {
     const tbody = document.getElementById('devices-body');
     
-    // Apply search filter
     let filteredDevices = allDevices;
     if (currentFilters.search) {
         const searchLower = currentFilters.search.toLowerCase();
@@ -114,7 +117,7 @@ function renderDevices() {
     }
     
     if (filteredDevices.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="9" class="empty">No devices found</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="100%" class="empty">No devices found matching your criteria</td></tr>';
         return;
     }
     
@@ -131,7 +134,7 @@ function renderDevices() {
             <tr>
                 <td><span class="status-badge ${statusClass}">${statusText}</span></td>
                 <td><strong>${displayName}</strong></td>
-                <td>${device.primary_ip_address || '--'}</td>
+                <td><code>${device.primary_ip_address || '--'}</code></td>
                 <td><code>${device.mac_address}</code></td>
                 <td>${device.vendor || '--'}</td>
                 <td>${device.location || '--'}</td>
@@ -141,7 +144,7 @@ function renderDevices() {
                 <td>${lease}</td>
                 <td>${formatTimestamp(device.first_seen_utc)}</td>
                 <td>${formatTimestamp(device.last_seen_utc)}</td>
-                <td><a href="/lan/device/${device.device_id}" class="btn-link">View</a></td>
+                <td><a href="/lan/device/${device.device_id}" class="btn-link">View →</a></td>
             </tr>
         `;
     }).join('');
@@ -158,140 +161,63 @@ function applySearch() {
     renderDevices();
 }
 
-// Initial load
 document.addEventListener('DOMContentLoaded', () => {
     loadDevices();
 });
 </script>
 
 <style>
-.lan-devices-page {
-    max-width: 1600px;
+.page-container {
+    max-width: 1800px;
     margin: 0 auto;
-    padding: 2rem;
-    color: #e5e7f3;
 }
 
-.filters-section {
-    background: #12182a;
-    padding: 1.5rem;
-    border-radius: 8px;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.35);
-    border: 1px solid #1f2642;
-    margin: 2rem 0;
+.filters-panel {
+    background: var(--bg-card);
+    padding: var(--space-lg);
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border-subtle);
+    margin-bottom: var(--space-lg);
 }
 
 .filters {
     display: flex;
-    gap: 1.5rem;
+    gap: var(--space-xl);
     flex-wrap: wrap;
 }
 
 .filters label {
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
+    gap: var(--space-sm);
+}
+
+.filters label span {
+    font-size: 0.85rem;
     font-weight: 500;
+    color: var(--text-secondary);
 }
 
 .filters select,
 .filters input[type="text"] {
-    padding: 0.5rem;
-    border: 1px solid #2a3553;
-    border-radius: 4px;
-    font-size: 0.95rem;
+    padding: var(--space-sm) var(--space-md);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-md);
+    color: var(--text-primary);
+    font-size: 0.9rem;
     min-width: 200px;
-    background: #0f1322;
-    color: #e2e8f0;
 }
 
-.content-section {
-    background: #12182a;
-    padding: 2rem;
-    border-radius: 8px;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.35);
-    border: 1px solid #1f2642;
-    margin: 2rem 0;
+.filters select:focus,
+.filters input[type="text"]:focus {
+    outline: none;
+    border-color: var(--accent-primary);
+    box-shadow: 0 0 0 3px var(--accent-glow);
 }
 
 .table-container {
     overflow-x: auto;
-}
-
-.data-table {
-    width: 100%;
-    border-collapse: collapse;
-    color: #e5e7eb;
-}
-
-.data-table th {
-    background: #182038;
-    padding: 0.75rem;
-    text-align: left;
-    font-weight: 600;
-    border-bottom: 1px solid #242f4b;
-    white-space: nowrap;
-}
-
-.data-table td {
-    padding: 0.75rem;
-    border-bottom: 1px solid #1d2438;
-}
-
-.data-table code {
-    background: #1f263d;
-    padding: 0.35rem 0.6rem;
-    border-radius: 4px;
-    font-size: 0.85rem;
-    color: #e0e7ff;
-}
-
-.status-badge {
-    display: inline-block;
-    padding: 0.25rem 0.75rem;
-    border-radius: 12px;
-    font-size: 0.85rem;
-    font-weight: 600;
-}
-
-.status-active {
-    background: #0fbe86;
-    color: #042014;
-}
-
-.status-inactive {
-    background: #f87171;
-    color: #2f0a0a;
-}
-
-.badge {
-    display: inline-block;
-    padding: 0.25rem 0.75rem;
-    background: #1f263d;
-    border-radius: 12px;
-    font-size: 0.85rem;
-    font-weight: 600;
-    color: #e5e7eb;
-}
-
-.btn-link {
-    color: #9fb6ff;
-    text-decoration: none;
-    font-weight: 500;
-}
-
-.btn-link:hover {
-    text-decoration: underline;
-}
-
-.loading, .empty, .error {
-    text-align: center;
-    padding: 2rem;
-    color: #cbd5f5;
-}
-
-.error {
-    color: #fca5a5;
 }
 </style>
 {% endblock %}

@@ -1,50 +1,63 @@
 {% extends 'base.html' %}
+{% block title %}NOC Dashboard - LAN Overview{% endblock %}
 {% block content %}
-<section class="dashboard lan-dashboard">
+<section class="page-container">
     <header class="dashboard-header">
-        <h1>LAN Observability Overview</h1>
-        <p class="subtitle">Real-time network device monitoring and tracking</p>
+        <div>
+            <h1>LAN Observability</h1>
+            <p class="subtitle">Real-time network device monitoring and tracking</p>
+        </div>
+        <a href="/lan/devices" class="btn-secondary">View All Devices →</a>
     </header>
 
     <!-- Summary Stats Cards -->
-    <div class="stats-grid">
-        <article class="stat-card">
-            <h3>Total Devices</h3>
+    <div class="kpi-grid">
+        <article class="kpi-card">
+            <h2>Total Devices</h2>
             <p class="metric" id="total-devices">--</p>
             <p class="detail">Ever seen on network</p>
         </article>
-        <article class="stat-card active">
-            <h3>Active Now</h3>
+        <article class="kpi-card active-card">
+            <h2>Active Now</h2>
             <p class="metric" id="active-devices">--</p>
             <p class="detail">Currently online</p>
         </article>
-        <article class="stat-card">
-            <h3>Wired Devices</h3>
+        <article class="kpi-card">
+            <h2>Wired</h2>
             <p class="metric" id="wired-devices">--</p>
             <p class="detail">Last 24 hours</p>
         </article>
-        <article class="stat-card">
-            <h3>2.4 GHz WiFi</h3>
+        <article class="kpi-card">
+            <h2>2.4 GHz Wi-Fi</h2>
             <p class="metric" id="wifi-24-devices">--</p>
             <p class="detail">Last 24 hours</p>
         </article>
-        <article class="stat-card">
-            <h3>5 GHz WiFi</h3>
+        <article class="kpi-card">
+            <h2>5 GHz Wi-Fi</h2>
             <p class="metric" id="wifi-5-devices">--</p>
             <p class="detail">Last 24 hours</p>
         </article>
-        <article class="stat-card">
-            <h3>Inactive</h3>
+        <article class="kpi-card">
+            <h2>Inactive</h2>
             <p class="metric" id="inactive-devices">--</p>
             <p class="detail">Not recently seen</p>
         </article>
     </div>
 
     <!-- Currently Online Devices -->
-    <section class="content-section">
-        <header class="section-header">
-            <h2>Currently Online Devices</h2>
-            <button onclick="refreshOnlineDevices()" class="btn-refresh">Refresh</button>
+    <section class="panel">
+        <header class="panel-header">
+            <div>
+                <h2>Currently Online Devices</h2>
+                <p class="muted">Auto-refreshes every 30 seconds</p>
+            </div>
+            <button onclick="refreshOnlineDevices()" class="btn-refresh">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="23 4 23 10 17 10"/>
+                    <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+                </svg>
+                Refresh
+            </button>
         </header>
         <div class="table-container">
             <table class="data-table" id="online-devices-table">
@@ -54,7 +67,7 @@
                         <th>IP Address</th>
                         <th>MAC Address</th>
                         <th>Interface</th>
-                        <th>RSSI</th>
+                        <th>Signal (RSSI)</th>
                         <th>Last Seen</th>
                         <th>Actions</th>
                     </tr>
@@ -68,20 +81,21 @@
         </div>
     </section>
 
-    <!-- Recent Issues Widget -->
-    <section class="content-section">
-        <header class="section-header">
-            <h2>Potential Issues</h2>
-            <p class="subtitle-sm">Devices with connectivity problems or weak signal</p>
+    <!-- Potential Issues Widget -->
+    <section class="panel">
+        <header class="panel-header">
+            <div>
+                <h2>Potential Issues</h2>
+                <p class="muted">Devices with connectivity problems or weak signal</p>
+            </div>
         </header>
         <div id="issues-container">
-            <p class="muted">Checking for issues...</p>
+            <p class="muted">Analyzing network health...</p>
         </div>
     </section>
 </section>
 
 <script>
-// Auto-refresh every 30 seconds
 let refreshTimer;
 
 function formatTimestamp(isoString) {
@@ -100,8 +114,21 @@ function formatTimestamp(isoString) {
 
 function formatRssi(rssi) {
     if (!rssi) return '--';
-    const strength = rssi >= -50 ? 'excellent' : rssi >= -60 ? 'good' : rssi >= -70 ? 'fair' : 'poor';
-    return `${rssi} dBm (${strength})`;
+    let strength, badgeClass;
+    if (rssi >= -50) {
+        strength = 'Excellent';
+        badgeClass = 'badge-success';
+    } else if (rssi >= -60) {
+        strength = 'Good';
+        badgeClass = 'badge-success';
+    } else if (rssi >= -70) {
+        strength = 'Fair';
+        badgeClass = 'badge-warning';
+    } else {
+        strength = 'Poor';
+        badgeClass = 'badge-error';
+    }
+    return `<span class="badge ${badgeClass}">${rssi} dBm</span> <span class="muted">${strength}</span>`;
 }
 
 async function loadStats() {
@@ -130,27 +157,27 @@ async function loadOnlineDevices() {
         
         if (devices.length === 0) {
             tbody.innerHTML = '<tr><td colspan="7" class="empty">No devices currently online</td></tr>';
+            checkForIssues([]);
             return;
         }
         
         tbody.innerHTML = devices.map(device => `
             <tr>
-                <td>${device.hostname || device.mac_address}</td>
-                <td>${device.current_ip || device.primary_ip_address || '--'}</td>
+                <td><strong>${device.hostname || device.mac_address}</strong></td>
+                <td><code>${device.current_ip || device.primary_ip_address || '--'}</code></td>
                 <td><code>${device.mac_address}</code></td>
                 <td><span class="badge">${device.current_interface || '--'}</span></td>
                 <td>${device.current_rssi ? formatRssi(device.current_rssi) : '--'}</td>
                 <td>${formatTimestamp(device.last_seen_utc)}</td>
-                <td><a href="/lan/device/${device.device_id}" class="btn-link">Details</a></td>
+                <td><a href="/lan/device/${device.device_id}" class="btn-link">Details →</a></td>
             </tr>
         `).join('');
         
-        // Check for issues
         checkForIssues(devices);
     } catch (error) {
         console.error('Failed to load online devices:', error);
         document.getElementById('online-devices-body').innerHTML = 
-            '<tr><td colspan="7" class="error">Error loading devices</td></tr>';
+            '<tr><td colspan="7" class="empty">Error loading devices</td></tr>';
     }
 }
 
@@ -158,11 +185,10 @@ function checkForIssues(devices) {
     const issues = [];
     
     devices.forEach(device => {
-        // Check for weak signal
         if (device.current_rssi && device.current_rssi < -70) {
             issues.push({
                 device: device.hostname || device.mac_address,
-                issue: `Weak signal: ${device.current_rssi} dBm`,
+                issue: `Weak signal strength: ${device.current_rssi} dBm`,
                 severity: 'warning'
             });
         }
@@ -171,7 +197,7 @@ function checkForIssues(devices) {
     const issuesContainer = document.getElementById('issues-container');
     
     if (issues.length === 0) {
-        issuesContainer.innerHTML = '<p class="success">No issues detected</p>';
+        issuesContainer.innerHTML = '<div class="success-message"><span class="status-indicator"></span> All devices operating normally</div>';
     } else {
         issuesContainer.innerHTML = '<ul class="issues-list">' + 
             issues.map(i => `
@@ -198,166 +224,71 @@ function stopAutoRefresh() {
     }
 }
 
-// Initial load
 document.addEventListener('DOMContentLoaded', () => {
     loadStats();
     loadOnlineDevices();
     startAutoRefresh();
 });
 
-// Stop refresh when leaving page
 window.addEventListener('beforeunload', stopAutoRefresh);
 </script>
 
 <style>
-.lan-dashboard {
-    max-width: 1400px;
+.page-container {
+    max-width: 1600px;
     margin: 0 auto;
-    padding: 2rem;
-    color: #e5e7f3;
 }
 
-.stats-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 1.5rem;
-    margin: 2rem 0;
+.active-card {
+    background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary)) !important;
+    border-color: transparent !important;
 }
 
-.stat-card {
-    background: #12182a;
-    padding: 1.5rem;
-    border-radius: 10px;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.35);
-    text-align: center;
-    border: 1px solid #1f2642;
-    color: #e5e7f3;
+.active-card h2,
+.active-card .metric,
+.active-card .detail {
+    color: white !important;
 }
 
-.stat-card.active {
-    background: linear-gradient(135deg, #4f6af0 0%, #7b6cff 100%);
-    color: #f8fafc;
+.active-card::before {
+    display: none;
 }
 
-.stat-card h3 {
-    margin: 0 0 0.5rem 0;
-    font-size: 0.9rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    opacity: 0.8;
-}
-
-.stat-card .metric {
-    font-size: 2.5rem;
-    font-weight: bold;
-    margin: 0.5rem 0;
-}
-
-.stat-card .detail {
-    font-size: 0.85rem;
-    opacity: 0.8;
-    margin: 0;
-}
-
-.content-section {
-    background: #12182a;
-    padding: 2rem;
-    border-radius: 10px;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.35);
-    border: 1px solid #1f2642;
-    margin: 2rem 0;
-}
-
-.section-header {
+.panel-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 1.5rem;
+    margin-bottom: var(--space-md);
+    padding-bottom: var(--space-sm);
+    border-bottom: 1px solid var(--border-subtle);
 }
 
-.section-header h2 {
+.panel-header h2 {
     margin: 0;
-    font-size: 1.5rem;
-}
-
-.btn-refresh {
-    padding: 0.6rem 1.1rem;
-    background: #4f6af0;
-    color: #f8fafc;
-    border: 1px solid #6c83ff;
-    border-radius: 6px;
-    cursor: pointer;
-    font-weight: 600;
-}
-
-.btn-refresh:hover {
-    background: #3c55d6;
+    border: none;
+    padding: 0;
 }
 
 .table-container {
     overflow-x: auto;
 }
 
-.data-table {
-    width: 100%;
-    border-collapse: collapse;
-    color: #e5e7eb;
-}
-
-.data-table th {
-    background: #182038;
-    padding: 0.75rem;
-    text-align: left;
-    font-weight: 600;
-    border-bottom: 1px solid #242f4b;
-}
-
-.data-table td {
-    padding: 0.75rem;
-    border-bottom: 1px solid #1d2438;
-}
-
-.data-table code {
-    background: #1f263d;
-    padding: 0.35rem 0.6rem;
-    border-radius: 4px;
-    font-size: 0.85rem;
-    color: #e0e7ff;
-}
-
-.badge {
-    display: inline-block;
-    padding: 0.25rem 0.75rem;
-    background: #1f263d;
-    border-radius: 12px;
-    font-size: 0.85rem;
-    font-weight: 600;
-    color: #e5e7eb;
-}
-
-.btn-link {
-    color: #9fb6ff;
-    text-decoration: none;
+.success-message {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    color: var(--status-healthy);
     font-weight: 500;
+    padding: var(--space-md);
+    background: var(--status-healthy-bg);
+    border-radius: var(--radius-md);
 }
 
-.btn-link:hover {
-    text-decoration: underline;
-}
-
-.loading, .empty, .error {
-    text-align: center;
-    padding: 2rem;
-    color: #cbd5f5;
-}
-
-.error {
-    color: #fca5a5;
-}
-
-.success {
-    color: #34d399;
-    font-weight: 500;
+.success-message .status-indicator {
+    width: 8px;
+    height: 8px;
+    background: var(--status-healthy);
+    border-radius: 50%;
 }
 
 .issues-list {
@@ -367,21 +298,22 @@ window.addEventListener('beforeunload', stopAutoRefresh);
 }
 
 .issue-item {
-    padding: 0.75rem;
-    margin: 0.5rem 0;
-    border-radius: 4px;
+    padding: var(--space-sm) var(--space-md);
+    margin: var(--space-sm) 0;
+    border-radius: var(--radius-md);
     border-left: 4px solid;
 }
 
 .issue-item.warning {
-    background: #fef5e7;
-    border-color: #f39c12;
+    background: var(--status-warning-bg);
+    border-color: var(--status-warning);
+    color: var(--status-warning);
 }
 
-.subtitle-sm {
-    font-size: 0.9rem;
-    color: #718096;
-    margin: 0;
+.issue-item.error {
+    background: var(--status-critical-bg);
+    border-color: var(--status-critical);
+    color: var(--status-critical);
 }
 </style>
 {% endblock %}

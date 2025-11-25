@@ -1,21 +1,82 @@
 {% extends 'base.html' %}
+{% block title %}NOC Dashboard - Wi-Fi Clients{% endblock %}
 {% block content %}
-<h1>Wi-Fi Clients</h1>
-{% if clients %}
-<table class="data-table">
-    <thead><tr><th>MAC</th><th>Hostname</th><th>IP</th><th>Packets</th></tr></thead>
-    <tbody>
-    {% for c in clients %}
-        <tr class="{% if c.packets > threshold %}chatty{% endif %}">
-            <td>{{ c.mac }}</td>
-            <td>{{ c.hostname }}</td>
-            <td>{{ c.ip }}</td>
-            <td>{{ c.packets }}</td>
-        </tr>
-    {% endfor %}
-    </tbody>
-</table>
-{% else %}
-<p>No Wi-Fi clients found.</p>
-{% endif %}
+<section class="page-container">
+    <header class="dashboard-header">
+        <div>
+            <h1>Wi-Fi Clients</h1>
+            <p class="subtitle">Connected wireless devices and traffic analysis</p>
+        </div>
+    </header>
+
+    <div class="kpi-grid">
+        <article class="kpi-card">
+            <h2>Total Clients</h2>
+            <p class="metric">{{ clients|length }}</p>
+            <p class="detail">Connected devices</p>
+        </article>
+        <article class="kpi-card{% if clients|selectattr('packets', 'gt', threshold)|list|length > 0 %} warning{% endif %}">
+            <h2>High Traffic</h2>
+            <p class="metric">{{ clients|selectattr('packets', 'gt', threshold)|list|length }}</p>
+            <p class="detail">Above {{ threshold }} packets</p>
+        </article>
+    </div>
+
+    <section class="panel">
+        <h2>Client List</h2>
+        {% if clients %}
+        <div class="table-container">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>MAC Address</th>
+                        <th>Hostname</th>
+                        <th>IP Address</th>
+                        <th>Packets</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for c in clients %}
+                    <tr{% if c.packets > threshold %} class="chatty"{% endif %}>
+                        <td><code>{{ c.mac }}</code></td>
+                        <td>{{ c.hostname or '—' }}</td>
+                        <td><code>{{ c.ip }}</code></td>
+                        <td>{{ c.packets }}</td>
+                        <td>
+                            {% if c.packets > threshold %}
+                            <span class="badge badge-warning">High Traffic</span>
+                            {% else %}
+                            <span class="badge badge-success">Normal</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="empty">No Wi-Fi clients currently connected</p>
+        {% endif %}
+    </section>
+</section>
+
+<style>
+.page-container {
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.table-container {
+    overflow-x: auto;
+}
+
+.data-table tr.chatty {
+    background: var(--status-warning-bg);
+}
+
+.data-table tr.chatty td {
+    color: var(--status-warning);
+}
+</style>
 {% endblock %}

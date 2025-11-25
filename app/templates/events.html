@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% block title %}NOC Dashboard - System Events{% endblock %}
 {% block content %}
 <section class="events-page">
   <header class="dashboard-header">
@@ -68,40 +69,128 @@
     <section class="content-section">
       <header class="section-header">
         <div>
-          <h2>Recent Events</h2>
-          <p class="muted">Last 200 events (paginate to go back)</p>
+            <h1>System Events</h1>
+            <p class="subtitle">Windows and router event log monitoring</p>
         </div>
-      <div class="table-actions">
-        <button class="btn-refresh" onclick="prevPage()">Prev</button>
-        <span id="pageIndicator" class="muted">Page 1</span>
-        <button class="btn-refresh" onclick="nextPage()">Next</button>
-        <button class="btn-refresh" onclick="refreshEvents()">Refresh</button>
-      </div>
-      </header>
-    <div class="table-controls">
-      <label>Sort by:
-        <select id="sortField">
-          <option value="time">Time</option>
-          <option value="level">Level</option>
-          <option value="source">Source</option>
-        </select>
-      </label>
-      <label>Order:
-        <select id="sortDir">
-          <option value="desc">Descending</option>
-          <option value="asc">Ascending</option>
-        </select>
-      </label>
+        <div class="toolbar">
+            <input id="searchInput" type="search" placeholder="Search messages, sources..." />
+            <select id="levelFilter" title="Filter by event level">
+                <option value="">All Levels</option>
+                <option value="Error">Error</option>
+                <option value="Warning">Warning</option>
+                <option value="Information">Information</option>
+            </select>
+            <button class="btn-refresh" id="refreshBtn">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="23 4 23 10 17 10"/>
+                    <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+                </svg>
+                Refresh
+            </button>
+        </div>
+    </header>
+
+    <div id="data-source" class="info-banner hidden"></div>
+
+    <!-- Stats Summary Cards -->
+    <div class="kpi-grid">
+        <article class="kpi-card">
+            <h2>Total Events</h2>
+            <p class="metric" id="stat-total">--</p>
+            <p class="detail">Events loaded</p>
+        </article>
+        <article class="kpi-card">
+            <h2>Auth / Login</h2>
+            <p class="metric" id="stat-auth">--</p>
+            <p class="detail">Authentication events</p>
+        </article>
+        <article class="kpi-card">
+            <h2>Disk / IO</h2>
+            <p class="metric" id="stat-disk">--</p>
+            <p class="detail">Storage related</p>
+        </article>
+        <article class="kpi-card">
+            <h2>Network</h2>
+            <p class="metric" id="stat-net">--</p>
+            <p class="detail">Network events</p>
+        </article>
     </div>
-    <div class="table-container">
-      <table class="data-table" id="eventsTable">
-        <thead><tr><th>Time</th><th>Level</th><th>Source</th><th>Message</th></tr></thead>
-        <tbody id="eventsBody">
-          <tr><td colspan="4" class="loading">Loading...</td></tr>
-        </tbody>
-      </table>
+
+    <!-- Charts Grid -->
+    <div class="charts-grid">
+        <section class="chart-card">
+            <header class="chart-header">
+                <h3>Severity Distribution</h3>
+                <div class="range-selector">
+                    <select id="rangeHours">
+                        <option value="1">1h</option>
+                        <option value="6">6h</option>
+                        <option value="24" selected>24h</option>
+                        <option value="72">3d</option>
+                        <option value="168">7d</option>
+                    </select>
+                </div>
+            </header>
+            <div class="chart-container"><canvas id="chart-severity"></canvas></div>
+        </section>
+        <section class="chart-card">
+            <h3>Top Sources</h3>
+            <div class="chart-container"><canvas id="chart-sources"></canvas></div>
+        </section>
+        <section class="chart-card">
+            <h3>Keyword Analysis</h3>
+            <div class="chart-container"><canvas id="chart-keywords"></canvas></div>
+        </section>
+        <section class="chart-card full-span">
+            <h3>Severity Over Time</h3>
+            <div class="chart-container chart-wide"><canvas id="chart-severity-trend"></canvas></div>
+        </section>
     </div>
-  </section>
+
+    <!-- Events Table -->
+    <section class="panel">
+        <header class="panel-header">
+            <div>
+                <h2>Recent Events</h2>
+                <p class="muted">Displaying last 200 events</p>
+            </div>
+            <div class="table-actions">
+                <button class="btn-secondary" onclick="prevPage()">← Prev</button>
+                <span id="pageIndicator" class="page-indicator">Page 1</span>
+                <button class="btn-secondary" onclick="nextPage()">Next →</button>
+            </div>
+        </header>
+        <div class="table-controls">
+            <label>Sort by:
+                <select id="sortField">
+                    <option value="time">Time</option>
+                    <option value="level">Level</option>
+                    <option value="source">Source</option>
+                </select>
+            </label>
+            <label>Order:
+                <select id="sortDir">
+                    <option value="desc">Newest First</option>
+                    <option value="asc">Oldest First</option>
+                </select>
+            </label>
+        </div>
+        <div class="table-container">
+            <table class="data-table" id="eventsTable">
+                <thead>
+                    <tr>
+                        <th>Timestamp</th>
+                        <th>Level</th>
+                        <th>Source</th>
+                        <th>Message</th>
+                    </tr>
+                </thead>
+                <tbody id="eventsBody">
+                    <tr><td colspan="4" class="loading">Loading events...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
 </section>
 
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/gridstack/dist/gridstack.min.css">
@@ -114,193 +203,216 @@ let currentPage = 1;
 let rangeHours = 24;
 let grid;
 
+const chartColors = {
+    error: '#ef4444',
+    warning: '#f59e0b',
+    info: '#3b82f6',
+    default: '#6366f1'
+};
+
+const chartOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: { 
+        legend: { display: false }
+    },
+    scales: {
+        y: { 
+            beginAtZero: true, 
+            grid: { color: 'rgba(255,255,255,0.05)' }, 
+            ticks: { color: '#94a3b8' } 
+        },
+        x: { 
+            grid: { color: 'rgba(255,255,255,0.05)' }, 
+            ticks: { color: '#94a3b8' } 
+        }
+    }
+};
+
 function formatTime(value) {
-  if (!value) return '--';
-  const dt = new Date(value);
-  return dt.toLocaleString();
+    if (!value) return '--';
+    const dt = new Date(value);
+    return dt.toLocaleString();
 }
 
 async function loadSummary() {
-  const res = await fetch(`/api/events/summary?max=500&since_hours=${rangeHours}`);
-  const data = await res.json();
-  updateSourceBanner(data.source);
-  document.getElementById('stat-total').textContent = data.total || 0;
-  document.getElementById('stat-auth').textContent = data.keyword_counts?.auth ?? 0;
-  document.getElementById('stat-disk').textContent = data.keyword_counts?.disk ?? 0;
-  document.getElementById('stat-net').textContent = data.keyword_counts?.network ?? 0;
+    const res = await fetch(`/api/events/summary?max=500&since_hours=${rangeHours}`);
+    const data = await res.json();
+    updateSourceBanner(data.source);
+    document.getElementById('stat-total').textContent = data.total || 0;
+    document.getElementById('stat-auth').textContent = data.keyword_counts?.auth ?? 0;
+    document.getElementById('stat-disk').textContent = data.keyword_counts?.disk ?? 0;
+    document.getElementById('stat-net').textContent = data.keyword_counts?.network ?? 0;
 
-  const sevLabelsRaw = Object.keys(data.severity_counts || {});
-  const sevValuesRaw = sevLabelsRaw.map(k => data.severity_counts[k]);
-  const sevLabels = sevLabelsRaw.length ? sevLabelsRaw : ['No data'];
-  const sevValues = sevValuesRaw.length ? sevValuesRaw : [0];
-  renderBar('severity', sevLabels, sevValues, 'Events');
+    const sevLabelsRaw = Object.keys(data.severity_counts || {});
+    const sevValuesRaw = sevLabelsRaw.map(k => data.severity_counts[k]);
+    const sevLabels = sevLabelsRaw.length ? sevLabelsRaw : ['No data'];
+    const sevValues = sevValuesRaw.length ? sevValuesRaw : [0];
+    renderBar('severity', sevLabels, sevValues, 'Events');
 
-  const srcLabelsRaw = (data.sources_top || []).map(x => x.key);
-  const srcValuesRaw = (data.sources_top || []).map(x => x.count);
-  const srcLabels = srcLabelsRaw.length ? srcLabelsRaw : ['No data'];
-  const srcValues = srcValuesRaw.length ? srcValuesRaw : [0];
-  renderBar('sources', srcLabels, srcValues, 'Events');
+    const srcLabelsRaw = (data.sources_top || []).map(x => x.key);
+    const srcValuesRaw = (data.sources_top || []).map(x => x.count);
+    const srcLabels = srcLabelsRaw.length ? srcLabelsRaw : ['No data'];
+    const srcValues = srcValuesRaw.length ? srcValuesRaw : [0];
+    renderBar('sources', srcLabels, srcValues, 'Events');
 
-  const kwLabelsRaw = Object.keys(data.keyword_counts || {});
-  const kwValuesRaw = kwLabelsRaw.map(k => data.keyword_counts[k]);
-  const kwLabels = kwLabelsRaw.length ? kwLabelsRaw : ['No data'];
-  const kwValues = kwValuesRaw.length ? kwValuesRaw : [0];
-  renderBar('keywords', kwLabels, kwValues, 'Hits');
+    const kwLabelsRaw = Object.keys(data.keyword_counts || {});
+    const kwValuesRaw = kwLabelsRaw.map(k => data.keyword_counts[k]);
+    const kwLabels = kwLabelsRaw.length ? kwLabelsRaw : ['No data'];
+    const kwValues = kwValuesRaw.length ? kwValuesRaw : [0];
+    renderBar('keywords', kwLabels, kwValues, 'Hits');
 
-  // Trend data
-  const trend = data.severity_timeline || [];
-  const labels = trend.map(p => p.bucket || '');
-  const err = trend.map(p => p.error || 0);
-  const warn = trend.map(p => p.warning || 0);
-  const info = trend.map(p => p.information || 0);
-  renderLineTrend(labels, err, warn, info);
+    const trend = data.severity_timeline || [];
+    const labels = trend.map(p => p.bucket ? new Date(p.bucket).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '');
+    const err = trend.map(p => p.error || 0);
+    const warn = trend.map(p => p.warning || 0);
+    const info = trend.map(p => p.information || 0);
+    renderLineTrend(labels, err, warn, info);
 }
 
 async function loadEvents() {
-  const res = await fetch(`/api/events?max=200&page=${currentPage}&since_hours=${rangeHours}`);
-  const data = await res.json();
-  currentEvents = data.events || [];
-  updateSourceBanner(data.source);
-  renderTable();
-  updatePageIndicator();
+    const res = await fetch(`/api/events?max=200&page=${currentPage}&since_hours=${rangeHours}`);
+    const data = await res.json();
+    currentEvents = data.events || [];
+    updateSourceBanner(data.source);
+    renderTable();
+    updatePageIndicator();
 }
 
 function renderTable() {
-  const tbody = document.getElementById('eventsBody');
-  const search = document.getElementById('searchInput').value.toLowerCase();
-  const level = document.getElementById('levelFilter').value;
-  const sortField = document.getElementById('sortField').value;
-  const sortDir = document.getElementById('sortDir').value;
+    const tbody = document.getElementById('eventsBody');
+    const search = document.getElementById('searchInput').value.toLowerCase();
+    const level = document.getElementById('levelFilter').value;
+    const sortField = document.getElementById('sortField').value;
+    const sortDir = document.getElementById('sortDir').value;
 
-  let filtered = currentEvents;
-  if (search) {
-    filtered = filtered.filter(e =>
-      (e.message && e.message.toLowerCase().includes(search)) ||
-      (e.source && e.source.toLowerCase().includes(search))
-    );
-  }
-  if (level) {
-    filtered = filtered.filter(e => (e.level || '').toLowerCase().includes(level.toLowerCase()));
-  }
-
-  filtered = filtered.slice().sort((a, b) => {
-    const dir = sortDir === 'asc' ? 1 : -1;
-    if (sortField === 'time') {
-      const ta = new Date(a.time || 0).getTime();
-      const tb = new Date(b.time || 0).getTime();
-      return (ta - tb) * dir;
+    let filtered = currentEvents;
+    if (search) {
+        filtered = filtered.filter(e =>
+            (e.message && e.message.toLowerCase().includes(search)) ||
+            (e.source && e.source.toLowerCase().includes(search))
+        );
     }
-    if (sortField === 'level') {
-      return (a.level || '').localeCompare(b.level || '') * dir;
+    if (level) {
+        filtered = filtered.filter(e => (e.level || '').toLowerCase().includes(level.toLowerCase()));
     }
-    if (sortField === 'source') {
-      return (a.source || '').localeCompare(b.source || '') * dir;
+
+    filtered = filtered.slice().sort((a, b) => {
+        const dir = sortDir === 'asc' ? 1 : -1;
+        if (sortField === 'time') {
+            return (new Date(a.time || 0).getTime() - new Date(b.time || 0).getTime()) * dir;
+        }
+        if (sortField === 'level') {
+            return (a.level || '').localeCompare(b.level || '') * dir;
+        }
+        if (sortField === 'source') {
+            return (a.source || '').localeCompare(b.source || '') * dir;
+        }
+        return 0;
+    });
+
+    if (filtered.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" class="empty">No events found matching your criteria</td></tr>';
+        return;
     }
-    return 0;
-  });
 
-  if (filtered.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="4" class="empty">No events found.</td></tr>';
-    return;
-  }
-
-  tbody.innerHTML = filtered.map(e => `
-    <tr>
-      <td>${formatTime(e.time)}</td>
-      <td><span class="badge badge-${(e.level || 'info').toLowerCase()}">${e.level || 'Info'}</span></td>
-      <td>${e.source || '--'}</td>
-      <td class="wrap">${e.message || ''}</td>
-    </tr>
-  `).join('');
+    tbody.innerHTML = filtered.map(e => {
+        const levelClass = (e.level || 'info').toLowerCase();
+        return `
+            <tr>
+                <td>${formatTime(e.time)}</td>
+                <td><span class="badge badge-${levelClass}">${e.level || 'Info'}</span></td>
+                <td>${e.source || '--'}</td>
+                <td class="wrap">${e.message || ''}</td>
+            </tr>
+        `;
+    }).join('');
 }
 
 function renderBar(key, labels, values, label) {
-  const ctx = document.getElementById(`chart-${key}`).getContext('2d');
-  if (key === 'severity' && chartSeverity) chartSeverity.destroy();
-  if (key === 'sources' && chartSources) chartSources.destroy();
-  if (key === 'keywords' && chartKeywords) chartKeywords.destroy();
+    const ctx = document.getElementById(`chart-${key}`).getContext('2d');
+    if (key === 'severity' && chartSeverity) chartSeverity.destroy();
+    if (key === 'sources' && chartSources) chartSources.destroy();
+    if (key === 'keywords' && chartKeywords) chartKeywords.destroy();
 
-  const config = {
-    type: 'bar',
-    data: { labels, datasets: [{ label, data: values, backgroundColor: '#4f6af0' }] },
-    options: {
-      responsive: true,
-      plugins: { legend: { display: false } },
-      scales: {
-        y: { beginAtZero: true, grid: { color: '#1f2642' }, ticks: { color: '#e5e7f3' } },
-        x: { grid: { color: '#1f2642' }, ticks: { color: '#e5e7f3' } }
-      }
-    }
-  };
+    const colors = labels.map(l => {
+        const lower = l.toLowerCase();
+        if (lower.includes('error') || lower.includes('critical')) return chartColors.error;
+        if (lower.includes('warn')) return chartColors.warning;
+        if (lower.includes('info')) return chartColors.info;
+        return chartColors.default;
+    });
 
-  if (key === 'severity') chartSeverity = new Chart(ctx, config);
-  if (key === 'sources') chartSources = new Chart(ctx, config);
-  if (key === 'keywords') chartKeywords = new Chart(ctx, config);
+    const config = {
+        type: 'bar',
+        data: { labels, datasets: [{ label, data: values, backgroundColor: colors }] },
+        options: chartOptions
+    };
+
+    if (key === 'severity') chartSeverity = new Chart(ctx, config);
+    if (key === 'sources') chartSources = new Chart(ctx, config);
+    if (key === 'keywords') chartKeywords = new Chart(ctx, config);
 }
 
 function renderLineTrend(labels, errData, warnData, infoData) {
-  const ctx = document.getElementById('chart-severity-trend').getContext('2d');
-  if (chartSeverityTrend) chartSeverityTrend.destroy();
-  chartSeverityTrend = new Chart(ctx, {
-    type: 'line',
-    data: {
-      labels,
-      datasets: [
-        { label: 'Error', data: errData, borderColor: '#ef4444', backgroundColor: 'rgba(239,68,68,0.2)', tension: 0.3 },
-        { label: 'Warning', data: warnData, borderColor: '#f59e0b', backgroundColor: 'rgba(245,158,11,0.2)', tension: 0.3 },
-        { label: 'Information', data: infoData, borderColor: '#3b82f6', backgroundColor: 'rgba(59,130,246,0.2)', tension: 0.3 }
-      ]
-    },
-    options: {
-      responsive: true,
-      plugins: { legend: { position: 'top', labels: { color: '#e5e7f3' } } },
-      scales: {
-        y: { beginAtZero: true, grid: { color: '#1f2642' }, ticks: { color: '#e5e7f3' } },
-        x: { grid: { color: '#1f2642' }, ticks: { color: '#e5e7f3' } }
-      }
-    }
-  });
+    const ctx = document.getElementById('chart-severity-trend').getContext('2d');
+    if (chartSeverityTrend) chartSeverityTrend.destroy();
+    chartSeverityTrend = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels,
+            datasets: [
+                { label: 'Error', data: errData, borderColor: chartColors.error, backgroundColor: 'rgba(239,68,68,0.1)', fill: true, tension: 0.3 },
+                { label: 'Warning', data: warnData, borderColor: chartColors.warning, backgroundColor: 'rgba(245,158,11,0.1)', fill: true, tension: 0.3 },
+                { label: 'Information', data: infoData, borderColor: chartColors.info, backgroundColor: 'rgba(59,130,246,0.1)', fill: true, tension: 0.3 }
+            ]
+        },
+        options: {
+            ...chartOptions,
+            plugins: { legend: { position: 'top', labels: { color: '#94a3b8', usePointStyle: true } } }
+        }
+    });
 }
 
 function updateSourceBanner(source) {
-  const banner = document.getElementById('data-source');
-  if (!banner) return;
-  if (source === 'windows') {
-    banner.textContent = 'Using Windows Event Log';
-    banner.className = 'info-banner ok';
-  } else if (source === 'mock') {
-    banner.textContent = 'Using demo/mock data (non-Windows host).';
-    banner.className = 'info-banner warn';
-  } else if (source === 'error') {
-    banner.textContent = 'Failed to read events.';
-    banner.className = 'info-banner warn';
-  } else {
-    banner.textContent = 'Unknown event source.';
-    banner.className = 'info-banner warn';
-  }
+    const banner = document.getElementById('data-source');
+    if (!banner) return;
+    banner.classList.remove('hidden');
+    if (source === 'windows') {
+        banner.textContent = '✓ Connected to Windows Event Log';
+        banner.className = 'info-banner ok';
+    } else if (source === 'mock') {
+        banner.textContent = 'ℹ Using demo data (non-Windows environment)';
+        banner.className = 'info-banner warn';
+    } else if (source === 'error') {
+        banner.textContent = '⚠ Failed to read events';
+        banner.className = 'info-banner warn';
+    } else {
+        banner.className = 'info-banner hidden';
+    }
 }
 
 function refreshEvents() {
-  currentPage = 1;
-  loadSummary();
-  loadEvents();
+    currentPage = 1;
+    loadSummary();
+    loadEvents();
 }
 
 function nextPage() {
-  currentPage += 1;
-  loadEvents();
+    currentPage += 1;
+    loadEvents();
 }
 
 function prevPage() {
-  if (currentPage > 1) {
-    currentPage -= 1;
-    loadEvents();
-  }
+    if (currentPage > 1) {
+        currentPage -= 1;
+        loadEvents();
+    }
 }
 
 function updatePageIndicator() {
-  const el = document.getElementById('pageIndicator');
-  if (el) el.textContent = `Page ${currentPage}`;
+    const el = document.getElementById('pageIndicator');
+    if (el) el.textContent = `Page ${currentPage}`;
 }
 
 document.getElementById('refreshBtn').addEventListener('click', refreshEvents);
@@ -309,9 +421,9 @@ document.getElementById('levelFilter').addEventListener('change', renderTable);
 document.getElementById('sortField').addEventListener('change', renderTable);
 document.getElementById('sortDir').addEventListener('change', renderTable);
 document.getElementById('rangeHours').addEventListener('change', (e) => {
-  rangeHours = Number(e.target.value) || 24;
-  currentPage = 1;
-  refreshEvents();
+    rangeHours = Number(e.target.value) || 24;
+    currentPage = 1;
+    refreshEvents();
 });
 document.addEventListener('DOMContentLoaded', () => {
   // Initialize gridstack for draggable/resizable tiles
@@ -337,57 +449,79 @@ document.addEventListener('DOMContentLoaded', () => {
 </script>
 
 <style>
-.events-page {
-  max-width: 1400px;
-  margin: 0 auto;
-  padding: 2rem;
-  color: #e5e7f3;
+.page-container {
+    max-width: 1600px;
+    margin: 0 auto;
 }
 
-.dashboard-header {
-  display: flex;
-  justify-content: space-between;
-  gap: 1rem;
-  align-items: center;
+.chart-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--space-md);
 }
 
-.toolbar {
-  display: flex;
-  gap: 0.75rem;
-  align-items: center;
+.chart-header h3 {
+    margin: 0;
 }
 
-.toolbar input, .toolbar select {
-  padding: 0.6rem 0.75rem;
-  border: 1px solid #2a3553;
-  border-radius: 6px;
-  background: #0f1322;
-  color: #e5e7f3;
+.range-selector select {
+    padding: var(--space-xs) var(--space-sm);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    font-size: 0.85rem;
 }
 
-.btn-refresh {
-  padding: 0.6rem 1.1rem;
-  background: #4f6af0;
-  color: #f8fafc;
-  border: 1px solid #6c83ff;
-  border-radius: 6px;
-  cursor: pointer;
-  font-weight: 600;
+.chart-container {
+    position: relative;
+    height: 200px;
 }
 
-.btn-refresh:hover { background: #3c55d6; }
+.chart-wide {
+    height: 250px;
+}
+
+.panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--space-md);
+    padding-bottom: var(--space-sm);
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+.panel-header h2 {
+    margin: 0;
+    border: none;
+    padding: 0;
+}
+
+.table-actions {
+    display: flex;
+    gap: var(--space-sm);
+    align-items: center;
+}
+
+.page-indicator {
+    padding: var(--space-xs) var(--space-md);
+    background: var(--bg-elevated);
+    border-radius: var(--radius-sm);
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
 
 .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.9rem; margin: 1rem 0; }
 .stats-tight .stat-card { padding: 1rem; }
 .charts-grid { }
 
-.stat-card {
-  background: #12182a;
-  padding: 1.1rem;
-  border-radius: 10px;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.35);
-  border: 1px solid #1f2642;
-  text-align: center;
+.table-controls label {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    color: var(--text-secondary);
+    font-size: 0.9rem;
 }
 .stat-card h3 { margin: 0; font-size: 0.9rem; text-transform: uppercase; opacity: 0.8; }
 .stat-card .metric { font-size: 2.2rem; font-weight: 700; margin: 0.35rem 0 0; }
