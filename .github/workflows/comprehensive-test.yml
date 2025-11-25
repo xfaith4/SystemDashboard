@@ -129,8 +129,8 @@ jobs:
           } finally {
             # Cleanup
             if ($job) {
-              Stop-Job $job -Force
-              Remove-Job $job -Force
+              Stop-Job $job
+              Remove-Job $job
             }
             Remove-UrlAcl -Prefix $prefix -ErrorAction SilentlyContinue
             Remove-Item $testDir -Recurse -Force -ErrorAction SilentlyContinue
