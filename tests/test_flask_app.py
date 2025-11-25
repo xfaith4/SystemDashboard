@@ -104,7 +104,8 @@ class TestDataSources:
             
             try:
                 with patch.dict(os.environ, {'ROUTER_LOG_PATH': f.name}):
-                    logs = flask_app.get_router_logs()
+                    # Request ascending order to match original test expectations
+                    logs = flask_app.get_router_logs(sort_dir='asc')
                 
                 assert len(logs) == 3
                 assert logs[0]['time'] == '2024-01-01 12:00:00'
@@ -147,18 +148,25 @@ Incomplete line
             
             try:
                 with patch.dict(os.environ, {'ROUTER_LOG_PATH': f.name}):
-                    logs = flask_app.get_router_logs()
+                    # Request ascending order to match original test expectations
+                    logs = flask_app.get_router_logs(sort_dir='asc')
                 
+                # Note: Lines with < 4 parts get empty time/level
+                # "2024-01-01 12:01:00 WARN" has only 3 parts, so it's treated as incomplete
                 assert len(logs) == 4
                 
-                # Check complete line
-                assert logs[0]['time'] == '2024-01-01 12:00:00'
-                assert logs[0]['level'] == 'INFO'
+                # Find logs with actual timestamps (those with 4+ parts in split)
+                timestamped_logs = [l for l in logs if l['time']]
+                assert len(timestamped_logs) == 2  # Only 2 lines have full 4-part format
                 
-                # Check incomplete line handling
-                assert logs[1]['time'] == ''
-                assert logs[1]['level'] == ''
-                assert logs[1]['message'] == 'Incomplete line'
+                # Check first timestamped line
+                first_ts = timestamped_logs[0]
+                assert first_ts['time'] == '2024-01-01 12:00:00'
+                assert first_ts['level'] == 'INFO'
+                
+                # Check incomplete line handling exists
+                incomplete_logs = [l for l in logs if l['time'] == '' and l['level'] == '']
+                assert len(incomplete_logs) == 2  # "Incomplete line" and "2024-01-01 12:01:00 WARN"
                 
             finally:
                 os.unlink(f.name)
@@ -183,6 +191,59 @@ class TestAPIEndpoints:
         
         data = json.loads(response.data)
         assert 'events' in data
+
+    def test_api_router_logs_endpoint(self, client):
+        """Test router logs API endpoint with pagination."""
+        response = client.get('/api/router/logs')
+        assert response.status_code == 200
+        
+        data = json.loads(response.data)
+        assert 'logs' in data
+        assert 'source' in data
+        assert 'pagination' in data
+        
+        # Check pagination structure
+        pagination = data['pagination']
+        assert 'total' in pagination
+        assert 'page' in pagination
+        assert 'limit' in pagination
+        assert 'totalPages' in pagination
+        assert 'hasNext' in pagination
+        assert 'hasPrev' in pagination
+
+    def test_api_router_logs_with_pagination(self, client):
+        """Test router logs API with pagination parameters."""
+        response = client.get('/api/router/logs?limit=25&page=1')
+        assert response.status_code == 200
+        
+        data = json.loads(response.data)
+        assert 'pagination' in data
+        assert data['pagination']['limit'] == 25
+        assert data['pagination']['page'] == 1
+
+    def test_api_router_logs_with_sorting(self, client):
+        """Test router logs API with sorting parameters."""
+        response = client.get('/api/router/logs?sort=time&order=asc')
+        assert response.status_code == 200
+        
+        data = json.loads(response.data)
+        assert 'logs' in data
+
+    def test_api_router_logs_with_filtering(self, client):
+        """Test router logs API with filtering parameters."""
+        response = client.get('/api/router/logs?level=error&search=test')
+        assert response.status_code == 200
+        
+        data = json.loads(response.data)
+        assert 'logs' in data
+
+    def test_api_router_logs_limit_max(self, client):
+        """Test router logs API respects maximum limit."""
+        response = client.get('/api/router/logs?limit=1000')  # Request more than max
+        assert response.status_code == 200
+        
+        data = json.loads(response.data)
+        assert data['pagination']['limit'] == 500  # Should be capped at 500
 
     def test_api_ai_suggest_missing_message(self, client):
         """Test AI suggest API with missing message."""
