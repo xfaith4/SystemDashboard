@@ -54,7 +54,7 @@ jobs:
           Write-Host "Testing Windows Event Log access..."
           
           # Import the module
-          Import-Module ./Start-SystemDashboard.psm1 -Force
+          Import-Module ./Start-SystemDashboard.psm1
           
           # Test Get-SystemLogs function
           $logs = Get-SystemLogs -LogName 'Application','System' -MaxEvents 10
