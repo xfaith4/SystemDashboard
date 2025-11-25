@@ -1,5 +1,8 @@
 {% extends 'base.html' %}
 {% block title %}NOC Dashboard - System Events{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/gridstack/dist/gridstack.min.css">
+{% endblock %}
 {% block content %}
 <section class="events-page">
   <header class="dashboard-header">
@@ -193,7 +196,6 @@
     </section>
 </section>
 
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/gridstack/dist/gridstack.min.css">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/gridstack/dist/gridstack-h5.js"></script>
 <script>
