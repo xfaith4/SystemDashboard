@@ -664,6 +664,23 @@ function Start-TelemetryService {
         $udpClient = $null
     }
 
+    # Initialize TCP syslog listener with error handling
+    $tcpListener = $null
+    $tcpClients = New-Object System.Collections.Generic.List[object]
+
+    try {
+        $tcpListener = [System.Net.Sockets.TcpListener]::new($syslogEndpoint)
+        $tcpListener.Start()
+        Write-TelemetryLog -LogPath $logPath -Message "Syslog TCP listener bound to $($config.Service.Syslog.BindAddress):$($config.Service.Syslog.Port)" -Level 'INFO'
+    }
+    catch {
+        Write-TelemetryLog -LogPath $logPath -Message "Failed to bind syslog TCP listener to $($config.Service.Syslog.BindAddress):$($config.Service.Syslog.Port) - $($_.Exception.Message)" -Level 'ERROR'
+        if ($tcpListener) { 
+            try { $tcpListener.Stop() } catch { }
+        }
+        $tcpListener = $null
+    }
+
     $nextFlush = (Get-Date).AddSeconds($ingestion.BatchIntervalSeconds)
     $nextAsus = (Get-Date)
     $nextWifiScan = (Get-Date)
@@ -696,11 +713,96 @@ function Start-TelemetryService {
                 }
                 catch [System.Net.Sockets.SocketException] {
                     if ($_.Exception.NativeErrorCode -ne 10060) {
-                        Write-TelemetryLog -LogPath $logPath -Message "Syslog listener error: $($_.Exception.Message)" -Level 'WARN'
+                        Write-TelemetryLog -LogPath $logPath -Message "Syslog UDP listener error: $($_.Exception.Message)" -Level 'WARN'
                     }
                 }
                 catch {
-                    Write-TelemetryLog -LogPath $logPath -Message "Unexpected error in syslog listener: $_" -Level 'WARN'
+                    Write-TelemetryLog -LogPath $logPath -Message "Unexpected error in syslog UDP listener: $_" -Level 'WARN'
+                }
+            }
+
+            # Syslog TCP listener - accept new connections and read from existing ones
+            if ($tcpListener) {
+                # Accept new connections (non-blocking check)
+                try {
+                    if ($tcpListener.Pending()) {
+                        $newClient = $tcpListener.AcceptTcpClient()
+                        $newClient.ReceiveTimeout = 100
+                        $clientInfo = @{
+                            Client = $newClient
+                            Stream = $newClient.GetStream()
+                            Reader = [System.IO.StreamReader]::new($newClient.GetStream(), [System.Text.Encoding]::UTF8)
+                            Endpoint = $newClient.Client.RemoteEndPoint.ToString()
+                            Buffer = ''
+                        }
+                        $tcpClients.Add($clientInfo) | Out-Null
+                        Write-TelemetryLog -LogPath $logPath -Message "TCP syslog client connected from $($clientInfo.Endpoint)" -Level 'INFO'
+                    }
+                }
+                catch {
+                    Write-TelemetryLog -LogPath $logPath -Message "TCP accept error: $($_.Exception.Message)" -Level 'WARN'
+                }
+
+                # Read from existing TCP clients
+                $clientsToRemove = @()
+                foreach ($clientInfo in $tcpClients) {
+                    try {
+                        if ($clientInfo.Client.Connected -and $clientInfo.Stream.DataAvailable) {
+                            $buffer = New-Object byte[] 8192
+                            $bytesRead = $clientInfo.Stream.Read($buffer, 0, $buffer.Length)
+                            if ($bytesRead -gt 0) {
+                                $data = [System.Text.Encoding]::UTF8.GetString($buffer, 0, $bytesRead)
+                                $clientInfo.Buffer += $data
+                                
+                                # Process complete lines (syslog messages end with newline)
+                                while ($clientInfo.Buffer.Contains("`n")) {
+                                    $nlIndex = $clientInfo.Buffer.IndexOf("`n")
+                                    $line = $clientInfo.Buffer.Substring(0, $nlIndex).TrimEnd("`r")
+                                    $clientInfo.Buffer = $clientInfo.Buffer.Substring($nlIndex + 1)
+                                    
+                                    if (-not [string]::IsNullOrWhiteSpace($line)) {
+                                        $parsed = ConvertFrom-SyslogLine -Line $line
+                                        $syslogEvent = [pscustomobject]@{
+                                            ReceivedUtc    = [DateTime]::UtcNow
+                                            EventUtc       = $parsed.EventUtc
+                                            SourceHost     = $parsed.SourceHost
+                                            AppName        = $parsed.AppName
+                                            Facility       = $parsed.Facility
+                                            Severity       = $parsed.Severity
+                                            Message        = $parsed.Message
+                                            RawMessage     = $parsed.RawMessage
+                                            RemoteEndpoint = $clientInfo.Endpoint
+                                            Source         = 'syslog'
+                                        }
+                                        $syslogBuffer.Add($syslogEvent) | Out-Null
+                                    }
+                                }
+                            }
+                            elseif ($bytesRead -eq 0) {
+                                # Connection closed by remote
+                                $clientsToRemove += $clientInfo
+                            }
+                        }
+                        elseif (-not $clientInfo.Client.Connected) {
+                            $clientsToRemove += $clientInfo
+                        }
+                    }
+                    catch {
+                        Write-TelemetryLog -LogPath $logPath -Message "TCP read error from $($clientInfo.Endpoint): $($_.Exception.Message)" -Level 'WARN'
+                        $clientsToRemove += $clientInfo
+                    }
+                }
+
+                # Clean up disconnected clients
+                foreach ($clientInfo in $clientsToRemove) {
+                    try {
+                        $clientInfo.Reader.Dispose()
+                        $clientInfo.Stream.Dispose()
+                        $clientInfo.Client.Dispose()
+                    }
+                    catch { }
+                    $tcpClients.Remove($clientInfo) | Out-Null
+                    Write-TelemetryLog -LogPath $logPath -Message "TCP syslog client disconnected: $($clientInfo.Endpoint)" -Level 'INFO'
                 }
             }
 
@@ -800,6 +902,18 @@ function Start-TelemetryService {
         }
         if ($udpClient) {
             $udpClient.Dispose()
+        }
+        # Clean up TCP resources
+        foreach ($clientInfo in $tcpClients) {
+            try {
+                $clientInfo.Reader.Dispose()
+                $clientInfo.Stream.Dispose()
+                $clientInfo.Client.Dispose()
+            }
+            catch { }
+        }
+        if ($tcpListener) {
+            try { $tcpListener.Stop() } catch { }
         }
         Save-AsusState -State $asusState -Path $config.Service.Asus.StatePath
         Write-TelemetryLog -LogPath $logPath -Message 'Telemetry service stopping.' -Level 'INFO'

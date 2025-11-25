@@ -63,18 +63,72 @@
         <header class="panel-header">
             <div>
                 <h2>Recent Router Logs</h2>
-                <p class="muted">Latest 200 syslog entries</p>
+                <p class="muted" id="logs-count-info">Loading...</p>
             </div>
             <button class="btn-refresh" onclick="refreshRouter()">Refresh</button>
         </header>
+        
+        <!-- Filter Controls -->
+        <div class="filter-controls">
+            <div class="filter-group">
+                <label for="search-input">Search:</label>
+                <input type="text" id="search-input" placeholder="Search messages..." 
+                       onkeyup="handleSearchKeyup(event)">
+                <button class="btn-filter" onclick="applyFilters()">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="11" cy="11" r="8"/>
+                        <path d="M21 21l-4.35-4.35"/>
+                    </svg>
+                    Search
+                </button>
+            </div>
+            <div class="filter-group">
+                <label for="level-filter">Level:</label>
+                <select id="level-filter" onchange="applyFilters()">
+                    <option value="">All Levels</option>
+                    <option value="emergency">Emergency</option>
+                    <option value="alert">Alert</option>
+                    <option value="critical">Critical</option>
+                    <option value="error">Error</option>
+                    <option value="warning">Warning</option>
+                    <option value="notice">Notice</option>
+                    <option value="info">Informational</option>
+                    <option value="debug">Debug</option>
+                </select>
+            </div>
+            <div class="filter-group">
+                <label for="host-filter">Host:</label>
+                <input type="text" id="host-filter" placeholder="Filter by host..." 
+                       onkeyup="handleSearchKeyup(event)">
+            </div>
+            <div class="filter-group">
+                <label for="page-size">Per Page:</label>
+                <select id="page-size" onchange="applyFilters()">
+                    <option value="25">25</option>
+                    <option value="50" selected>50</option>
+                    <option value="100">100</option>
+                    <option value="200">200</option>
+                </select>
+            </div>
+            <button class="btn-clear" onclick="clearFilters()">Clear Filters</button>
+        </div>
+
         <div class="table-container">
             <table class="data-table" id="router-table">
                 <thead>
                     <tr>
-                        <th>Timestamp</th>
-                        <th>Level</th>
-                        <th>Message</th>
-                        <th>Host</th>
+                        <th class="sortable" onclick="sortBy('time')" data-sort="time">
+                            Timestamp <span class="sort-indicator" id="sort-time">▼</span>
+                        </th>
+                        <th class="sortable" onclick="sortBy('level')" data-sort="level">
+                            Level <span class="sort-indicator" id="sort-level"></span>
+                        </th>
+                        <th class="sortable" onclick="sortBy('message')" data-sort="message">
+                            Message <span class="sort-indicator" id="sort-message"></span>
+                        </th>
+                        <th class="sortable" onclick="sortBy('host')" data-sort="host">
+                            Host <span class="sort-indicator" id="sort-host"></span>
+                        </th>
                         <th>Actions</th>
                     </tr>
                 </thead>
@@ -82,6 +136,35 @@
                     <tr><td colspan="5" class="loading">Loading logs...</td></tr>
                 </tbody>
             </table>
+        </div>
+        
+        <!-- Pagination Controls -->
+        <div class="pagination-controls" id="pagination-controls">
+            <button class="btn-page" id="btn-first" onclick="goToPage(1)" disabled>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="11 17 6 12 11 7"/>
+                    <polyline points="18 17 13 12 18 7"/>
+                </svg>
+            </button>
+            <button class="btn-page" id="btn-prev" onclick="goToPage(currentPage - 1)" disabled>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="15 18 9 12 15 6"/>
+                </svg>
+                Previous
+            </button>
+            <span class="page-info" id="page-info">Page 1 of 1</span>
+            <button class="btn-page" id="btn-next" onclick="goToPage(currentPage + 1)" disabled>
+                Next
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="9 18 15 12 9 6"/>
+                </svg>
+            </button>
+            <button class="btn-page" id="btn-last" onclick="goToPage(totalPages)" disabled>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="13 17 18 12 13 7"/>
+                    <polyline points="6 17 11 12 6 7"/>
+                </svg>
+            </button>
         </div>
     </section>
 
@@ -102,6 +185,13 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" crossorigin="anonymous"></script>
 <script>
 let chartSeverity, chartPorts, chartWifi;
+
+// Pagination and sorting state
+let currentPage = 1;
+let totalPages = 1;
+let totalLogs = 0;
+let currentSort = 'time';
+let currentOrder = 'desc';
 
 const chartColors = {
     error: '#ef4444',
@@ -158,14 +248,41 @@ async function loadSummary() {
 // Store logs data for Ask AI functionality
 let currentLogs = [];
 
+function buildApiUrl() {
+    const limit = document.getElementById('page-size').value;
+    const search = document.getElementById('search-input').value;
+    const level = document.getElementById('level-filter').value;
+    const host = document.getElementById('host-filter').value;
+    
+    let url = `/api/router/logs?limit=${limit}&page=${currentPage}&sort=${currentSort}&order=${currentOrder}`;
+    
+    if (search) url += `&search=${encodeURIComponent(search)}`;
+    if (level) url += `&level=${encodeURIComponent(level)}`;
+    if (host) url += `&host=${encodeURIComponent(host)}`;
+    
+    return url;
+}
+
 async function loadLogs() {
-    const res = await fetch('/api/router/logs?limit=200');
+    const url = buildApiUrl();
+    const res = await fetch(url);
     const data = await res.json();
     const logs = data.logs || [];
     currentLogs = logs; // Store for Ask AI
     const source = data.source || 'db';
+    const pagination = data.pagination || {};
+    
+    // Update pagination state
+    totalLogs = pagination.total || logs.length;
+    totalPages = pagination.totalPages || 1;
+    currentPage = pagination.page || 1;
+    
     updateSourceBanner(source);
+    updatePaginationUI();
+    
     const tbody = document.getElementById('router-body');
+    document.getElementById('logs-count-info').textContent = 
+        `Showing ${logs.length} of ${totalLogs} syslog entries`;
 
     if (logs.length === 0) {
         tbody.innerHTML = '<tr><td colspan="5" class="empty">No router logs available</td></tr>';
@@ -197,6 +314,68 @@ async function loadLogs() {
             </tr>
         `;
     }).join('');
+}
+
+function updatePaginationUI() {
+    document.getElementById('page-info').textContent = `Page ${currentPage} of ${totalPages}`;
+    
+    document.getElementById('btn-first').disabled = currentPage <= 1;
+    document.getElementById('btn-prev').disabled = currentPage <= 1;
+    document.getElementById('btn-next').disabled = currentPage >= totalPages;
+    document.getElementById('btn-last').disabled = currentPage >= totalPages;
+}
+
+function updateSortIndicators() {
+    // Clear all indicators
+    document.querySelectorAll('.sort-indicator').forEach(el => el.textContent = '');
+    
+    // Set the current sort indicator
+    const indicator = document.getElementById(`sort-${currentSort}`);
+    if (indicator) {
+        indicator.textContent = currentOrder === 'asc' ? '▲' : '▼';
+    }
+}
+
+function goToPage(page) {
+    if (page < 1 || page > totalPages) return;
+    currentPage = page;
+    loadLogs();
+}
+
+function sortBy(field) {
+    if (currentSort === field) {
+        // Toggle order
+        currentOrder = currentOrder === 'asc' ? 'desc' : 'asc';
+    } else {
+        currentSort = field;
+        currentOrder = 'desc'; // Default to descending
+    }
+    updateSortIndicators();
+    currentPage = 1; // Reset to first page when sorting
+    loadLogs();
+}
+
+function applyFilters() {
+    currentPage = 1; // Reset to first page when filtering
+    loadLogs();
+}
+
+function handleSearchKeyup(event) {
+    if (event.key === 'Enter') {
+        applyFilters();
+    }
+}
+
+function clearFilters() {
+    document.getElementById('search-input').value = '';
+    document.getElementById('level-filter').value = '';
+    document.getElementById('host-filter').value = '';
+    document.getElementById('page-size').value = '50';
+    currentSort = 'time';
+    currentOrder = 'desc';
+    currentPage = 1;
+    updateSortIndicators();
+    loadLogs();
 }
 
 // Helper function to escape HTML entities
@@ -336,7 +515,10 @@ document.addEventListener('keydown', (e) => {
     }
 });
 
-document.addEventListener('DOMContentLoaded', refreshRouter);
+document.addEventListener('DOMContentLoaded', () => {
+    updateSortIndicators();
+    refreshRouter();
+});
 </script>
 
 <style>
@@ -363,6 +545,140 @@ document.addEventListener('DOMContentLoaded', refreshRouter);
     margin: 0;
     border: none;
     padding: 0;
+}
+
+/* Filter Controls */
+.filter-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    margin-bottom: 1rem;
+    padding: 1rem;
+    background: rgba(30, 41, 59, 0.5);
+    border-radius: 8px;
+    align-items: flex-end;
+}
+
+.filter-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.filter-group label {
+    font-size: 0.75rem;
+    color: #94a3b8;
+    font-weight: 500;
+}
+
+.filter-group input,
+.filter-group select {
+    padding: 0.5rem 0.75rem;
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 6px;
+    color: #e5e7eb;
+    font-size: 0.875rem;
+    min-width: 150px;
+}
+
+.filter-group input:focus,
+.filter-group select:focus {
+    outline: none;
+    border-color: #6366f1;
+    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
+}
+
+.btn-filter,
+.btn-clear {
+    padding: 0.5rem 1rem;
+    border-radius: 6px;
+    font-size: 0.875rem;
+    font-weight: 500;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    transition: all 0.2s ease;
+}
+
+.btn-filter {
+    background: #4f46e5;
+    border: 1px solid #6366f1;
+    color: #fff;
+}
+
+.btn-filter:hover {
+    background: #6366f1;
+}
+
+.btn-clear {
+    background: transparent;
+    border: 1px solid #475569;
+    color: #94a3b8;
+}
+
+.btn-clear:hover {
+    background: #334155;
+    color: #e5e7eb;
+}
+
+/* Sortable Headers */
+.sortable {
+    cursor: pointer;
+    user-select: none;
+    position: relative;
+}
+
+.sortable:hover {
+    background: rgba(99, 102, 241, 0.1);
+}
+
+.sort-indicator {
+    margin-left: 0.25rem;
+    font-size: 0.75rem;
+    color: #6366f1;
+}
+
+/* Pagination */
+.pagination-controls {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 1rem;
+    padding: 1rem 0;
+    border-top: 1px solid var(--border-subtle);
+}
+
+.btn-page {
+    padding: 0.5rem 0.75rem;
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 6px;
+    color: #e5e7eb;
+    font-size: 0.875rem;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    transition: all 0.2s ease;
+}
+
+.btn-page:hover:not(:disabled) {
+    background: #334155;
+    border-color: #6366f1;
+}
+
+.btn-page:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.page-info {
+    padding: 0 1rem;
+    color: #94a3b8;
+    font-size: 0.875rem;
 }
 
 .table-container {
@@ -511,6 +827,26 @@ document.addEventListener('DOMContentLoaded', refreshRouter);
 .badge-info {
     background: #1e3a8a;
     color: #c7d2fe;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .filter-controls {
+        flex-direction: column;
+    }
+    
+    .filter-group {
+        width: 100%;
+    }
+    
+    .filter-group input,
+    .filter-group select {
+        width: 100%;
+    }
+    
+    .pagination-controls {
+        flex-wrap: wrap;
+    }
 }
 </style>
 {% endblock %}
