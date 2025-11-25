@@ -7,6 +7,13 @@ param(
     [switch]$Status
 )
 
+$RootPath = $env:SYSTEMDASHBOARD_ROOT
+if (-not $RootPath) {
+    $RootPath = Split-Path -Parent $PSScriptRoot
+}
+
+$ServicesPath = Join-Path $RootPath "services"
+
 # Configuration
 $Tasks = @(
     @{
@@ -14,15 +21,23 @@ $Tasks = @(
         Description = "System Dashboard Flask Web Interface"
         Script = "SystemDashboard-WebUI.ps1"
         Action = "start"
+        Args = $null
+    },
+    @{
+        Name = "SystemDashboard-LANCollector"
+        Description = "System Dashboard LAN Collector"
+        Script = "LanCollectorService.ps1"
+        Action = $null
+        Args = "-ConfigPath `"$RootPath\\config.json`""
+    },
+    @{
+        Name = "SystemDashboard-SyslogCollector"
+        Description = "System Dashboard Syslog Collector"
+        Script = "SyslogCollectorService.ps1"
+        Action = $null
+        Args = "-ConfigPath `"$RootPath\\config.json`""
     }
 )
-
-$RootPath = $env:SYSTEMDASHBOARD_ROOT
-if (-not $RootPath) {
-    $RootPath = Split-Path -Parent $PSScriptRoot
-}
-
-$ServicesPath = Join-Path $RootPath "services"
 
 function Test-Administrator {
     $currentUser = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -55,7 +70,14 @@ function Install-DashboardTasks {
         }
 
         # Create new task action
-        $action = New-ScheduledTaskAction -Execute "pwsh.exe" -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$scriptPath`" -Action $($task.Action)"
+        $argList = "-NoProfile -ExecutionPolicy Bypass -File `"$scriptPath`""
+        if ($task.Action) {
+            $argList += " -Action $($task.Action)"
+        }
+        if ($task.Args) {
+            $argList += " $($task.Args)"
+        }
+        $action = New-ScheduledTaskAction -Execute "pwsh.exe" -Argument $argList
 
         # Create trigger (start at boot, repeat every 5 minutes if stops)
         $trigger = New-ScheduledTaskTrigger -AtStartup

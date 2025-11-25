@@ -1,46 +1,283 @@
 {% extends 'base.html' %}
 {% block content %}
-<h1>System Events</h1>
+<section class="events-page">
+  <header class="dashboard-header">
+    <div>
+      <p class="muted">System / Router events</p>
+      <h1>System Events</h1>
+    </div>
+    <div class="toolbar">
+      <input id="searchInput" type="search" placeholder="Search messages, sources..." />
+      <select id="levelFilter">
+        <option value="">All Levels</option>
+        <option>Error</option>
+        <option>Warning</option>
+        <option>Information</option>
+      </select>
+      <button class="btn-refresh" id="refreshBtn">Refresh</button>
+    </div>
+  </header>
 
-<div class="toolbar">
-  <input id="searchInput" type="search" placeholder="Search messages, sources..." />
-  <select id="levelFilter">
-    <option value="">All Levels</option>
-    <option>Error</option>
-    <option>Warning</option>
-    <option>Info</option>
-  </select>
-  <button id="refreshBtn">Refresh</button>
-</div>
+  <div id="data-source" class="info-banner hidden"></div>
 
-<div id="insights" class="insights"></div>
-
-<table class="data-table" id="eventsTable">
-    <thead><tr><th>Time</th><th>Level</th><th>Source</th><th>Message</th><th>Actions</th></tr></thead>
-    <tbody>
-    {% for e in events %}
-        <tr>
-            <td>{{ e.time }}</td>
-            <td>{{ e.level }}</td>
-            <td>{{ e.source }}</td>
-            <td class="wrap">{{ e.message }}</td>
-            <td>
-              <button class="aiSuggestBtn" data-source="{{ e.source }}" data-id="{{ e.id }}" data-message="{{ e.message | e }}">Ask AI</button>
-            </td>
-        </tr>
-    {% endfor %}
-    </tbody>
-  </table>
-
-<div id="aiResult" class="modal" hidden>
-  <div class="modal-content">
-    <button id="closeModal" class="close">×</button>
-    <h3>AI Suggestion</h3>
-    <pre id="aiText"></pre>
+  <div class="grid stats-grid stats-tight">
+    <article class="stat-card"><h3>Total</h3><p class="metric" id="stat-total">--</p><p class="detail">Events loaded</p></article>
+    <article class="stat-card"><h3>Auth / Login</h3><p class="metric" id="stat-auth">--</p><p class="detail">Failures/logins</p></article>
+    <article class="stat-card"><h3>Disk / IO</h3><p class="metric" id="stat-disk">--</p><p class="detail">Disk related</p></article>
+    <article class="stat-card"><h3>Network</h3><p class="metric" id="stat-net">--</p><p class="detail">Networking</p></article>
   </div>
-</div>
 
+  <div class="grid charts-grid">
+    <section class="content-section">
+      <header class="section-header"><h2>Severity Mix</h2></header>
+      <div class="chart-container"><canvas id="chart-severity"></canvas></div>
+    </section>
+    <section class="content-section">
+      <header class="section-header"><h2>Top Sources</h2></header>
+      <div class="chart-container"><canvas id="chart-sources"></canvas></div>
+    </section>
+    <section class="content-section">
+      <header class="section-header"><h2>Keyword Hits</h2></header>
+      <div class="chart-container"><canvas id="chart-keywords"></canvas></div>
+    </section>
+  </div>
+
+  <section class="content-section">
+    <header class="section-header">
+      <div>
+        <h2>Recent Events</h2>
+        <p class="muted">Last 200 events</p>
+      </div>
+      <button class="btn-refresh" onclick="refreshEvents()">Refresh</button>
+    </header>
+    <div class="table-container">
+      <table class="data-table" id="eventsTable">
+        <thead><tr><th>Time</th><th>Level</th><th>Source</th><th>Message</th></tr></thead>
+        <tbody id="eventsBody">
+          <tr><td colspan="4" class="loading">Loading...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+</section>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" integrity="sha384-vEfONZqRTlzqQqNJqVqhqF12DJAkiFCMaZJdKdGPzVkqfAqQkPW/OLvVHxMoJNE8" crossorigin="anonymous"></script>
 <script>
-  window.__INITIAL_EVENTS__ = {{ events | tojson }};
+let chartSeverity, chartSources, chartKeywords;
+let currentEvents = [];
+
+function formatTime(value) {
+  if (!value) return '--';
+  const dt = new Date(value);
+  return dt.toLocaleString();
+}
+
+async function loadSummary() {
+  const res = await fetch('/api/events/summary?max=500');
+  const data = await res.json();
+  updateSourceBanner(data.source);
+  document.getElementById('stat-total').textContent = data.total || 0;
+  document.getElementById('stat-auth').textContent = data.keyword_counts?.auth ?? 0;
+  document.getElementById('stat-disk').textContent = data.keyword_counts?.disk ?? 0;
+  document.getElementById('stat-net').textContent = data.keyword_counts?.network ?? 0;
+
+  const sevLabelsRaw = Object.keys(data.severity_counts || {});
+  const sevValuesRaw = sevLabelsRaw.map(k => data.severity_counts[k]);
+  const sevLabels = sevLabelsRaw.length ? sevLabelsRaw : ['No data'];
+  const sevValues = sevValuesRaw.length ? sevValuesRaw : [0];
+  renderBar('severity', sevLabels, sevValues, 'Events');
+
+  const srcLabelsRaw = (data.sources_top || []).map(x => x.key);
+  const srcValuesRaw = (data.sources_top || []).map(x => x.count);
+  const srcLabels = srcLabelsRaw.length ? srcLabelsRaw : ['No data'];
+  const srcValues = srcValuesRaw.length ? srcValuesRaw : [0];
+  renderBar('sources', srcLabels, srcValues, 'Events');
+
+  const kwLabelsRaw = Object.keys(data.keyword_counts || {});
+  const kwValuesRaw = kwLabelsRaw.map(k => data.keyword_counts[k]);
+  const kwLabels = kwLabelsRaw.length ? kwLabelsRaw : ['No data'];
+  const kwValues = kwValuesRaw.length ? kwValuesRaw : [0];
+  renderBar('keywords', kwLabels, kwValues, 'Hits');
+}
+
+async function loadEvents() {
+  const res = await fetch('/api/events?max=200');
+  const data = await res.json();
+  currentEvents = data.events || [];
+  updateSourceBanner(data.source);
+  renderTable();
+}
+
+function renderTable() {
+  const tbody = document.getElementById('eventsBody');
+  const search = document.getElementById('searchInput').value.toLowerCase();
+  const level = document.getElementById('levelFilter').value;
+
+  let filtered = currentEvents;
+  if (search) {
+    filtered = filtered.filter(e =>
+      (e.message && e.message.toLowerCase().includes(search)) ||
+      (e.source && e.source.toLowerCase().includes(search))
+    );
+  }
+  if (level) {
+    filtered = filtered.filter(e => (e.level || '').toLowerCase().includes(level.toLowerCase()));
+  }
+
+  if (filtered.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="4" class="empty">No events found.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = filtered.map(e => `
+    <tr>
+      <td>${formatTime(e.time)}</td>
+      <td><span class="badge badge-${(e.level || 'info').toLowerCase()}">${e.level || 'Info'}</span></td>
+      <td>${e.source || '--'}</td>
+      <td class="wrap">${e.message || ''}</td>
+    </tr>
+  `).join('');
+}
+
+function renderBar(key, labels, values, label) {
+  const ctx = document.getElementById(`chart-${key}`).getContext('2d');
+  if (key === 'severity' && chartSeverity) chartSeverity.destroy();
+  if (key === 'sources' && chartSources) chartSources.destroy();
+  if (key === 'keywords' && chartKeywords) chartKeywords.destroy();
+
+  const config = {
+    type: 'bar',
+    data: { labels, datasets: [{ label, data: values, backgroundColor: '#4f6af0' }] },
+    options: {
+      responsive: true,
+      plugins: { legend: { display: false } },
+      scales: {
+        y: { beginAtZero: true, grid: { color: '#1f2642' }, ticks: { color: '#e5e7f3' } },
+        x: { grid: { color: '#1f2642' }, ticks: { color: '#e5e7f3' } }
+      }
+    }
+  };
+
+  if (key === 'severity') chartSeverity = new Chart(ctx, config);
+  if (key === 'sources') chartSources = new Chart(ctx, config);
+  if (key === 'keywords') chartKeywords = new Chart(ctx, config);
+}
+
+function updateSourceBanner(source) {
+  const banner = document.getElementById('data-source');
+  if (!banner) return;
+  if (source === 'windows') {
+    banner.textContent = 'Using Windows Event Log';
+    banner.className = 'info-banner ok';
+  } else if (source === 'mock') {
+    banner.textContent = 'Using demo/mock data (non-Windows host).';
+    banner.className = 'info-banner warn';
+  } else if (source === 'error') {
+    banner.textContent = 'Failed to read events.';
+    banner.className = 'info-banner warn';
+  } else {
+    banner.textContent = 'Unknown event source.';
+    banner.className = 'info-banner warn';
+  }
+}
+
+function refreshEvents() {
+  loadSummary();
+  loadEvents();
+}
+
+document.getElementById('refreshBtn').addEventListener('click', refreshEvents);
+document.getElementById('searchInput').addEventListener('input', renderTable);
+document.getElementById('levelFilter').addEventListener('change', renderTable);
+document.addEventListener('DOMContentLoaded', refreshEvents);
 </script>
+
+<style>
+.events-page {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 2rem;
+  color: #e5e7f3;
+}
+
+.dashboard-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: center;
+}
+
+.toolbar {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.toolbar input, .toolbar select {
+  padding: 0.6rem 0.75rem;
+  border: 1px solid #2a3553;
+  border-radius: 6px;
+  background: #0f1322;
+  color: #e5e7f3;
+}
+
+.btn-refresh {
+  padding: 0.6rem 1.1rem;
+  background: #4f6af0;
+  color: #f8fafc;
+  border: 1px solid #6c83ff;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.btn-refresh:hover { background: #3c55d6; }
+
+.stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.9rem; margin: 1rem 0; }
+.stats-tight .stat-card { padding: 1rem; }
+.charts-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem; }
+
+.stat-card {
+  background: #12182a;
+  padding: 1.1rem;
+  border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+  border: 1px solid #1f2642;
+  text-align: center;
+}
+.stat-card h3 { margin: 0; font-size: 0.9rem; text-transform: uppercase; opacity: 0.8; }
+.stat-card .metric { font-size: 2.2rem; font-weight: 700; margin: 0.35rem 0 0; }
+.stat-card .detail { margin: 0; font-size: 0.85rem; opacity: 0.75; }
+
+.content-section {
+  background: #12182a;
+  padding: 1.5rem;
+  border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+  border: 1px solid #1f2642;
+  margin: 1.5rem 0;
+}
+.section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
+.chart-container { position: relative; min-height: 260px; }
+
+.table-container { overflow-x: auto; }
+.data-table { width: 100%; border-collapse: collapse; color: #e5e7eb; }
+.data-table th { background: #182038; padding: 0.75rem; text-align: left; font-weight: 600; border-bottom: 1px solid #242f4b; }
+.data-table td { padding: 0.75rem; border-bottom: 1px solid #1d2438; }
+.wrap { white-space: normal; }
+
+.badge { display: inline-block; padding: 0.25rem 0.6rem; background: #1f263d; border-radius: 12px; font-size: 0.85rem; font-weight: 600; color: #e5e7eb; }
+.badge-error { background: #7f1d1d; color: #fecdd3; }
+.badge-warning { background: #78350f; color: #fcd34d; }
+.badge-information, .badge-info { background: #1e3a8a; color: #c7d2fe; }
+.badge-unknown { background: #334155; color: #e2e8f0; }
+
+.loading, .empty { text-align: center; padding: 1.5rem; color: #cbd5f5; }
+.muted { color: #cbd5e1; opacity: 0.8; }
+
+.info-banner { padding: 0.9rem 1rem; border-radius: 8px; margin: 1rem 0; font-weight: 600; border: 1px solid transparent; }
+.info-banner.ok { background: #0f1f3a; border-color: #1f6feb; color: #cde2ff; }
+.info-banner.warn { background: #2f1f10; border-color: #f59e0b; color: #fde68a; }
+.hidden { display: none; }
+</style>
 {% endblock %}

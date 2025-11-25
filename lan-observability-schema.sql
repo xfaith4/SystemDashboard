@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS telemetry.devices (
     primary_ip_address  TEXT,
     hostname            TEXT,
     nickname            TEXT,
+    location            TEXT,
     manufacturer        TEXT,
     vendor              TEXT,
     first_seen_utc      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -204,25 +205,38 @@ GRANT SELECT ON telemetry.lan_settings TO sysdash_reader;
 
 -- Summary view for dashboard statistics
 CREATE OR REPLACE VIEW telemetry.lan_summary_stats AS
+WITH device_totals AS (
+    SELECT
+        COUNT(*) AS total_devices,
+        COUNT(*) FILTER (WHERE is_active = true) AS active_devices,
+        COUNT(*) FILTER (WHERE is_active = false) AS inactive_devices
+    FROM telemetry.devices
+),
+recent_snapshots AS (
+    SELECT 
+        device_id, 
+        COALESCE(NULLIF(interface, ''), 'unknown') AS interface,
+        sample_time_utc
+    FROM telemetry.device_snapshots_template
+    WHERE sample_time_utc >= NOW() - INTERVAL '24 hours'
+),
+latest_interfaces AS (
+    SELECT DISTINCT ON (device_id)
+        device_id,
+        interface
+    FROM recent_snapshots
+    ORDER BY device_id, sample_time_utc DESC
+)
 SELECT
-    (SELECT COUNT(*) FROM telemetry.devices) AS total_devices,
-    (SELECT COUNT(*) FROM telemetry.devices WHERE is_active = true) AS active_devices,
-    (SELECT COUNT(*) FROM telemetry.devices WHERE is_active = false) AS inactive_devices,
-    (SELECT COUNT(DISTINCT d.device_id)
-     FROM telemetry.devices d
-     INNER JOIN telemetry.device_snapshots_template ds ON d.device_id = ds.device_id
-     WHERE ds.sample_time_utc >= NOW() - INTERVAL '24 hours'
-       AND ds.interface ILIKE '%wired%') AS wired_devices_24h,
-    (SELECT COUNT(DISTINCT d.device_id)
-     FROM telemetry.devices d
-     INNER JOIN telemetry.device_snapshots_template ds ON d.device_id = ds.device_id
-     WHERE ds.sample_time_utc >= NOW() - INTERVAL '24 hours'
-       AND ds.interface ILIKE '%2.4%') AS wifi_24ghz_devices_24h,
-    (SELECT COUNT(DISTINCT d.device_id)
-     FROM telemetry.devices d
-     INNER JOIN telemetry.device_snapshots_template ds ON d.device_id = ds.device_id
-     WHERE ds.sample_time_utc >= NOW() - INTERVAL '24 hours'
-       AND ds.interface ILIKE '%5%') AS wifi_5ghz_devices_24h;
+    dt.total_devices,
+    dt.active_devices,
+    dt.inactive_devices,
+    COUNT(li.device_id) FILTER (WHERE li.interface ILIKE '%wired%') AS wired_devices_24h,
+    COUNT(li.device_id) FILTER (WHERE li.interface ILIKE ANY (ARRAY['%2.4%','%24%','%2g%','%wireless%','%wl0%'])) AS wifi_24ghz_devices_24h,
+    COUNT(li.device_id) FILTER (WHERE li.interface ILIKE ANY (ARRAY['%5%','%5g%','%5ghz%','%wl1%'])) AS wifi_5ghz_devices_24h
+FROM device_totals dt
+LEFT JOIN latest_interfaces li ON true
+GROUP BY dt.total_devices, dt.active_devices, dt.inactive_devices;
 
 GRANT SELECT ON telemetry.lan_summary_stats TO sysdash_reader;
 
@@ -231,3 +245,7 @@ COMMENT ON TABLE telemetry.devices IS 'Stable inventory of all LAN devices ident
 COMMENT ON TABLE telemetry.device_snapshots_template IS 'Time-series snapshots of device network statistics (RSSI, rates, online status)';
 COMMENT ON TABLE telemetry.syslog_device_links IS 'Links syslog events to specific devices for correlation';
 COMMENT ON TABLE telemetry.lan_settings IS 'Configuration settings for LAN observability features';
+
+-- Ensure new columns exist when updating existing deployments
+ALTER TABLE telemetry.devices
+    ADD COLUMN IF NOT EXISTS location TEXT;

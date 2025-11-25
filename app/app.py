@@ -111,7 +111,7 @@ def _severity_to_text(value):
         return str(value) if value is not None else ''
 
 
-def get_windows_events(level: str = None, max_events: int = 50):
+def get_windows_events(level: str = None, max_events: int = 50, with_source: bool = False):
     """Fetch recent Windows events via PowerShell. Level can be 'Error', 'Warning', or None for any.
     Returns list of dicts with time, source, id, level, message.
     """
@@ -161,7 +161,8 @@ def get_windows_events(level: str = None, max_events: int = 50):
             level_lower = level.lower()
             mock_events = [e for e in mock_events if e['level'].lower() == level_lower]
 
-        return mock_events[:max_events]
+        result = mock_events[:max_events]
+        return (result, 'mock') if with_source else result
 
     level_filter = ''
     if level:
@@ -196,19 +197,22 @@ def get_windows_events(level: str = None, max_events: int = 50):
                 'level': e.get('LevelDisplayName'),
                 'message': e.get('Message'),
             })
-        return events
+        return (events, 'windows') if with_source else events
     except Exception:
-        return []
+        return ([], 'error') if with_source else []
 
 
-def get_router_logs(max_lines: int = 100):
-    """Fetch router logs from PostgreSQL when available, otherwise fall back to a local file."""
+def get_router_logs(max_lines: int = 100, with_source: bool = False):
+    """Fetch router logs from PostgreSQL when available, otherwise fall back to a local file.
+    If with_source is True, returns a tuple (logs, source) where source is 'db', 'file', or 'none'.
+    """
     db_logs = get_router_logs_from_db(limit=max_lines)
+    source = 'db' if db_logs is not None else 'none'
     if db_logs is not None:
-        return db_logs
+        return (db_logs, source) if with_source else db_logs
     log_path = os.environ.get('ROUTER_LOG_PATH')
     if not log_path or not os.path.exists(log_path):
-        return []
+        return ([], source) if with_source else []
     try:
         with open(log_path, 'r', encoding='utf-8', errors='ignore') as f:
             lines = f.readlines()[-max_lines:]
@@ -224,9 +228,10 @@ def get_router_logs(max_lines: int = 100):
                 level = ''
                 message = line.strip()
             logs.append({'time': time, 'level': level, 'message': message, 'host': ''})
-        return logs
+        source = 'file'
+        return (logs, source) if with_source else logs
     except Exception:
-        return []
+        return ([], source) if with_source else []
 
 
 def get_router_logs_from_db(limit: int = 100):
@@ -263,6 +268,123 @@ def get_router_logs_from_db(limit: int = 100):
         return None
     finally:
         conn.close()
+
+
+def summarize_router_logs(limit: int = 500):
+    """Summarize router/syslog messages for trends."""
+    logs = get_router_logs_from_db(limit=limit) or []
+    summary = {
+        'total': len(logs),
+        'severity_counts': {},
+        'igmp_drops': 0,
+        'wan_ports': {},
+        'wifi_events': {},
+        'rstats_errors': 0,
+        'upnp_events': 0
+    }
+
+    for log in logs:
+        msg = (log.get('message') or '').lower()
+        sev = log.get('level') or 'Unknown'
+        summary['severity_counts'][sev] = summary['severity_counts'].get(sev, 0) + 1
+
+        if 'dst=224.0.0.1' in msg and 'proto=2' in msg:
+            summary['igmp_drops'] += 1
+
+        # WAN drop ports
+        import re
+        port_match = re.search(r'dpt=(\d+)', msg)
+        if port_match:
+            port = port_match.group(1)
+            summary['wan_ports'][port] = summary['wan_ports'].get(port, 0) + 1
+
+        # Wi-Fi events (wlceventd)
+        if 'wlceventd' in msg:
+            mac_match = re.search(r'([0-9a-f]{2}:){5}[0-9a-f]{2}', msg)
+            mac = mac_match.group(0) if mac_match else 'unknown'
+            summary['wifi_events'][mac] = summary['wifi_events'].get(mac, 0) + 1
+
+        # rstats errors
+        if 'rstats' in msg and 'problem loading' in msg:
+            summary['rstats_errors'] += 1
+
+        # upnp/miniupnpd
+        if 'miniupnpd' in msg:
+            summary['upnp_events'] += 1
+
+    # top 5 ports and wifi macs
+    def top_n(d: dict, n=5):
+        return sorted([{'key': k, 'count': v} for k, v in d.items()], key=lambda x: x['count'], reverse=True)[:n]
+
+    summary['wan_ports_top'] = top_n(summary['wan_ports'])
+    summary['wifi_events_top'] = top_n(summary['wifi_events'])
+    return summary
+
+
+def summarize_system_events(events: list[dict]):
+    """Summarize system/router events for trends."""
+    summary = {
+        'total': len(events),
+        'severity_counts': {},
+        'source_counts': {},
+        'keyword_counts': {
+            'auth': 0,
+            'disk': 0,
+            'network': 0,
+            'update': 0,
+            'warning': 0
+        }
+    }
+    keywords = {
+        'auth': ['auth', 'login', 'failed'],
+        'disk': ['disk', 'drive', 'io', 'storage'],
+        'network': ['network', 'dns', 'link', 'tcp', 'udp'],
+        'update': ['update', 'patch', 'install'],
+        'warning': ['warn', 'error', 'fail']
+    }
+
+    for e in events:
+        msg = (e.get('message') or '').lower()
+        sev = (e.get('level') or 'Info')
+        src = e.get('source') or 'system'
+        summary['severity_counts'][sev] = summary['severity_counts'].get(sev, 0) + 1
+        summary['source_counts'][src] = summary['source_counts'].get(src, 0) + 1
+        for key, words in keywords.items():
+            if any(w in msg for w in words):
+                summary['keyword_counts'][key] += 1
+
+    # convert source counts to top list
+    def top_list(d, n=5):
+        return sorted([{'key': k, 'count': v} for k, v in d.items()], key=lambda x: x['count'], reverse=True)[:n]
+    summary['sources_top'] = top_list(summary['source_counts'])
+    return summary
+
+
+def _normalize_events(events: list[dict]) -> list[dict]:
+    """Normalize event fields for API use."""
+    normalized = []
+    for e in events:
+        msg = e.get('message') or e.get('Message') or ''
+        src = e.get('source') or e.get('Source') or e.get('ProviderName') or ''
+        lvl = e.get('level') or e.get('Level') or e.get('LevelDisplayName') or ''
+        time_val = e.get('time') or e.get('TimeCreated')
+
+        if not lvl:
+            lower = msg.lower()
+            if 'error' in lower or 'fail' in lower:
+                lvl = 'Error'
+            elif 'warn' in lower:
+                lvl = 'Warning'
+            else:
+                lvl = 'Information'
+
+        normalized.append({
+            'time': _isoformat(time_val),
+            'level': lvl,
+            'source': src,
+            'message': msg
+        })
+    return normalized
 
 
 def get_wifi_clients():
@@ -517,23 +639,28 @@ def dashboard():
 @app.route('/events')
 def events():
     """Drill-down page for system events."""
-    events = get_windows_events(max_events=100)
-    # Simple severity tagging
-    for e in events:
-        msg = (e.get('message') or '').lower()
-        if not e.get('level'):
-            if 'error' in msg or 'failed' in msg:
-                e['level'] = 'Error'
-            elif 'warn' in msg:
-                e['level'] = 'Warning'
-            else:
-                e['level'] = 'Info'
-    return render_template('events.html', events=events)
+    return render_template('events.html')
 
 @app.route('/router')
 def router():
     """Drill-down page for router logs."""
-    return render_template('router.html', logs=get_router_logs())
+    return render_template('router.html')
+
+
+@app.route('/api/router/logs')
+def api_router_logs():
+    """Return recent router/syslog entries."""
+    limit = int(request.args.get('limit', '200'))
+    logs, source = get_router_logs(limit, with_source=True)
+    return jsonify({'logs': logs, 'source': source})
+
+
+@app.route('/api/router/summary')
+def api_router_summary():
+    """Return parsed trend summary for router/syslog entries."""
+    limit = int(request.args.get('limit', '500'))
+    data = summarize_router_logs(limit)
+    return jsonify(data)
 
 @app.route('/wifi')
 def wifi():
@@ -545,8 +672,19 @@ def wifi():
 def api_events():
     level = request.args.get('level')
     max_events = int(request.args.get('max', '100'))
-    data = get_windows_events(level=level, max_events=max_events)
-    return jsonify({'events': data})
+    events_raw, source = get_windows_events(level=level, max_events=max_events, with_source=True)
+    events = _normalize_events(events_raw)
+    return jsonify({'events': events, 'source': source})
+
+
+@app.route('/api/events/summary')
+def api_events_summary():
+    max_events = int(request.args.get('max', '300'))
+    events_raw, source = get_windows_events(max_events=max_events, with_source=True)
+    events = _normalize_events(events_raw)
+    data = summarize_system_events(events)
+    data['source'] = source
+    return jsonify(data)
 
 
 def _mock_trend_data():
@@ -881,6 +1019,7 @@ def api_lan_devices():
                     d.primary_ip_address,
                     d.hostname,
                     d.nickname,
+                    d.location,
                     d.manufacturer,
                     d.vendor,
                     d.first_seen_utc,
@@ -888,10 +1027,18 @@ def api_lan_devices():
                     d.is_active,
                     d.tags,
                     ds.interface AS last_interface,
-                    ds.rssi AS last_rssi
+                    ds.rssi AS last_rssi,
+                    ds.tx_rate_mbps AS last_tx_rate_mbps,
+                    ds.rx_rate_mbps AS last_rx_rate_mbps,
+                    ds.lease_type AS lease_type
                 FROM telemetry.devices d
                 LEFT JOIN LATERAL (
-                    SELECT interface, rssi
+                    SELECT 
+                        interface, 
+                        rssi,
+                        tx_rate_mbps,
+                        rx_rate_mbps,
+                        NULLIF(raw_json::json->>'LeaseType', '') AS lease_type
                     FROM telemetry.device_snapshots_template
                     WHERE device_id = d.device_id
                     ORDER BY sample_time_utc DESC
@@ -921,6 +1068,8 @@ def api_lan_devices():
                 device = dict(row)
                 device['first_seen_utc'] = _isoformat(device.get('first_seen_utc'))
                 device['last_seen_utc'] = _isoformat(device.get('last_seen_utc'))
+                device['last_tx_rate_mbps'] = _safe_float(device.get('last_tx_rate_mbps'))
+                device['last_rx_rate_mbps'] = _safe_float(device.get('last_rx_rate_mbps'))
                 devices.append(device)
     except Exception as exc:
         app.logger.debug('LAN devices query failed: %s', exc)
@@ -943,29 +1092,18 @@ def api_lan_devices_online():
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute("""
                 SELECT 
-                    d.device_id,
-                    d.mac_address,
-                    d.primary_ip_address,
-                    d.hostname,
-                    d.vendor,
-                    d.last_seen_utc,
-                    ds.current_ip,
-                    ds.current_interface,
-                    ds.current_rssi,
-                    ds.last_snapshot_time
-                FROM telemetry.devices_online d
-                INNER JOIN (
-                    SELECT 
-                        device_id,
-                        ip_address AS current_ip,
-                        interface AS current_interface,
-                        rssi AS current_rssi,
-                        sample_time_utc AS last_snapshot_time
-                    FROM telemetry.device_snapshots_template
-                    WHERE sample_time_utc >= NOW() - INTERVAL '10 minutes'
-                      AND is_online = true
-                ) ds ON d.device_id = ds.device_id
-                ORDER BY d.last_seen_utc DESC
+                    device_id,
+                    mac_address,
+                    primary_ip_address,
+                    hostname,
+                    vendor,
+                    last_seen_utc,
+                    current_ip,
+                    current_interface,
+                    current_rssi,
+                    last_snapshot_time
+                FROM telemetry.devices_online
+                ORDER BY last_seen_utc DESC
             """)
             rows = cur.fetchall()
             
@@ -1001,8 +1139,27 @@ def api_lan_device_detail(device_id):
             cur.execute("""
                 SELECT 
                     d.*,
-                    (SELECT COUNT(*) FROM telemetry.device_snapshots_template WHERE device_id = d.device_id) AS total_snapshots
+                    (SELECT COUNT(*) FROM telemetry.device_snapshots_template WHERE device_id = d.device_id) AS total_snapshots,
+                    last.interface AS last_interface,
+                    last.rssi AS last_rssi,
+                    last.tx_rate_mbps AS last_tx_rate_mbps,
+                    last.rx_rate_mbps AS last_rx_rate_mbps,
+                    last.lease_type AS lease_type,
+                    last.sample_time_utc AS last_snapshot_time
                 FROM telemetry.devices d
+                LEFT JOIN LATERAL (
+                    SELECT 
+                        interface,
+                        rssi,
+                        tx_rate_mbps,
+                        rx_rate_mbps,
+                        NULLIF(raw_json::json->>'LeaseType', '') AS lease_type,
+                        sample_time_utc
+                    FROM telemetry.device_snapshots_template
+                    WHERE device_id = d.device_id
+                    ORDER BY sample_time_utc DESC
+                    LIMIT 1
+                ) last ON true
                 WHERE d.device_id = %s
             """, (device_id,))
             row = cur.fetchone()
@@ -1015,6 +1172,9 @@ def api_lan_device_detail(device_id):
             device['last_seen_utc'] = _isoformat(device.get('last_seen_utc'))
             device['created_at'] = _isoformat(device.get('created_at'))
             device['updated_at'] = _isoformat(device.get('updated_at'))
+            device['last_snapshot_time'] = _isoformat(device.get('last_snapshot_time'))
+            device['last_tx_rate_mbps'] = _safe_float(device.get('last_tx_rate_mbps'))
+            device['last_rx_rate_mbps'] = _safe_float(device.get('last_rx_rate_mbps'))
     except Exception as exc:
         app.logger.debug('Device detail query failed: %s', exc)
         return jsonify({'error': 'Database error'}), 500
@@ -1022,6 +1182,46 @@ def api_lan_device_detail(device_id):
         conn.close()
     
     return jsonify(device)
+
+
+@app.route('/api/lan/device/<device_id>/update', methods=['POST', 'PATCH'])
+def api_lan_device_update(device_id):
+    """Update nickname/location for a device."""
+    payload = request.get_json(silent=True) or {}
+    nickname = payload.get('nickname')
+    location = payload.get('location')
+
+    if nickname is not None and not isinstance(nickname, str):
+        return jsonify({'error': 'Invalid nickname'}), 400
+    if location is not None and not isinstance(location, str):
+        return jsonify({'error': 'Invalid location'}), 400
+
+    conn = get_db_connection()
+    if conn is None:
+        return jsonify({'error': 'Database unavailable'}), 503
+
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE telemetry.devices
+                SET
+                    nickname = COALESCE(%s, nickname),
+                    location = COALESCE(%s, location),
+                    updated_at = NOW()
+                WHERE device_id = %s
+                RETURNING device_id;
+            """, (nickname, location, device_id))
+            updated = cur.fetchone()
+            if not updated:
+                return jsonify({'error': 'Device not found'}), 404
+        conn.commit()
+        return jsonify({'status': 'ok'})
+    except Exception as exc:
+        app.logger.debug('Device update failed: %s', exc)
+        conn.rollback()
+        return jsonify({'error': 'Database error'}), 500
+    finally:
+        conn.close()
 
 
 @app.route('/api/lan/device/<device_id>/timeline')

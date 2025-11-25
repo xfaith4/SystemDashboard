@@ -22,8 +22,7 @@
                 <select id="filter-interface" onchange="applyFilters()">
                     <option value="">All Interfaces</option>
                     <option value="wired">Wired</option>
-                    <option value="2.4">2.4 GHz WiFi</option>
-                    <option value="5">5 GHz WiFi</option>
+                    <option value="wireless">Wireless</option>
                 </select>
             </label>
             <label>
@@ -44,7 +43,11 @@
                         <th>IP Address</th>
                         <th>MAC Address</th>
                         <th>Vendor</th>
+                        <th>Location</th>
                         <th>Interface</th>
+                        <th>RSSI</th>
+                        <th>Tx / Rx (Mbps)</th>
+                        <th>Lease</th>
                         <th>First Seen</th>
                         <th>Last Seen</th>
                         <th>Actions</th>
@@ -119,6 +122,10 @@ function renderDevices() {
         const statusClass = device.is_active ? 'status-active' : 'status-inactive';
         const statusText = device.is_active ? 'Online' : 'Offline';
         const displayName = device.nickname || device.hostname || device.mac_address;
+        const rssi = device.last_rssi !== null && device.last_rssi !== undefined ? `${device.last_rssi} dBm` : '--';
+        const tx = device.last_tx_rate_mbps && device.last_tx_rate_mbps > 0 ? device.last_tx_rate_mbps.toFixed(1) : '--';
+        const rx = device.last_rx_rate_mbps && device.last_rx_rate_mbps > 0 ? device.last_rx_rate_mbps.toFixed(1) : '--';
+        const lease = device.lease_type || '--';
         
         return `
             <tr>
@@ -127,7 +134,11 @@ function renderDevices() {
                 <td>${device.primary_ip_address || '--'}</td>
                 <td><code>${device.mac_address}</code></td>
                 <td>${device.vendor || '--'}</td>
+                <td>${device.location || '--'}</td>
                 <td><span class="badge">${device.last_interface || '--'}</span></td>
+                <td>${rssi}</td>
+                <td>${tx} / ${rx}</td>
+                <td>${lease}</td>
                 <td>${formatTimestamp(device.first_seen_utc)}</td>
                 <td>${formatTimestamp(device.last_seen_utc)}</td>
                 <td><a href="/lan/device/${device.device_id}" class="btn-link">View</a></td>
@@ -158,13 +169,15 @@ document.addEventListener('DOMContentLoaded', () => {
     max-width: 1600px;
     margin: 0 auto;
     padding: 2rem;
+    color: #e5e7f3;
 }
 
 .filters-section {
-    background: #fff;
+    background: #12182a;
     padding: 1.5rem;
     border-radius: 8px;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+    border: 1px solid #1f2642;
     margin: 2rem 0;
 }
 
@@ -184,17 +197,20 @@ document.addEventListener('DOMContentLoaded', () => {
 .filters select,
 .filters input[type="text"] {
     padding: 0.5rem;
-    border: 1px solid #e2e8f0;
+    border: 1px solid #2a3553;
     border-radius: 4px;
     font-size: 0.95rem;
     min-width: 200px;
+    background: #0f1322;
+    color: #e2e8f0;
 }
 
 .content-section {
-    background: #fff;
+    background: #12182a;
     padding: 2rem;
     border-radius: 8px;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+    border: 1px solid #1f2642;
     margin: 2rem 0;
 }
 
@@ -205,27 +221,29 @@ document.addEventListener('DOMContentLoaded', () => {
 .data-table {
     width: 100%;
     border-collapse: collapse;
+    color: #e5e7eb;
 }
 
 .data-table th {
-    background: #f7fafc;
+    background: #182038;
     padding: 0.75rem;
     text-align: left;
     font-weight: 600;
-    border-bottom: 2px solid #e2e8f0;
+    border-bottom: 1px solid #242f4b;
     white-space: nowrap;
 }
 
 .data-table td {
     padding: 0.75rem;
-    border-bottom: 1px solid #e2e8f0;
+    border-bottom: 1px solid #1d2438;
 }
 
 .data-table code {
-    background: #f7fafc;
-    padding: 0.25rem 0.5rem;
-    border-radius: 3px;
+    background: #1f263d;
+    padding: 0.35rem 0.6rem;
+    border-radius: 4px;
     font-size: 0.85rem;
+    color: #e0e7ff;
 }
 
 .status-badge {
@@ -237,26 +255,27 @@ document.addEventListener('DOMContentLoaded', () => {
 }
 
 .status-active {
-    background: #c6f6d5;
-    color: #22543d;
+    background: #0fbe86;
+    color: #042014;
 }
 
 .status-inactive {
-    background: #fed7d7;
-    color: #742a2a;
+    background: #f87171;
+    color: #2f0a0a;
 }
 
 .badge {
     display: inline-block;
     padding: 0.25rem 0.75rem;
-    background: #e2e8f0;
+    background: #1f263d;
     border-radius: 12px;
     font-size: 0.85rem;
-    font-weight: 500;
+    font-weight: 600;
+    color: #e5e7eb;
 }
 
 .btn-link {
-    color: #667eea;
+    color: #9fb6ff;
     text-decoration: none;
     font-weight: 500;
 }
@@ -268,11 +287,11 @@ document.addEventListener('DOMContentLoaded', () => {
 .loading, .empty, .error {
     text-align: center;
     padding: 2rem;
-    color: #718096;
+    color: #cbd5f5;
 }
 
 .error {
-    color: #e53e3e;
+    color: #fca5a5;
 }
 </style>
 {% endblock %}
