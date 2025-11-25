@@ -41,6 +41,9 @@ if (-not (Test-Path -LiteralPath $logDir)) {
 $config.Service.Asus.Enabled = $false
 if ($config.Service.Asus.SSH) { $config.Service.Asus.SSH.Enabled = $false }
 $config.Service.LogPath = Join-Path $logDir "syslog-collector.log"
+# Force repo-root paths so the temp config does not default to C:\Windows\Temp\...
+$config.Service.Ingestion.StagingDirectory = Join-Path $repoRoot "var" "staging"
+$config.Service.Syslog.BufferDirectory = Join-Path $repoRoot "var" "syslog"
 
 # Write temp config for this service instance
 $tempConfig = Join-Path $env:TEMP "sysdash-syslog-config.json"

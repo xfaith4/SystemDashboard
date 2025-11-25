@@ -303,16 +303,17 @@ function Invoke-PostgresCopy {
         [Parameter(Mandatory)][string]$CsvPath
     )
 
-    $psqlPath = if ($Database.PsqlPath) { $Database.PsqlPath } else { 'psql' }
+    # Use safe lookups because strict mode is enabled
+    $psqlPath = if ($Database -is [hashtable] -and $Database.ContainsKey('PsqlPath') -and $Database.PsqlPath) { $Database.PsqlPath } else { 'psql' }
     $command = Get-Command -Name $psqlPath -ErrorAction SilentlyContinue
     if (-not $command) {
         throw "psql executable '$psqlPath' not found in PATH. Set Database.PsqlPath in config.json."
     }
 
-    $dbHost = $Database.Host ?? 'localhost'
-    $port = $Database.Port ?? 5432
-    $databaseName = $Database.Database ?? $Database.Name
-    $username = $Database.Username ?? $Database.User
+    $dbHost = if ($Database -is [hashtable] -and $Database.ContainsKey('Host')) { $Database.Host } else { 'localhost' }
+    $port = if ($Database -is [hashtable] -and $Database.ContainsKey('Port')) { $Database.Port } else { 5432 }
+    $databaseName = if ($Database -is [hashtable] -and $Database.ContainsKey('Database')) { $Database.Database } elseif ($Database -is [hashtable] -and $Database.ContainsKey('Name')) { $Database.Name } else { $null }
+    $username = if ($Database -is [hashtable] -and $Database.ContainsKey('Username')) { $Database.Username } elseif ($Database -is [hashtable] -and $Database.ContainsKey('User')) { $Database.User } else { $null }
     if (-not $databaseName) {
         throw 'Database name must be specified in the configuration.'
     }
@@ -320,29 +321,48 @@ function Invoke-PostgresCopy {
         throw 'Database username must be specified in the configuration.'
     }
 
-    $password = Resolve-SystemDashboardSecret -Secret $Database.PasswordSecret -Fallback $Database.Password
+    $passwordSecret = if ($Database -is [hashtable] -and $Database.ContainsKey('PasswordSecret')) { $Database.PasswordSecret } else { $null }
+    $passwordPlain = if ($Database -is [hashtable] -and $Database.ContainsKey('Password')) { $Database.Password } else { $null }
+    $password = Resolve-SystemDashboardSecret -Secret $passwordSecret -Fallback $passwordPlain
     if ([string]::IsNullOrEmpty($password)) {
         throw 'Database password is not configured. Provide Database.Password or Database.PasswordSecret.'
     }
 
     $env:PGPASSWORD = $password
+    $stderrPath = [System.IO.Path]::GetTempFileName()
     try {
-        $schema = $Database.Schema ?? 'telemetry'
+        $schema = if ($Database -is [hashtable] -and $Database.ContainsKey('Schema')) { $Database.Schema } else { 'telemetry' }
         if (-not $TableName.Contains('.')) {
             $table = "$schema.$TableName"
         }
         else {
             $table = $TableName
         }
-        $copyCommand = "\\copy $table (received_utc, event_utc, source_host, app_name, facility, severity, message, raw_message, remote_endpoint, source) FROM '$CsvPath' WITH (FORMAT csv, HEADER true, DELIMITER ',')"
-        $psqlArgs = @('-h', $dbHost, '-p', [string]$port, '-U', $username, '-d', $databaseName, '-c', $copyCommand)
-        $process = Start-Process -FilePath $command.Source -ArgumentList $psqlArgs -NoNewWindow -Wait -PassThru -ErrorAction Stop
+        $copyCommand = "\\copy $table (received_utc, event_utc, source_host, app_name, facility, severity, message, raw_message, remote_endpoint, source) FROM '$CsvPath' WITH (FORMAT csv, HEADER true, DELIMITER ',');"
+
+        # Write the COPY command to a temp file to avoid quoting issues on Windows
+        $sqlFile = [System.IO.Path]::GetTempFileName()
+        Set-Content -LiteralPath $sqlFile -Value $copyCommand -Encoding UTF8
+
+        $psqlArgs = @(
+            '-h', $dbHost,
+            '-p', [string]$port,
+            '-U', $username,
+            '-d', $databaseName,
+            '--set', 'ON_ERROR_STOP=1',
+            '-f', $sqlFile
+        )
+
+        $process = Start-Process -FilePath $command.Source -ArgumentList $psqlArgs -NoNewWindow -Wait -PassThru -ErrorAction Stop -RedirectStandardError $stderrPath
         if ($process.ExitCode -ne 0) {
-            throw "psql exited with code $($process.ExitCode)."
+            $stderr = (Get-Content -LiteralPath $stderrPath -Raw -ErrorAction SilentlyContinue)
+            throw "psql exited with code $($process.ExitCode). stderr: $stderr"
         }
     }
     finally {
         Remove-Item Env:PGPASSWORD -ErrorAction SilentlyContinue
+        if ($sqlFile) { Remove-Item -LiteralPath $sqlFile -ErrorAction SilentlyContinue }
+        Remove-Item -LiteralPath $stderrPath -ErrorAction SilentlyContinue
     }
 }
 
@@ -353,35 +373,41 @@ function Invoke-PostgresStatement {
         [Parameter(Mandatory)][string]$Sql
     )
 
-    $psqlPath = if ($Database.PsqlPath) { $Database.PsqlPath } else { 'psql' }
+    $psqlPath = if ($Database -is [hashtable] -and $Database.ContainsKey('PsqlPath') -and $Database.PsqlPath) { $Database.PsqlPath } else { 'psql' }
     $command = Get-Command -Name $psqlPath -ErrorAction SilentlyContinue
     if (-not $command) {
         throw "psql executable '$psqlPath' not found in PATH. Set Database.PsqlPath in config.json."
     }
 
-    $dbHost = $Database.Host ?? 'localhost'
-    $port = $Database.Port ?? 5432
-    $databaseName = $Database.Database ?? $Database.Name
-    $username = $Database.Username ?? $Database.User
+    $dbHost = if ($Database -is [hashtable] -and $Database.ContainsKey('Host')) { $Database.Host } else { 'localhost' }
+    $port = if ($Database -is [hashtable] -and $Database.ContainsKey('Port')) { $Database.Port } else { 5432 }
+    $databaseName = if ($Database -is [hashtable] -and $Database.ContainsKey('Database')) { $Database.Database } elseif ($Database -is [hashtable] -and $Database.ContainsKey('Name')) { $Database.Name } else { $null }
+    $username = if ($Database -is [hashtable] -and $Database.ContainsKey('Username')) { $Database.Username } elseif ($Database -is [hashtable] -and $Database.ContainsKey('User')) { $Database.User } else { $null }
     if (-not $databaseName -or -not $username) {
         throw 'Database connection settings are incomplete (host/user/database required).'
     }
 
-    $password = Resolve-SystemDashboardSecret -Secret $Database.PasswordSecret -Fallback $Database.Password
+    $passwordSecret = if ($Database -is [hashtable] -and $Database.ContainsKey('PasswordSecret')) { $Database.PasswordSecret } else { $null }
+    $passwordPlain = if ($Database -is [hashtable] -and $Database.ContainsKey('Password')) { $Database.Password } else { $null }
+    $password = Resolve-SystemDashboardSecret -Secret $passwordSecret -Fallback $passwordPlain
     if ([string]::IsNullOrEmpty($password)) {
         throw 'Database password is not configured. Provide Database.Password or Database.PasswordSecret.'
     }
 
     $env:PGPASSWORD = $password
+    $stderrPath = [System.IO.Path]::GetTempFileName()
     try {
-        $psqlArgs = @('-h', $dbHost, '-p', [string]$port, '-U', $username, '-d', $databaseName, '-c', $Sql)
-        $process = Start-Process -FilePath $command.Source -ArgumentList $psqlArgs -NoNewWindow -Wait -PassThru -ErrorAction Stop
+        # Quote the -c argument so the SQL statement is treated as a single argument
+        $psqlArgs = @('-h', $dbHost, '-p', [string]$port, '-U', $username, '-d', $databaseName, '-c', "`"$Sql`"")
+        $process = Start-Process -FilePath $command.Source -ArgumentList $psqlArgs -NoNewWindow -Wait -PassThru -ErrorAction Stop -RedirectStandardError $stderrPath
         if ($process.ExitCode -ne 0) {
-            throw "psql exited with code $($process.ExitCode) when executing statement."
+            $stderr = (Get-Content -LiteralPath $stderrPath -Raw -ErrorAction SilentlyContinue)
+            throw "psql exited with code $($process.ExitCode) when executing statement. stderr: $stderr"
         }
     }
     finally {
         Remove-Item Env:PGPASSWORD -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $stderrPath -ErrorAction SilentlyContinue
     }
 }
 
@@ -636,7 +662,10 @@ function Start-TelemetryService {
     $syslogBuffer = New-Object System.Collections.Generic.List[object]
     $asusBuffer = New-Object System.Collections.Generic.List[object]
     $wifiBuffer = New-Object System.Collections.Generic.List[object]
-    $ingestion = $config.Service.Ingestion
+
+    # Normalize objects coming from ConvertFrom-Json into hashtables for typed parameters
+    $ingestion = @{}
+    $config.Service.Ingestion.PSObject.Properties | ForEach-Object { $ingestion[$_.Name] = $_.Value }
     $database = @{}
     $config.Database.PSObject.Properties | ForEach-Object { $database[$_.Name] = $_.Value }
 
