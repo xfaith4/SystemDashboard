@@ -31,7 +31,9 @@
         <td><button class="aiSuggestBtn" data-source="${attr(e.source)}" data-id="${attr(e.id)}" data-message="${attr(e.message)}">Ask AI</button></td>
       </tr>`).join('');
     wireAiButtons();
-    insights.textContent = computeInsights(rows);
+    if (insights) {
+      insights.textContent = computeInsights(rows);
+    }
   }
 
   function escapeHtml(s){
