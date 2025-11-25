@@ -186,6 +186,9 @@
 <script>
 let chartSeverity, chartPorts, chartWifi;
 
+// Configuration constants
+const DEFAULT_PAGE_SIZE = 50;
+
 // Pagination and sorting state
 let currentPage = 1;
 let totalPages = 1;
@@ -370,7 +373,7 @@ function clearFilters() {
     document.getElementById('search-input').value = '';
     document.getElementById('level-filter').value = '';
     document.getElementById('host-filter').value = '';
-    document.getElementById('page-size').value = '50';
+    document.getElementById('page-size').value = String(DEFAULT_PAGE_SIZE);
     currentSort = 'time';
     currentOrder = 'desc';
     currentPage = 1;
@@ -516,6 +519,8 @@ document.addEventListener('keydown', (e) => {
 });
 
 document.addEventListener('DOMContentLoaded', () => {
+    // Set default page size from constant
+    document.getElementById('page-size').value = String(DEFAULT_PAGE_SIZE);
     updateSortIndicators();
     refreshRouter();
 });
