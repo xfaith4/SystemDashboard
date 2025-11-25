@@ -218,22 +218,29 @@ def get_windows_events(level: str = None, max_events: int = 50, with_source: boo
         return ([], 'error') if with_source else []
 
 
-def get_router_logs(max_lines: int = 100, with_source: bool = False):
+def get_router_logs(max_lines: int = 100, with_source: bool = False, offset: int = 0,
+                    sort_field: str = 'received_utc', sort_dir: str = 'desc',
+                    level_filter: str = None, host_filter: str = None, search_query: str = None):
     """Fetch router logs from PostgreSQL when available, otherwise fall back to a local file.
-    If with_source is True, returns a tuple (logs, source) where source is 'db', 'file', or 'none'.
+    If with_source is True, returns a tuple (logs, source, total) where source is 'db', 'file', or 'none'.
+    Supports pagination (offset), sorting, and filtering.
     """
-    db_logs = get_router_logs_from_db(limit=max_lines)
+    db_logs, total = get_router_logs_from_db(
+        limit=max_lines, offset=offset, sort_field=sort_field, sort_dir=sort_dir,
+        level_filter=level_filter, host_filter=host_filter, search_query=search_query
+    )
     source = 'db' if db_logs is not None else 'none'
     if db_logs is not None:
-        return (db_logs, source) if with_source else db_logs
+        return (db_logs, source, total) if with_source else db_logs
     log_path = os.environ.get('ROUTER_LOG_PATH')
     if not log_path or not os.path.exists(log_path):
-        return ([], source) if with_source else []
+        return ([], source, 0) if with_source else []
     try:
         with open(log_path, 'r', encoding='utf-8', errors='ignore') as f:
-            lines = f.readlines()[-max_lines:]
+            all_lines = f.readlines()
+        
         logs = []
-        for line in lines:
+        for line in all_lines:
             parts = line.strip().split(maxsplit=3)
             if len(parts) >= 4:
                 time = f"{parts[0]} {parts[1]}"
@@ -243,33 +250,95 @@ def get_router_logs(max_lines: int = 100, with_source: bool = False):
                 time = ''
                 level = ''
                 message = line.strip()
+            
+            # Apply filters for file-based logs
+            if level_filter and level.lower() != level_filter.lower():
+                continue
+            if host_filter:
+                continue  # File-based logs don't have host info
+            if search_query and search_query.lower() not in message.lower():
+                continue
+            
             logs.append({'time': time, 'level': level, 'message': message, 'host': ''})
+        
+        # Sort logs for file-based source
+        if sort_field in ['time', 'received_utc']:
+            logs.sort(key=lambda x: x['time'], reverse=(sort_dir.lower() == 'desc'))
+        elif sort_field in ['level', 'severity']:
+            logs.sort(key=lambda x: x['level'], reverse=(sort_dir.lower() == 'desc'))
+        elif sort_field == 'message':
+            logs.sort(key=lambda x: x['message'], reverse=(sort_dir.lower() == 'desc'))
+        
+        total = len(logs)
+        # Apply pagination
+        logs = logs[offset:offset + max_lines]
         source = 'file'
-        return (logs, source) if with_source else logs
+        return (logs, source, total) if with_source else logs
     except Exception:
-        return ([], source) if with_source else []
+        return ([], source, 0) if with_source else []
 
 
-def get_router_logs_from_db(limit: int = 100):
+def get_router_logs_from_db(limit: int = 100, offset: int = 0, sort_field: str = 'received_utc', 
+                            sort_dir: str = 'desc', level_filter: str = None, host_filter: str = None,
+                            search_query: str = None):
+    """Fetch router logs from PostgreSQL with pagination, sorting and filtering support."""
     conn = get_db_connection()
     if conn is None:
-        return None
+        return None, 0
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute(
-                """
+            # Build WHERE clause conditions
+            conditions = ["source IN ('asus', 'router', 'syslog')"]
+            params = []
+            
+            if level_filter:
+                # Map text level to severity number
+                level_map = {
+                    'emergency': 0, 'alert': 1, 'critical': 2, 'error': 3,
+                    'warning': 4, 'notice': 5, 'informational': 6, 'info': 6, 'debug': 7
+                }
+                sev = level_map.get(level_filter.lower())
+                if sev is not None:
+                    conditions.append("severity = %s")
+                    params.append(sev)
+            
+            if host_filter:
+                conditions.append("source_host ILIKE %s")
+                params.append(f'%{host_filter}%')
+            
+            if search_query:
+                conditions.append("message ILIKE %s")
+                params.append(f'%{search_query}%')
+            
+            where_clause = ' AND '.join(conditions)
+            
+            # Validate sort field to prevent SQL injection
+            valid_sort_fields = {'received_utc': 'received_utc', 'time': 'COALESCE(event_utc, received_utc)', 
+                                'severity': 'severity', 'level': 'severity', 
+                                'source_host': 'source_host', 'host': 'source_host',
+                                'message': 'message'}
+            sort_column = valid_sort_fields.get(sort_field.lower(), 'received_utc')
+            sort_direction = 'ASC' if sort_dir.lower() == 'asc' else 'DESC'
+            
+            # Get total count for pagination
+            count_query = f"SELECT COUNT(*) FROM telemetry.syslog_recent WHERE {where_clause}"
+            cur.execute(count_query, params)
+            total_count = cur.fetchone()['count']
+            
+            # Get paginated results
+            query = f"""
                 SELECT COALESCE(event_utc, received_utc) AS time,
                        severity,
                        message,
                        source_host
                 FROM telemetry.syslog_recent
-                WHERE source IN ('asus', 'router', 'syslog')
-                ORDER BY received_utc DESC
-                LIMIT %s
-                """,
-                (limit,)
-            )
+                WHERE {where_clause}
+                ORDER BY {sort_column} {sort_direction}
+                LIMIT %s OFFSET %s
+            """
+            cur.execute(query, params + [limit, offset])
             rows = cur.fetchall()
+            
         logs = []
         for row in rows:
             logs.append({
@@ -278,17 +347,18 @@ def get_router_logs_from_db(limit: int = 100):
                 'message': row.get('message') or '',
                 'host': row.get('source_host') or ''
             })
-        return logs
+        return logs, total_count
     except Exception as exc:  # pragma: no cover - depends on db objects
         app.logger.debug('Router DB query failed: %s', exc)
-        return None
+        return None, 0
     finally:
         conn.close()
 
 
 def summarize_router_logs(limit: int = 500):
     """Summarize router/syslog messages for trends."""
-    logs = get_router_logs_from_db(limit=limit) or []
+    logs_result, _ = get_router_logs_from_db(limit=limit)
+    logs = logs_result or []
     summary = {
         'total': len(logs),
         'severity_counts': {},
@@ -716,10 +786,54 @@ def router():
 
 @app.route('/api/router/logs')
 def api_router_logs():
-    """Return recent router/syslog entries."""
-    limit = int(request.args.get('limit', '200'))
-    logs, source = get_router_logs(limit, with_source=True)
-    return jsonify({'logs': logs, 'source': source})
+    """Return recent router/syslog entries with pagination, sorting, and filtering support.
+    
+    Query parameters:
+    - limit: Number of entries per page (default: 50, max: 500)
+    - page: Page number (1-based, default: 1)
+    - offset: Alternative to page, direct offset (default: 0)
+    - sort: Sort field (time, level, host, message) (default: time)
+    - order: Sort order (asc, desc) (default: desc)
+    - level: Filter by severity level (emergency, alert, critical, error, warning, notice, info, debug)
+    - host: Filter by source host (partial match)
+    - search: Search in message content (partial match)
+    """
+    limit = min(int(request.args.get('limit', '50')), 500)
+    page = int(request.args.get('page', '1'))
+    offset = int(request.args.get('offset', '0'))
+    
+    # Calculate offset from page if page is provided and offset is not
+    if page > 1 and offset == 0:
+        offset = (page - 1) * limit
+    
+    sort_field = request.args.get('sort', 'time')
+    sort_dir = request.args.get('order', 'desc')
+    level_filter = request.args.get('level')
+    host_filter = request.args.get('host')
+    search_query = request.args.get('search')
+    
+    logs, source, total = get_router_logs(
+        max_lines=limit, with_source=True, offset=offset,
+        sort_field=sort_field, sort_dir=sort_dir,
+        level_filter=level_filter, host_filter=host_filter, search_query=search_query
+    )
+    
+    # Calculate pagination metadata
+    total_pages = (total + limit - 1) // limit if total > 0 else 1
+    current_page = (offset // limit) + 1
+    
+    return jsonify({
+        'logs': logs,
+        'source': source,
+        'pagination': {
+            'total': total,
+            'page': current_page,
+            'limit': limit,
+            'totalPages': total_pages,
+            'hasNext': current_page < total_pages,
+            'hasPrev': current_page > 1
+        }
+    })
 
 
 @app.route('/api/router/summary')
