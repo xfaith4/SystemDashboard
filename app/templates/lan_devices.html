@@ -59,7 +59,7 @@
                 </thead>
                 <tbody id="devices-body">
                     <tr>
-                        <td colspan="13" class="loading">Loading devices...</td>
+                        <td colspan="100%" class="loading">Loading devices...</td>
                     </tr>
                 </tbody>
             </table>
@@ -98,7 +98,7 @@ async function loadDevices() {
     } catch (error) {
         console.error('Failed to load devices:', error);
         document.getElementById('devices-body').innerHTML = 
-            '<tr><td colspan="13" class="empty">Error loading devices</td></tr>';
+            '<tr><td colspan="100%" class="empty">Error loading devices</td></tr>';
     }
 }
 
@@ -117,7 +117,7 @@ function renderDevices() {
     }
     
     if (filteredDevices.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="13" class="empty">No devices found matching your criteria</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="100%" class="empty">No devices found matching your criteria</td></tr>';
         return;
     }
     
