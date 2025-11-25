@@ -30,6 +30,14 @@
                 <span class="value" id="info-hostname">--</span>
             </div>
             <div class="info-item">
+                <span class="label">Interface:</span>
+                <span class="value" id="info-interface">--</span>
+            </div>
+            <div class="info-item">
+                <span class="label">Location:</span>
+                <span class="value" id="info-location">--</span>
+            </div>
+            <div class="info-item">
                 <span class="label">Vendor:</span>
                 <span class="value" id="info-vendor">--</span>
             </div>
@@ -40,6 +48,18 @@
             <div class="info-item">
                 <span class="label">Last Seen:</span>
                 <span class="value" id="info-last-seen">--</span>
+            </div>
+            <div class="info-item">
+                <span class="label">RSSI:</span>
+                <span class="value" id="info-rssi">--</span>
+            </div>
+            <div class="info-item">
+                <span class="label">Tx / Rx (Mbps):</span>
+                <span class="value" id="info-rates">--</span>
+            </div>
+            <div class="info-item">
+                <span class="label">Lease Type:</span>
+                <span class="value" id="info-lease">--</span>
             </div>
             <div class="info-item">
                 <span class="label">Total Snapshots:</span>
@@ -64,6 +84,7 @@
     <section class="content-section">
         <h2>Signal Strength (RSSI) Over Time</h2>
         <div class="chart-container">
+            <div class="empty-state" id="rssi-empty">No RSSI samples for this period.</div>
             <canvas id="rssi-chart"></canvas>
         </div>
     </section>
@@ -71,6 +92,7 @@
     <section class="content-section">
         <h2>Transfer Rates Over Time</h2>
         <div class="chart-container">
+            <div class="empty-state" id="rates-empty">No throughput samples for this period.</div>
             <canvas id="rates-chart"></canvas>
         </div>
     </section>
@@ -94,6 +116,25 @@
                     </tr>
                 </tbody>
             </table>
+        </div>
+    </section>
+
+    <!-- Edit Device -->
+    <section class="content-section">
+        <h2>Edit Device</h2>
+        <div class="edit-grid">
+            <div class="edit-field">
+                <label for="edit-nickname">Nickname</label>
+                <input type="text" id="edit-nickname" placeholder="Enter nickname" />
+            </div>
+            <div class="edit-field">
+                <label for="edit-location">Location</label>
+                <input type="text" id="edit-location" placeholder="Enter location (room, area)" />
+            </div>
+            <div class="edit-actions">
+                <button class="btn-save" onclick="saveDeviceEdits()">Save</button>
+                <span id="edit-status" class="edit-status muted"></span>
+            </div>
         </div>
     </section>
 </section>
@@ -140,17 +181,62 @@ async function loadDeviceInfo() {
         document.getElementById('info-mac').textContent = device.mac_address;
         document.getElementById('info-ip').textContent = device.primary_ip_address || '--';
         document.getElementById('info-hostname').textContent = device.hostname || '--';
+        document.getElementById('info-interface').textContent = device.last_interface || '--';
+        document.getElementById('info-location').textContent = device.location || '--';
+        document.getElementById('info-lease').textContent = device.lease_type || '--';
+        document.getElementById('info-rssi').textContent = device.last_rssi !== null && device.last_rssi !== undefined ? `${device.last_rssi} dBm` : '--';
+        const tx = device.last_tx_rate_mbps && device.last_tx_rate_mbps > 0 ? device.last_tx_rate_mbps.toFixed(1) : '--';
+        const rx = device.last_rx_rate_mbps && device.last_rx_rate_mbps > 0 ? device.last_rx_rate_mbps.toFixed(1) : '--';
+        document.getElementById('info-rates').textContent = `${tx} / ${rx}`;
         document.getElementById('info-vendor').textContent = device.vendor || '--';
         document.getElementById('info-first-seen').textContent = formatTimestamp(device.first_seen_utc);
         document.getElementById('info-last-seen').textContent = formatTimestamp(device.last_seen_utc);
         document.getElementById('info-snapshots').textContent = device.total_snapshots || 0;
+
+        // Prefill edit form
+        const nickInput = document.getElementById('edit-nickname');
+        const locInput = document.getElementById('edit-location');
+        if (nickInput) nickInput.value = device.nickname || '';
+        if (locInput) locInput.value = device.location || '';
     } catch (error) {
         console.error('Failed to load device info:', error);
     }
 }
 
+async function saveDeviceEdits() {
+    const nickname = document.getElementById('edit-nickname').value.trim();
+    const location = document.getElementById('edit-location').value.trim();
+    const statusEl = document.getElementById('edit-status');
+    statusEl.textContent = 'Saving...';
+    statusEl.className = 'edit-status saving';
+
+    try {
+        const response = await fetch(`/api/lan/device/${deviceId}/update`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ nickname, location })
+        });
+
+        if (!response.ok) {
+            const err = await response.json().catch(() => ({}));
+            throw new Error(err.error || 'Update failed');
+        }
+
+        statusEl.textContent = 'Saved';
+        statusEl.className = 'edit-status success';
+        // Reload info to reflect changes
+        loadDeviceInfo();
+    } catch (error) {
+        console.error('Failed to save edits:', error);
+        statusEl.textContent = 'Save failed';
+        statusEl.className = 'edit-status error';
+    }
+}
+
 async function loadTimeline() {
     const hours = document.getElementById('period-select').value;
+    const rssiEmpty = document.getElementById('rssi-empty');
+    const ratesEmpty = document.getElementById('rates-empty');
     
     try {
         const response = await fetch(`/api/lan/device/${deviceId}/timeline?hours=${hours}`);
@@ -158,7 +244,7 @@ async function loadTimeline() {
         const timeline = data.timeline || [];
         
         if (timeline.length === 0) {
-            console.log('No timeline data available');
+            showEmptyStates(rssiEmpty, ratesEmpty);
             return;
         }
         
@@ -167,15 +253,36 @@ async function loadTimeline() {
         const rssiData = timeline.map(p => p.rssi);
         const txData = timeline.map(p => p.tx_rate_mbps);
         const rxData = timeline.map(p => p.rx_rate_mbps);
+
+        const hasRssi = rssiData.some(v => typeof v === 'number' && !Number.isNaN(v));
+        const hasRates = txData.some(v => typeof v === 'number') || rxData.some(v => typeof v === 'number');
+
+        if (!hasRssi && !hasRates) {
+            showEmptyStates(rssiEmpty, ratesEmpty);
+            return;
+        }
+
+        rssiEmpty.style.display = hasRssi ? 'none' : 'flex';
+        ratesEmpty.style.display = hasRates ? 'none' : 'flex';
         
         // Update RSSI chart
-        updateRssiChart(labels, rssiData);
+        if (hasRssi) {
+            updateRssiChart(labels, rssiData);
+        }
         
         // Update rates chart
-        updateRatesChart(labels, txData, rxData);
+        if (hasRates) {
+            updateRatesChart(labels, txData, rxData);
+        }
     } catch (error) {
         console.error('Failed to load timeline:', error);
+        showEmptyStates(rssiEmpty, ratesEmpty);
     }
+}
+
+function showEmptyStates(rssiEmpty, ratesEmpty) {
+    if (rssiEmpty) rssiEmpty.style.display = 'flex';
+    if (ratesEmpty) ratesEmpty.style.display = 'flex';
 }
 
 function updateRssiChart(labels, data) {
@@ -346,6 +453,7 @@ document.addEventListener('DOMContentLoaded', () => {
     max-width: 1400px;
     margin: 0 auto;
     padding: 2rem;
+    color: #e5e7f3;
 }
 
 .dashboard-header {
@@ -357,22 +465,24 @@ document.addEventListener('DOMContentLoaded', () => {
 
 .btn-back {
     padding: 0.75rem 1.5rem;
-    background: #667eea;
-    color: white;
+    background: #4f6af0;
+    color: #f8fafc;
     text-decoration: none;
     border-radius: 4px;
     font-weight: 500;
+    border: 1px solid #6c83ff;
 }
 
 .btn-back:hover {
-    background: #5568d3;
+    background: #3c55d6;
 }
 
 .content-section {
-    background: #fff;
+    background: #12182a;
     padding: 2rem;
     border-radius: 8px;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+    border: 1px solid #1f2642;
     margin: 2rem 0;
 }
 
@@ -396,20 +506,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
 .info-item .label {
     font-weight: 600;
-    color: #4a5568;
+    color: #cbd5e1;
     font-size: 0.9rem;
 }
 
 .info-item .value {
     font-size: 1rem;
-    color: #1a202c;
+    color: #eef2ff;
 }
 
 .info-item code {
-    background: #f7fafc;
-    padding: 0.25rem 0.5rem;
-    border-radius: 3px;
+    background: #1f263d;
+    padding: 0.35rem 0.6rem;
+    border-radius: 4px;
     font-size: 0.9rem;
+    color: #e0e7ff;
 }
 
 .status-badge {
@@ -421,20 +532,21 @@ document.addEventListener('DOMContentLoaded', () => {
 }
 
 .status-active {
-    background: #c6f6d5;
-    color: #22543d;
+    background: #0fbe86;
+    color: #042014;
 }
 
 .status-inactive {
-    background: #fed7d7;
-    color: #742a2a;
+    background: #f87171;
+    color: #2f0a0a;
 }
 
 .period-selector {
-    background: #fff;
+    background: #12182a;
     padding: 1rem 2rem;
     border-radius: 8px;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+    border: 1px solid #1f2642;
 }
 
 .period-selector label {
@@ -446,15 +558,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
 .period-selector select {
     padding: 0.5rem;
-    border: 1px solid #e2e8f0;
+    border: 1px solid #2a3553;
     border-radius: 4px;
     font-size: 0.95rem;
+    background: #0f1322;
+    color: #e2e8f0;
 }
 
 .chart-container {
     position: relative;
     height: 300px;
     padding: 1rem 0;
+    background: #0d1222;
+    border-radius: 8px;
+    border: 1px dashed #202a48;
 }
 
 .table-container {
@@ -464,19 +581,20 @@ document.addEventListener('DOMContentLoaded', () => {
 .data-table {
     width: 100%;
     border-collapse: collapse;
+    color: #e5e7eb;
 }
 
 .data-table th {
-    background: #f7fafc;
+    background: #182038;
     padding: 0.75rem;
     text-align: left;
     font-weight: 600;
-    border-bottom: 2px solid #e2e8f0;
+    border-bottom: 1px solid #242f4b;
 }
 
 .data-table td {
     padding: 0.75rem;
-    border-bottom: 1px solid #e2e8f0;
+    border-bottom: 1px solid #1d2438;
 }
 
 .severity-badge {
@@ -488,37 +606,105 @@ document.addEventListener('DOMContentLoaded', () => {
 }
 
 .severity-error {
-    background: #fed7d7;
-    color: #742a2a;
+    background: #7f1d1d;
+    color: #fecdd3;
 }
 
 .severity-warning {
-    background: #fef5e7;
-    color: #975a16;
+    background: #78350f;
+    color: #fcd34d;
 }
 
 .severity-info {
-    background: #bee3f8;
-    color: #2c5282;
+    background: #1e3a8a;
+    color: #c7d2fe;
 }
 
 .badge {
     display: inline-block;
     padding: 0.25rem 0.75rem;
-    background: #e2e8f0;
+    background: #1f263d;
     border-radius: 12px;
     font-size: 0.85rem;
-    font-weight: 500;
+    font-weight: 600;
+    color: #e5e7eb;
 }
 
 .loading, .empty, .error {
     text-align: center;
     padding: 2rem;
-    color: #718096;
+    color: #cbd5f5;
 }
 
 .error {
-    color: #e53e3e;
+    color: #fca5a5;
 }
+
+.empty-state {
+    position: absolute;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    color: #cbd5f5;
+    font-weight: 600;
+    background: linear-gradient(180deg, rgba(15,19,35,0.9), rgba(15,19,35,0.95));
+    border-radius: 8px;
+    z-index: 2;
+}
+
+.edit-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 1rem 1.5rem;
+    align-items: end;
+}
+
+.edit-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+}
+
+.edit-field label {
+    font-weight: 600;
+    color: #cbd5e1;
+}
+
+.edit-field input {
+    padding: 0.65rem 0.75rem;
+    border: 1px solid #2a3553;
+    border-radius: 6px;
+    background: #0f1322;
+    color: #e5e7f3;
+}
+
+.edit-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.btn-save {
+    padding: 0.7rem 1.2rem;
+    background: #4f6af0;
+    color: #f8fafc;
+    border: 1px solid #6c83ff;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 600;
+}
+
+.btn-save:hover {
+    background: #3c55d6;
+}
+
+.edit-status {
+    font-weight: 600;
+}
+
+.edit-status.saving { color: #fbbf24; }
+.edit-status.success { color: #34d399; }
+.edit-status.error { color: #fca5a5; }
 </style>
 {% endblock %}
