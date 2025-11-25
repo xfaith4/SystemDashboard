@@ -1,59 +1,69 @@
 {% extends 'base.html' %}
+{% block title %}NOC Dashboard - Router Logs{% endblock %}
 {% block content %}
-<section class="router-page">
+<section class="page-container">
     <header class="dashboard-header">
         <div>
-            <p class="muted">Syslog from router</p>
             <h1>Router Logs</h1>
+            <p class="subtitle">Network device syslog monitoring</p>
         </div>
-        <button class="btn-refresh" onclick="refreshRouter()">Refresh</button>
+        <button class="btn-refresh" onclick="refreshRouter()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="23 4 23 10 17 10"/>
+                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+            </svg>
+            Refresh
+        </button>
     </header>
 
     <div id="data-source" class="info-banner hidden"></div>
 
-    <div class="grid stats-grid">
-        <article class="stat-card">
-            <h3>Total Events</h3>
+    <!-- Stats Summary Cards -->
+    <div class="kpi-grid">
+        <article class="kpi-card">
+            <h2>Total Events</h2>
             <p class="metric" id="stat-total">--</p>
-            <p class="detail">Fetched</p>
+            <p class="detail">Syslog entries</p>
         </article>
-        <article class="stat-card">
-            <h3>IGMP Drops</h3>
+        <article class="kpi-card">
+            <h2>IGMP Drops</h2>
             <p class="metric" id="stat-igmp">--</p>
             <p class="detail">224.0.0.1 / proto 2</p>
         </article>
-        <article class="stat-card">
-            <h3>rstats Issues</h3>
+        <article class="kpi-card">
+            <h2>rstats Issues</h2>
             <p class="metric" id="stat-rstats">--</p>
-            <p class="detail">/jffs traffic history</p>
+            <p class="detail">Traffic history errors</p>
         </article>
-        <article class="stat-card">
-            <h3>UPnP Events</h3>
+        <article class="kpi-card">
+            <h2>UPnP Events</h2>
             <p class="metric" id="stat-upnp">--</p>
-            <p class="detail">miniupnpd</p>
+            <p class="detail">miniupnpd activity</p>
         </article>
     </div>
 
-    <div class="grid charts-grid">
-        <section class="content-section">
-            <header class="section-header"><h2>Severity Mix</h2></header>
+    <!-- Charts Grid -->
+    <div class="charts-grid">
+        <section class="chart-card">
+            <h3>Severity Distribution</h3>
             <div class="chart-container"><canvas id="chart-severity"></canvas></div>
         </section>
-        <section class="content-section">
-            <header class="section-header"><h2>Top WAN Drop Ports</h2></header>
+        <section class="chart-card">
+            <h3>Top WAN Drop Ports</h3>
             <div class="chart-container"><canvas id="chart-ports"></canvas></div>
         </section>
-        <section class="content-section">
-            <header class="section-header"><h2>Wi-Fi Events (MAC)</h2></header>
+        <section class="chart-card">
+            <h3>Wi-Fi Events by MAC</h3>
             <div class="chart-container"><canvas id="chart-wifi"></canvas></div>
         </section>
     </div>
 
-    <section class="content-section">
-        <header class="section-header">
+    <!-- Logs Table -->
+    <section class="panel">
+        <header class="panel-header">
             <div>
-                <h2>Recent Logs</h2>
-                <p class="muted">Last 200 events</p>
+                <h2>Recent Router Logs</h2>
+                <p class="muted">Latest 200 syslog entries</p>
             </div>
             <button class="btn-refresh" onclick="refreshRouter()">Refresh</button>
         </header>
@@ -61,14 +71,14 @@
             <table class="data-table" id="router-table">
                 <thead>
                     <tr>
-                        <th>Time</th>
+                        <th>Timestamp</th>
                         <th>Level</th>
                         <th>Message</th>
                         <th>Host</th>
                     </tr>
                 </thead>
                 <tbody id="router-body">
-                    <tr><td colspan="4" class="loading">Loading...</td></tr>
+                    <tr><td colspan="4" class="loading">Loading logs...</td></tr>
                 </tbody>
             </table>
         </div>
@@ -78,6 +88,24 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" crossorigin="anonymous"></script>
 <script>
 let chartSeverity, chartPorts, chartWifi;
+
+const chartColors = {
+    error: '#ef4444',
+    warning: '#f59e0b',
+    info: '#3b82f6',
+    notice: '#10b981',
+    default: '#6366f1'
+};
+
+const chartOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: { legend: { display: false } },
+    scales: {
+        y: { beginAtZero: true, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8' } },
+        x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8' } }
+    }
+};
 
 function formatTime(value) {
     if (!value) return '--';
@@ -95,15 +123,22 @@ async function loadSummary() {
 
     const sevLabels = Object.keys(data.severity_counts || {});
     const sevValues = sevLabels.map(k => data.severity_counts[k]);
-    renderBar('severity', sevLabels.length ? sevLabels : ['No data'], sevValues.length ? sevValues : [0], 'Events');
+    const sevColors = sevLabels.map(l => {
+        const lower = l.toLowerCase();
+        if (lower.includes('error') || lower.includes('critical')) return chartColors.error;
+        if (lower.includes('warn')) return chartColors.warning;
+        if (lower.includes('notice')) return chartColors.notice;
+        return chartColors.default;
+    });
+    renderBar('severity', sevLabels.length ? sevLabels : ['No data'], sevValues.length ? sevValues : [0], 'Events', sevColors);
 
     const portLabels = (data.wan_ports_top || []).map(x => x.key);
     const portValues = (data.wan_ports_top || []).map(x => x.count);
-    renderBar('ports', portLabels.length ? portLabels : ['No data'], portValues.length ? portValues : [0], 'Drops');
+    renderBar('ports', portLabels.length ? portLabels : ['No data'], portValues.length ? portValues : [0], 'Drops', chartColors.error);
 
     const wifiLabels = (data.wifi_events_top || []).map(x => x.key);
     const wifiValues = (data.wifi_events_top || []).map(x => x.count);
-    renderBar('wifi', wifiLabels.length ? wifiLabels : ['No data'], wifiValues.length ? wifiValues : [0], 'Events');
+    renderBar('wifi', wifiLabels.length ? wifiLabels : ['No data'], wifiValues.length ? wifiValues : [0], 'Events', chartColors.info);
 }
 
 async function loadLogs() {
@@ -115,21 +150,24 @@ async function loadLogs() {
     const tbody = document.getElementById('router-body');
 
     if (logs.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="4" class="empty">No router logs available.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="4" class="empty">No router logs available</td></tr>';
         return;
     }
 
-    tbody.innerHTML = logs.map(log => `
-        <tr>
-            <td>${formatTime(log.time)}</td>
-            <td><span class="badge badge-${(log.level || '').toLowerCase()}">${log.level || '--'}</span></td>
-            <td>${log.message || ''}</td>
-            <td>${log.host || '--'}</td>
-        </tr>
-    `).join('');
+    tbody.innerHTML = logs.map(log => {
+        const levelClass = (log.level || '').toLowerCase().replace(/[^a-z]/g, '');
+        return `
+            <tr>
+                <td>${formatTime(log.time)}</td>
+                <td><span class="badge badge-${levelClass}">${log.level || '--'}</span></td>
+                <td class="wrap">${log.message || ''}</td>
+                <td><code>${log.host || '--'}</code></td>
+            </tr>
+        `;
+    }).join('');
 }
 
-function renderBar(key, labels, values, label) {
+function renderBar(key, labels, values, label, colors) {
     const ctx = document.getElementById(`chart-${key}`).getContext('2d');
     if (key === 'severity' && chartSeverity) chartSeverity.destroy();
     if (key === 'ports' && chartPorts) chartPorts.destroy();
@@ -142,17 +180,10 @@ function renderBar(key, labels, values, label) {
             datasets: [{
                 label,
                 data: values,
-                backgroundColor: '#4f6af0'
+                backgroundColor: Array.isArray(colors) ? colors : colors
             }]
         },
-        options: {
-            responsive: true,
-            plugins: { legend: { display: false } },
-            scales: {
-                y: { beginAtZero: true, grid: { color: '#1f2642' }, ticks: { color: '#e5e7f3' } },
-                x: { grid: { color: '#1f2642' }, ticks: { color: '#e5e7f3' } }
-            }
-        }
+        options: chartOptions
     };
 
     if (key === 'severity') chartSeverity = new Chart(ctx, config);
@@ -167,14 +198,15 @@ async function refreshRouter() {
 function updateSourceBanner(source) {
     const banner = document.getElementById('data-source');
     if (!banner) return;
+    banner.classList.remove('hidden');
     if (source === 'db') {
-        banner.textContent = 'Using database syslog feed.';
+        banner.textContent = '✓ Connected to database syslog feed';
         banner.className = 'info-banner ok';
     } else if (source === 'file') {
-        banner.textContent = 'Using local log file fallback (ROUTER_LOG_PATH) – database feed not available.';
+        banner.textContent = 'ℹ Using local log file fallback';
         banner.className = 'info-banner warn';
     } else {
-        banner.textContent = 'No syslog data available.';
+        banner.textContent = '⚠ No syslog data available';
         banner.className = 'info-banner warn';
     }
 }
@@ -183,156 +215,33 @@ document.addEventListener('DOMContentLoaded', refreshRouter);
 </script>
 
 <style>
-.router-page {
-    max-width: 1400px;
+.page-container {
+    max-width: 1600px;
     margin: 0 auto;
-    padding: 2rem;
-    color: #e5e7f3;
-}
-
-.dashboard-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-}
-
-.stats-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 0.9rem;
-    margin: 1rem 0 1.5rem 0;
-}
-
-.stat-card {
-    background: #12182a;
-    padding: 1.25rem;
-    border-radius: 10px;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.35);
-    border: 1px solid #1f2642;
-    text-align: center;
-}
-
-.stat-card h3 {
-    margin: 0;
-    font-size: 0.9rem;
-    text-transform: uppercase;
-    opacity: 0.8;
-}
-
-.stat-card .metric {
-    font-size: 2.2rem;
-    font-weight: 700;
-    margin: 0.35rem 0 0;
-}
-
-.stat-card .detail {
-    margin: 0;
-    font-size: 0.85rem;
-    opacity: 0.75;
-}
-
-.charts-grid {
-    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-    gap: 1rem;
-}
-
-.content-section {
-    background: #12182a;
-    padding: 1.5rem;
-    border-radius: 10px;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.35);
-    border: 1px solid #1f2642;
-    margin: 1.5rem 0;
-}
-
-.section-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 1rem;
 }
 
 .chart-container {
     position: relative;
-    min-height: 260px;
+    height: 200px;
 }
 
-.btn-refresh {
-    padding: 0.6rem 1.1rem;
-    background: #4f6af0;
-    color: #f8fafc;
-    border: 1px solid #6c83ff;
-    border-radius: 6px;
-    cursor: pointer;
-    font-weight: 600;
+.panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--space-md);
+    padding-bottom: var(--space-sm);
+    border-bottom: 1px solid var(--border-subtle);
 }
 
-.btn-refresh:hover {
-    background: #3c55d6;
+.panel-header h2 {
+    margin: 0;
+    border: none;
+    padding: 0;
 }
 
-.data-table {
-    width: 100%;
-    border-collapse: collapse;
-    color: #e5e7eb;
+.table-container {
+    overflow-x: auto;
 }
-
-.data-table th {
-    background: #182038;
-    padding: 0.75rem;
-    text-align: left;
-    font-weight: 600;
-    border-bottom: 1px solid #242f4b;
-}
-
-.data-table td {
-    padding: 0.75rem;
-    border-bottom: 1px solid #1d2438;
-}
-
-.badge {
-    display: inline-block;
-    padding: 0.25rem 0.6rem;
-    background: #1f263d;
-    border-radius: 12px;
-    font-size: 0.85rem;
-    font-weight: 600;
-    color: #e5e7eb;
-}
-
-.badge-error { background: #7f1d1d; color: #fecdd3; }
-.badge-warning { background: #78350f; color: #fcd34d; }
-.badge-informational { background: #1e3a8a; color: #c7d2fe; }
-.badge-unknown { background: #334155; color: #e2e8f0; }
-
-.loading, .empty {
-    text-align: center;
-    padding: 1.5rem;
-    color: #cbd5f5;
-}
-
-.muted { color: #cbd5e1; opacity: 0.8; }
-
-.info-banner {
-    padding: 0.9rem 1rem;
-    border-radius: 8px;
-    margin-bottom: 1rem;
-    font-weight: 600;
-    border: 1px solid transparent;
-}
-
-.info-banner.ok {
-    background: #0f1f3a;
-    border-color: #1f6feb;
-    color: #cde2ff;
-}
-
-.info-banner.warn {
-    background: #2f1f10;
-    border-color: #f59e0b;
-    color: #fde68a;
-}
-
-.hidden { display: none; }
 </style>
 {% endblock %}
