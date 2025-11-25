@@ -3,22 +3,97 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>System Dashboard</title>
+    <title>{% block title %}NOC Dashboard{% endblock %}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
     <script defer src="{{ url_for('static', filename='app.js') }}"></script>
 </head>
 <body>
     <nav class="navbar">
-        <a href="{{ url_for('dashboard') }}" class="logo">Dashboard</a>
+        <div class="nav-brand">
+            <a href="{{ url_for('dashboard') }}" class="logo">
+                <svg class="logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="3" y="3" width="7" height="7" rx="1"/>
+                    <rect x="14" y="3" width="7" height="7" rx="1"/>
+                    <rect x="3" y="14" width="7" height="7" rx="1"/>
+                    <rect x="14" y="14" width="7" height="7" rx="1"/>
+                </svg>
+                <span class="logo-text">NOC Dashboard</span>
+            </a>
+            <span class="nav-status" id="system-status">
+                <span class="status-indicator"></span>
+                <span class="status-text">Monitoring</span>
+            </span>
+        </div>
         <ul class="nav-links">
-            <li><a href="{{ url_for('events') }}">System Events</a></li>
-            <li><a href="{{ url_for('router') }}">Router Logs</a></li>
-            <li><a href="{{ url_for('wifi') }}">Wi-Fi Clients</a></li>
-            <li><a href="{{ url_for('lan_overview') }}">LAN / Network</a></li>
+            <li><a href="{{ url_for('dashboard') }}" class="nav-link {% if request.endpoint == 'dashboard' %}active{% endif %}">
+                <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/>
+                    <polyline points="9 22 9 12 15 12 15 22"/>
+                </svg>
+                Overview
+            </a></li>
+            <li><a href="{{ url_for('events') }}" class="nav-link {% if request.endpoint == 'events' %}active{% endif %}">
+                <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+                    <polyline points="14 2 14 8 20 8"/>
+                    <line x1="16" y1="13" x2="8" y2="13"/>
+                    <line x1="16" y1="17" x2="8" y2="17"/>
+                    <polyline points="10 9 9 9 8 9"/>
+                </svg>
+                System Events
+            </a></li>
+            <li><a href="{{ url_for('router') }}" class="nav-link {% if request.endpoint == 'router' %}active{% endif %}">
+                <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="2" y="6" width="20" height="12" rx="2"/>
+                    <line x1="6" y1="10" x2="6" y2="10.01"/>
+                    <line x1="10" y1="10" x2="10" y2="10.01"/>
+                    <line x1="6" y1="14" x2="18" y2="14"/>
+                </svg>
+                Router Logs
+            </a></li>
+            <li><a href="{{ url_for('wifi') }}" class="nav-link {% if request.endpoint == 'wifi' %}active{% endif %}">
+                <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M5 12.55a11 11 0 0114 0"/>
+                    <path d="M1.42 9a16 16 0 0121.16 0"/>
+                    <path d="M8.53 16.11a6 6 0 016.95 0"/>
+                    <line x1="12" y1="20" x2="12.01" y2="20"/>
+                </svg>
+                Wi-Fi Clients
+            </a></li>
+            <li><a href="{{ url_for('lan_overview') }}" class="nav-link {% if request.endpoint in ['lan_overview', 'lan_devices', 'lan_device_detail'] %}active{% endif %}">
+                <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="4" y="4" width="16" height="16" rx="2"/>
+                    <rect x="9" y="9" width="6" height="6"/>
+                    <line x1="9" y1="1" x2="9" y2="4"/>
+                    <line x1="15" y1="1" x2="15" y2="4"/>
+                    <line x1="9" y1="20" x2="9" y2="23"/>
+                    <line x1="15" y1="20" x2="15" y2="23"/>
+                    <line x1="20" y1="9" x2="23" y2="9"/>
+                    <line x1="20" y1="14" x2="23" y2="14"/>
+                    <line x1="1" y1="9" x2="4" y2="9"/>
+                    <line x1="1" y1="14" x2="4" y2="14"/>
+                </svg>
+                LAN / Network
+            </a></li>
         </ul>
+        <div class="nav-time">
+            <span class="time-display" id="current-time"></span>
+        </div>
     </nav>
-    <main>
+    <main class="main-content">
         {% block content %}{% endblock %}
     </main>
+    <script>
+        // Update time display
+        function updateTime() {
+            const now = new Date();
+            const timeStr = now.toLocaleTimeString('en-US', { hour12: false });
+            const dateStr = now.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            const el = document.getElementById('current-time');
+            if (el) el.textContent = `${dateStr} ${timeStr}`;
+        }
+        updateTime();
+        setInterval(updateTime, 1000);
+    </script>
 </body>
 </html>

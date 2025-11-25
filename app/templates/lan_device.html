@@ -1,68 +1,69 @@
 {% extends 'base.html' %}
+{% block title %}NOC Dashboard - Device Details{% endblock %}
 {% block content %}
-<section class="dashboard lan-device-page">
+<section class="page-container">
     <header class="dashboard-header">
         <div>
             <h1 id="device-title">Device Details</h1>
             <p class="subtitle" id="device-subtitle">Loading...</p>
         </div>
-        <a href="/lan/devices" class="btn-back">← Back to Devices</a>
+        <a href="/lan/devices" class="btn-secondary">← Back to Devices</a>
     </header>
 
     <!-- Device Info Card -->
-    <section class="content-section">
+    <section class="panel">
         <h2>Device Information</h2>
         <div class="info-grid" id="device-info">
             <div class="info-item">
-                <span class="label">Status:</span>
+                <span class="label">Status</span>
                 <span class="value" id="info-status">--</span>
             </div>
             <div class="info-item">
-                <span class="label">MAC Address:</span>
+                <span class="label">MAC Address</span>
                 <span class="value"><code id="info-mac">--</code></span>
             </div>
             <div class="info-item">
-                <span class="label">IP Address:</span>
-                <span class="value" id="info-ip">--</span>
+                <span class="label">IP Address</span>
+                <span class="value"><code id="info-ip">--</code></span>
             </div>
             <div class="info-item">
-                <span class="label">Hostname:</span>
+                <span class="label">Hostname</span>
                 <span class="value" id="info-hostname">--</span>
             </div>
             <div class="info-item">
-                <span class="label">Interface:</span>
+                <span class="label">Interface</span>
                 <span class="value" id="info-interface">--</span>
             </div>
             <div class="info-item">
-                <span class="label">Location:</span>
+                <span class="label">Location</span>
                 <span class="value" id="info-location">--</span>
             </div>
             <div class="info-item">
-                <span class="label">Vendor:</span>
+                <span class="label">Vendor</span>
                 <span class="value" id="info-vendor">--</span>
             </div>
             <div class="info-item">
-                <span class="label">First Seen:</span>
+                <span class="label">First Seen</span>
                 <span class="value" id="info-first-seen">--</span>
             </div>
             <div class="info-item">
-                <span class="label">Last Seen:</span>
+                <span class="label">Last Seen</span>
                 <span class="value" id="info-last-seen">--</span>
             </div>
             <div class="info-item">
-                <span class="label">RSSI:</span>
+                <span class="label">Signal (RSSI)</span>
                 <span class="value" id="info-rssi">--</span>
             </div>
             <div class="info-item">
-                <span class="label">Tx / Rx (Mbps):</span>
+                <span class="label">Tx / Rx Rate</span>
                 <span class="value" id="info-rates">--</span>
             </div>
             <div class="info-item">
-                <span class="label">Lease Type:</span>
+                <span class="label">Lease Type</span>
                 <span class="value" id="info-lease">--</span>
             </div>
             <div class="info-item">
-                <span class="label">Total Snapshots:</span>
+                <span class="label">Total Snapshots</span>
                 <span class="value" id="info-snapshots">--</span>
             </div>
         </div>
@@ -71,7 +72,7 @@
     <!-- Time Period Selector -->
     <section class="period-selector">
         <label>
-            Time Range:
+            <span>Time Range:</span>
             <select id="period-select" onchange="loadTimeline()">
                 <option value="24">Last 24 Hours</option>
                 <option value="72">Last 3 Days</option>
@@ -81,24 +82,25 @@
     </section>
 
     <!-- Charts Section -->
-    <section class="content-section">
-        <h2>Signal Strength (RSSI) Over Time</h2>
-        <div class="chart-container">
-            <div class="empty-state" id="rssi-empty">No RSSI samples for this period.</div>
-            <canvas id="rssi-chart"></canvas>
-        </div>
-    </section>
-
-    <section class="content-section">
-        <h2>Transfer Rates Over Time</h2>
-        <div class="chart-container">
-            <div class="empty-state" id="rates-empty">No throughput samples for this period.</div>
-            <canvas id="rates-chart"></canvas>
-        </div>
-    </section>
+    <div class="charts-grid">
+        <section class="chart-card">
+            <h3>Signal Strength (RSSI) Over Time</h3>
+            <div class="chart-container">
+                <div class="empty-state" id="rssi-empty">No RSSI data for this period</div>
+                <canvas id="rssi-chart"></canvas>
+            </div>
+        </section>
+        <section class="chart-card">
+            <h3>Transfer Rates Over Time</h3>
+            <div class="chart-container">
+                <div class="empty-state" id="rates-empty">No throughput data for this period</div>
+                <canvas id="rates-chart"></canvas>
+            </div>
+        </section>
+    </div>
 
     <!-- Recent Events -->
-    <section class="content-section">
+    <section class="panel">
         <h2>Associated Syslog Events</h2>
         <div class="table-container">
             <table class="data-table" id="events-table">
@@ -120,32 +122,43 @@
     </section>
 
     <!-- Edit Device -->
-    <section class="content-section">
+    <section class="panel">
         <h2>Edit Device</h2>
-        <div class="edit-grid">
-            <div class="edit-field">
+        <div class="edit-form">
+            <div class="form-group">
                 <label for="edit-nickname">Nickname</label>
-                <input type="text" id="edit-nickname" placeholder="Enter nickname" />
+                <input type="text" id="edit-nickname" placeholder="Enter a friendly name" />
             </div>
-            <div class="edit-field">
+            <div class="form-group">
                 <label for="edit-location">Location</label>
                 <input type="text" id="edit-location" placeholder="Enter location (room, area)" />
             </div>
-            <div class="edit-actions">
-                <button class="btn-save" onclick="saveDeviceEdits()">Save</button>
-                <span id="edit-status" class="edit-status muted"></span>
+            <div class="form-actions">
+                <button class="btn-refresh" onclick="saveDeviceEdits()">Save Changes</button>
+                <span id="edit-status" class="edit-status"></span>
             </div>
         </div>
     </section>
 </section>
 
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" 
-        integrity="sha384-vEfONZqRTlzqQqNJqVqhqF12DJAkiFCMaZJdKdGPzVkqfAqQkPW/OLvVHxMoJNE8" 
-        crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" crossorigin="anonymous"></script>
 <script>
 const deviceId = {{ device_id }};
 let rssiChart = null;
 let ratesChart = null;
+
+const chartOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+        legend: { display: true, position: 'top', labels: { color: '#94a3b8', usePointStyle: true } },
+        tooltip: { mode: 'index', intersect: false }
+    },
+    scales: {
+        y: { beginAtZero: false, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8' } },
+        x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8', maxRotation: 45, minRotation: 45 } }
+    }
+};
 
 function formatTimestamp(isoString) {
     if (!isoString) return '--';
@@ -156,7 +169,7 @@ function formatTimestamp(isoString) {
 function formatShortTime(isoString) {
     if (!isoString) return '--';
     const date = new Date(isoString);
-    return date.toLocaleTimeString();
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
 async function loadDeviceInfo() {
@@ -187,13 +200,12 @@ async function loadDeviceInfo() {
         document.getElementById('info-rssi').textContent = device.last_rssi !== null && device.last_rssi !== undefined ? `${device.last_rssi} dBm` : '--';
         const tx = device.last_tx_rate_mbps && device.last_tx_rate_mbps > 0 ? device.last_tx_rate_mbps.toFixed(1) : '--';
         const rx = device.last_rx_rate_mbps && device.last_rx_rate_mbps > 0 ? device.last_rx_rate_mbps.toFixed(1) : '--';
-        document.getElementById('info-rates').textContent = `${tx} / ${rx}`;
+        document.getElementById('info-rates').textContent = `${tx} / ${rx} Mbps`;
         document.getElementById('info-vendor').textContent = device.vendor || '--';
         document.getElementById('info-first-seen').textContent = formatTimestamp(device.first_seen_utc);
         document.getElementById('info-last-seen').textContent = formatTimestamp(device.last_seen_utc);
         document.getElementById('info-snapshots').textContent = device.total_snapshots || 0;
 
-        // Prefill edit form
         const nickInput = document.getElementById('edit-nickname');
         const locInput = document.getElementById('edit-location');
         if (nickInput) nickInput.value = device.nickname || '';
@@ -222,13 +234,12 @@ async function saveDeviceEdits() {
             throw new Error(err.error || 'Update failed');
         }
 
-        statusEl.textContent = 'Saved';
+        statusEl.textContent = '✓ Saved';
         statusEl.className = 'edit-status success';
-        // Reload info to reflect changes
         loadDeviceInfo();
     } catch (error) {
         console.error('Failed to save edits:', error);
-        statusEl.textContent = 'Save failed';
+        statusEl.textContent = '✕ Failed to save';
         statusEl.className = 'edit-status error';
     }
 }
@@ -248,7 +259,6 @@ async function loadTimeline() {
             return;
         }
         
-        // Prepare data for charts
         const labels = timeline.map(p => formatShortTime(p.sample_time_utc));
         const rssiData = timeline.map(p => p.rssi);
         const txData = timeline.map(p => p.tx_rate_mbps);
@@ -265,15 +275,8 @@ async function loadTimeline() {
         rssiEmpty.style.display = hasRssi ? 'none' : 'flex';
         ratesEmpty.style.display = hasRates ? 'none' : 'flex';
         
-        // Update RSSI chart
-        if (hasRssi) {
-            updateRssiChart(labels, rssiData);
-        }
-        
-        // Update rates chart
-        if (hasRates) {
-            updateRatesChart(labels, txData, rxData);
-        }
+        if (hasRssi) updateRssiChart(labels, rssiData);
+        if (hasRates) updateRatesChart(labels, txData, rxData);
     } catch (error) {
         console.error('Failed to load timeline:', error);
         showEmptyStates(rssiEmpty, ratesEmpty);
@@ -287,10 +290,7 @@ function showEmptyStates(rssiEmpty, ratesEmpty) {
 
 function updateRssiChart(labels, data) {
     const ctx = document.getElementById('rssi-chart').getContext('2d');
-    
-    if (rssiChart) {
-        rssiChart.destroy();
-    }
+    if (rssiChart) rssiChart.destroy();
     
     rssiChart = new Chart(ctx, {
         type: 'line',
@@ -299,38 +299,17 @@ function updateRssiChart(labels, data) {
             datasets: [{
                 label: 'RSSI (dBm)',
                 data: data,
-                borderColor: '#667eea',
-                backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                borderColor: '#3b82f6',
+                backgroundColor: 'rgba(59, 130, 246, 0.1)',
                 fill: true,
                 tension: 0.4
             }]
         },
         options: {
-            responsive: true,
-            maintainAspectRatio: true,
+            ...chartOptions,
             scales: {
-                y: {
-                    beginAtZero: false,
-                    title: {
-                        display: true,
-                        text: 'Signal Strength (dBm)'
-                    }
-                },
-                x: {
-                    ticks: {
-                        maxRotation: 45,
-                        minRotation: 45
-                    }
-                }
-            },
-            plugins: {
-                legend: {
-                    display: true
-                },
-                tooltip: {
-                    mode: 'index',
-                    intersect: false
-                }
+                ...chartOptions.scales,
+                y: { ...chartOptions.scales.y, title: { display: true, text: 'Signal Strength (dBm)', color: '#94a3b8' } }
             }
         }
     });
@@ -338,10 +317,7 @@ function updateRssiChart(labels, data) {
 
 function updateRatesChart(labels, txData, rxData) {
     const ctx = document.getElementById('rates-chart').getContext('2d');
-    
-    if (ratesChart) {
-        ratesChart.destroy();
-    }
+    if (ratesChart) ratesChart.destroy();
     
     ratesChart = new Chart(ctx, {
         type: 'line',
@@ -351,47 +327,26 @@ function updateRatesChart(labels, txData, rxData) {
                 {
                     label: 'TX Rate (Mbps)',
                     data: txData,
-                    borderColor: '#48bb78',
-                    backgroundColor: 'rgba(72, 187, 120, 0.1)',
+                    borderColor: '#10b981',
+                    backgroundColor: 'rgba(16, 185, 129, 0.1)',
                     fill: true,
                     tension: 0.4
                 },
                 {
                     label: 'RX Rate (Mbps)',
                     data: rxData,
-                    borderColor: '#f56565',
-                    backgroundColor: 'rgba(245, 101, 101, 0.1)',
+                    borderColor: '#ef4444',
+                    backgroundColor: 'rgba(239, 68, 68, 0.1)',
                     fill: true,
                     tension: 0.4
                 }
             ]
         },
         options: {
-            responsive: true,
-            maintainAspectRatio: true,
+            ...chartOptions,
             scales: {
-                y: {
-                    beginAtZero: true,
-                    title: {
-                        display: true,
-                        text: 'Rate (Mbps)'
-                    }
-                },
-                x: {
-                    ticks: {
-                        maxRotation: 45,
-                        minRotation: 45
-                    }
-                }
-            },
-            plugins: {
-                legend: {
-                    display: true
-                },
-                tooltip: {
-                    mode: 'index',
-                    intersect: false
-                }
+                ...chartOptions.scales,
+                y: { ...chartOptions.scales.y, beginAtZero: true, title: { display: true, text: 'Rate (Mbps)', color: '#94a3b8' } }
             }
         }
     });
@@ -415,8 +370,8 @@ async function loadEvents() {
             return `
                 <tr>
                     <td>${formatTimestamp(event.timestamp)}</td>
-                    <td><span class="severity-badge ${severityClass}">${event.severity}</span></td>
-                    <td>${event.message}</td>
+                    <td><span class="badge ${severityClass}">${event.severity}</span></td>
+                    <td class="wrap">${event.message}</td>
                     <td><span class="badge">${event.match_type || '--'}</span></td>
                 </tr>
             `;
@@ -424,7 +379,7 @@ async function loadEvents() {
     } catch (error) {
         console.error('Failed to load events:', error);
         document.getElementById('events-body').innerHTML = 
-            '<tr><td colspan="4" class="error">Error loading events</td></tr>';
+            '<tr><td colspan="4" class="empty">Error loading events</td></tr>';
     }
 }
 
@@ -432,15 +387,14 @@ function getSeverityClass(severity) {
     if (!severity) return '';
     const s = severity.toLowerCase();
     if (s.includes('error') || s.includes('critical') || s.includes('alert') || s.includes('emergency')) {
-        return 'severity-error';
+        return 'badge-error';
     }
     if (s.includes('warning')) {
-        return 'severity-warning';
+        return 'badge-warning';
     }
-    return 'severity-info';
+    return 'badge-info';
 }
 
-// Initial load
 document.addEventListener('DOMContentLoaded', () => {
     loadDeviceInfo();
     loadTimeline();
@@ -449,195 +403,77 @@ document.addEventListener('DOMContentLoaded', () => {
 </script>
 
 <style>
-.lan-device-page {
+.page-container {
     max-width: 1400px;
     margin: 0 auto;
-    padding: 2rem;
-    color: #e5e7f3;
-}
-
-.dashboard-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    margin-bottom: 2rem;
-}
-
-.btn-back {
-    padding: 0.75rem 1.5rem;
-    background: #4f6af0;
-    color: #f8fafc;
-    text-decoration: none;
-    border-radius: 4px;
-    font-weight: 500;
-    border: 1px solid #6c83ff;
-}
-
-.btn-back:hover {
-    background: #3c55d6;
-}
-
-.content-section {
-    background: #12182a;
-    padding: 2rem;
-    border-radius: 8px;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.35);
-    border: 1px solid #1f2642;
-    margin: 2rem 0;
-}
-
-.content-section h2 {
-    margin-top: 0;
-    margin-bottom: 1.5rem;
-    font-size: 1.25rem;
 }
 
 .info-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-    gap: 1.5rem;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: var(--space-lg);
 }
 
 .info-item {
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
+    gap: var(--space-xs);
 }
 
 .info-item .label {
+    font-size: 0.8rem;
     font-weight: 600;
-    color: #cbd5e1;
-    font-size: 0.9rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
 }
 
 .info-item .value {
     font-size: 1rem;
-    color: #eef2ff;
-}
-
-.info-item code {
-    background: #1f263d;
-    padding: 0.35rem 0.6rem;
-    border-radius: 4px;
-    font-size: 0.9rem;
-    color: #e0e7ff;
-}
-
-.status-badge {
-    display: inline-block;
-    padding: 0.25rem 0.75rem;
-    border-radius: 12px;
-    font-size: 0.85rem;
-    font-weight: 600;
-}
-
-.status-active {
-    background: #0fbe86;
-    color: #042014;
-}
-
-.status-inactive {
-    background: #f87171;
-    color: #2f0a0a;
+    color: var(--text-primary);
 }
 
 .period-selector {
-    background: #12182a;
-    padding: 1rem 2rem;
-    border-radius: 8px;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.35);
-    border: 1px solid #1f2642;
+    background: var(--bg-card);
+    padding: var(--space-md) var(--space-lg);
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border-subtle);
+    margin-bottom: var(--space-lg);
 }
 
 .period-selector label {
     display: flex;
     align-items: center;
-    gap: 1rem;
+    gap: var(--space-md);
+}
+
+.period-selector label span {
     font-weight: 500;
+    color: var(--text-secondary);
 }
 
 .period-selector select {
-    padding: 0.5rem;
-    border: 1px solid #2a3553;
-    border-radius: 4px;
-    font-size: 0.95rem;
-    background: #0f1322;
-    color: #e2e8f0;
+    padding: var(--space-sm) var(--space-md);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-md);
+    color: var(--text-primary);
+    font-size: 0.9rem;
+}
+
+.charts-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+    gap: var(--space-md);
+    margin-bottom: var(--space-lg);
 }
 
 .chart-container {
     position: relative;
-    height: 300px;
-    padding: 1rem 0;
-    background: #0d1222;
-    border-radius: 8px;
-    border: 1px dashed #202a48;
-}
-
-.table-container {
-    overflow-x: auto;
-}
-
-.data-table {
-    width: 100%;
-    border-collapse: collapse;
-    color: #e5e7eb;
-}
-
-.data-table th {
-    background: #182038;
-    padding: 0.75rem;
-    text-align: left;
-    font-weight: 600;
-    border-bottom: 1px solid #242f4b;
-}
-
-.data-table td {
-    padding: 0.75rem;
-    border-bottom: 1px solid #1d2438;
-}
-
-.severity-badge {
-    display: inline-block;
-    padding: 0.25rem 0.75rem;
-    border-radius: 12px;
-    font-size: 0.85rem;
-    font-weight: 600;
-}
-
-.severity-error {
-    background: #7f1d1d;
-    color: #fecdd3;
-}
-
-.severity-warning {
-    background: #78350f;
-    color: #fcd34d;
-}
-
-.severity-info {
-    background: #1e3a8a;
-    color: #c7d2fe;
-}
-
-.badge {
-    display: inline-block;
-    padding: 0.25rem 0.75rem;
-    background: #1f263d;
-    border-radius: 12px;
-    font-size: 0.85rem;
-    font-weight: 600;
-    color: #e5e7eb;
-}
-
-.loading, .empty, .error {
-    text-align: center;
-    padding: 2rem;
-    color: #cbd5f5;
-}
-
-.error {
-    color: #fca5a5;
+    height: 280px;
+    padding: var(--space-md);
+    background: var(--bg-elevated);
+    border-radius: var(--radius-md);
 }
 
 .empty-state {
@@ -646,65 +482,64 @@ document.addEventListener('DOMContentLoaded', () => {
     display: none;
     align-items: center;
     justify-content: center;
-    color: #cbd5f5;
-    font-weight: 600;
-    background: linear-gradient(180deg, rgba(15,19,35,0.9), rgba(15,19,35,0.95));
-    border-radius: 8px;
+    color: var(--text-muted);
+    font-weight: 500;
+    background: var(--bg-elevated);
+    border-radius: var(--radius-md);
     z-index: 2;
 }
 
-.edit-grid {
+.table-container {
+    overflow-x: auto;
+}
+
+.edit-form {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-    gap: 1rem 1.5rem;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: var(--space-lg);
     align-items: end;
 }
 
-.edit-field {
+.form-group {
     display: flex;
     flex-direction: column;
-    gap: 0.4rem;
+    gap: var(--space-sm);
 }
 
-.edit-field label {
+.form-group label {
+    font-size: 0.85rem;
     font-weight: 600;
-    color: #cbd5e1;
+    color: var(--text-secondary);
 }
 
-.edit-field input {
-    padding: 0.65rem 0.75rem;
-    border: 1px solid #2a3553;
-    border-radius: 6px;
-    background: #0f1322;
-    color: #e5e7f3;
+.form-group input {
+    padding: var(--space-sm) var(--space-md);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-md);
+    color: var(--text-primary);
+    font-size: 0.95rem;
 }
 
-.edit-actions {
+.form-group input:focus {
+    outline: none;
+    border-color: var(--accent-primary);
+    box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+.form-actions {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
-}
-
-.btn-save {
-    padding: 0.7rem 1.2rem;
-    background: #4f6af0;
-    color: #f8fafc;
-    border: 1px solid #6c83ff;
-    border-radius: 6px;
-    cursor: pointer;
-    font-weight: 600;
-}
-
-.btn-save:hover {
-    background: #3c55d6;
+    gap: var(--space-md);
 }
 
 .edit-status {
-    font-weight: 600;
+    font-size: 0.9rem;
+    font-weight: 500;
 }
 
-.edit-status.saving { color: #fbbf24; }
-.edit-status.success { color: #34d399; }
-.edit-status.error { color: #fca5a5; }
+.edit-status.saving { color: var(--status-warning); }
+.edit-status.success { color: var(--status-healthy); }
+.edit-status.error { color: var(--status-critical); }
 </style>
 {% endblock %}
