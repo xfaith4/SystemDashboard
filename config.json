@@ -10,7 +10,7 @@
     "Port": 5432,
     "Database": "system_dashboard",
     "Username": "postgres",
-    "PasswordSecret": "mysecretpassword",
+    "PasswordSecret": "env:SYSTEM_DASHBOARD_DB_PASSWORD",
     "Schema": "telemetry",
     "PsqlPath": "C:/Program Files/PostgreSQL/18/bin/psql.exe"
   },
@@ -32,7 +32,7 @@
       "DownloadPath": "./var/asus",
       "StatePath": "./var/asus/state.json",
       "SSH": {
-        "Enabled": true,
+        "Enabled": false,
         "Host": "192.168.50.1",
         "Username": "xfaith",
         "PasswordSecret": "env:ASUS_ROUTER_PASSWORD",
@@ -47,3 +47,4 @@
     }
   }
 }
+

@@ -28,7 +28,7 @@ Import-Module $telemetryModulePath -Force -Global
 try {
     $config = Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Json
 } catch {
-    throw "Failed to read config file at $ConfigPath: $($_.Exception.Message)"
+    throw "Failed to read config file at $($ConfigPath): $($_.Exception.Message)"
 }
 
 # Ensure log directory
