@@ -27,34 +27,42 @@
     <article class="stat-card"><h3>Network</h3><p class="metric" id="stat-net">--</p><p class="detail">Networking</p></article>
   </div>
 
-  <div class="grid charts-grid">
-    <section class="content-section">
-      <header class="section-header"><h2>Severity Mix</h2>
-        <div class="range-selector">
-          <label for="rangeHours">Range:</label>
-          <select id="rangeHours">
-            <option value="1">1h</option>
-            <option value="6">6h</option>
-            <option value="24" selected>24h</option>
-            <option value="72">3d</option>
-            <option value="168">7d</option>
-          </select>
-        </div>
-      </header>
-      <div class="chart-container"><canvas id="chart-severity"></canvas></div>
-    </section>
-    <section class="content-section">
-      <header class="section-header"><h2>Top Sources</h2></header>
-      <div class="chart-container"><canvas id="chart-sources"></canvas></div>
-    </section>
-    <section class="content-section">
-      <header class="section-header"><h2>Keyword Hits</h2></header>
-      <div class="chart-container"><canvas id="chart-keywords"></canvas></div>
-    </section>
-    <section class="content-section full-span">
-      <header class="section-header"><h2>Severity Over Time</h2></header>
-      <div class="chart-container"><canvas id="chart-severity-trend"></canvas></div>
-    </section>
+<div class="grid-stack" id="chartsGrid">
+    <div class="grid-stack-item" gs-w="3" gs-h="4" gs-x="0" gs-y="0">
+      <div class="grid-stack-item-content content-section">
+        <header class="section-header"><h2>Severity Mix</h2>
+          <div class="range-selector">
+            <label for="rangeHours">Range:</label>
+            <select id="rangeHours">
+              <option value="1">1h</option>
+              <option value="6">6h</option>
+              <option value="24" selected>24h</option>
+              <option value="72">3d</option>
+              <option value="168">7d</option>
+            </select>
+          </div>
+        </header>
+        <div class="chart-container"><canvas id="chart-severity"></canvas></div>
+      </div>
+    </div>
+    <div class="grid-stack-item" gs-w="3" gs-h="4" gs-x="3" gs-y="0">
+      <div class="grid-stack-item-content content-section">
+        <header class="section-header"><h2>Top Sources</h2></header>
+        <div class="chart-container"><canvas id="chart-sources"></canvas></div>
+      </div>
+    </div>
+    <div class="grid-stack-item" gs-w="3" gs-h="4" gs-x="6" gs-y="0">
+      <div class="grid-stack-item-content content-section">
+        <header class="section-header"><h2>Keyword Hits</h2></header>
+        <div class="chart-container"><canvas id="chart-keywords"></canvas></div>
+      </div>
+    </div>
+    <div class="grid-stack-item" gs-w="12" gs-h="4" gs-x="0" gs-y="4">
+      <div class="grid-stack-item-content content-section">
+        <header class="section-header"><h2>Severity Over Time</h2></header>
+        <div class="chart-container"><canvas id="chart-severity-trend"></canvas></div>
+      </div>
+    </div>
   </div>
 
     <section class="content-section">
@@ -96,12 +104,15 @@
   </section>
 </section>
 
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/gridstack/dist/gridstack.min.css">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/gridstack/dist/gridstack-h5.js"></script>
 <script>
 let chartSeverity, chartSources, chartKeywords, chartSeverityTrend;
 let currentEvents = [];
 let currentPage = 1;
 let rangeHours = 24;
+let grid;
 
 function formatTime(value) {
   if (!value) return '--';
@@ -302,7 +313,27 @@ document.getElementById('rangeHours').addEventListener('change', (e) => {
   currentPage = 1;
   refreshEvents();
 });
-document.addEventListener('DOMContentLoaded', refreshEvents);
+document.addEventListener('DOMContentLoaded', () => {
+  // Initialize gridstack for draggable/resizable tiles
+  grid = GridStack.init({ cellHeight: 120, margin: 8, float: true }, '#chartsGrid');
+  grid.on('change resizestop', () => {
+    if (chartSeverity) chartSeverity.resize();
+    if (chartSources) chartSources.resize();
+    if (chartKeywords) chartKeywords.resize();
+    if (chartSeverityTrend) chartSeverityTrend.resize();
+    const layout = grid.save();
+    localStorage.setItem('eventsGridLayout', JSON.stringify(layout));
+  });
+  const saved = localStorage.getItem('eventsGridLayout');
+  if (saved) {
+    try {
+      grid.load(JSON.parse(saved));
+    } catch (e) {
+      console.warn('Failed to load saved grid layout', e);
+    }
+  }
+  refreshEvents();
+});
 </script>
 
 <style>
@@ -348,7 +379,7 @@ document.addEventListener('DOMContentLoaded', refreshEvents);
 
 .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.9rem; margin: 1rem 0; }
 .stats-tight .stat-card { padding: 1rem; }
-.charts-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem; }
+.charts-grid { }
 
 .stat-card {
   background: #12182a;
@@ -368,7 +399,7 @@ document.addEventListener('DOMContentLoaded', refreshEvents);
   border-radius: 10px;
   box-shadow: 0 10px 30px rgba(0,0,0,0.35);
   border: 1px solid #1f2642;
-  margin: 1.5rem 0;
+  margin: 1rem;
 }
 .section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
 .chart-container { position: relative; min-height: 260px; }
@@ -398,5 +429,7 @@ document.addEventListener('DOMContentLoaded', refreshEvents);
 .info-banner.ok { background: #0f1f3a; border-color: #1f6feb; color: #cde2ff; }
 .info-banner.warn { background: #2f1f10; border-color: #f59e0b; color: #fde68a; }
 .hidden { display: none; }
+.grid-stack { margin: 0 -0.5rem; min-height: 500px; }
+.grid-stack-item-content { height: 100%; overflow: hidden; }
 </style>
 {% endblock %}
