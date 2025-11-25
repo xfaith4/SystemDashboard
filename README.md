@@ -4,8 +4,9 @@ A Windows-first operations telemetry stack that collects logs, enriches them wit
 
 1. **Telemetry Windows Service** (`services/SystemDashboardService.ps1`) – a long-running PowerShell service that listens for inbound syslog messages, polls ASUS routers for log exports, and hands batches to the ingestion helpers in `tools/SystemDashboard.Telemetry.psm1` for loading into PostgreSQL.
 2. **LAN Observability Collector** (`services/LanCollectorService.ps1`) – a dedicated service for network device monitoring that tracks device presence, signal strength, and behavior over time. See [LAN-OBSERVABILITY-README.md](LAN-OBSERVABILITY-README.md) for details.
-3. **PowerShell HTTP listener** (`Start-SystemDashboard.ps1`/`.psm1`) – exposes metrics and can continue to serve the static dashboard located under `wwwroot/` when you want a lightweight view hosted on Windows.
-4. **Flask analytics UI** (`app/app.py`) – a richer dashboard experience that queries PostgreSQL directly, highlights actionable issues (IIS 5xx bursts, authentication storms, Windows event spikes, router anomalies), and provides LAN device visibility and tracking.
+3. **Syslog Collector** (`services/SyslogCollectorService.ps1`) – a dedicated listener on UDP 5514 that ingests router/syslog feeds into PostgreSQL (for the Router Logs page and dashboard summaries).
+4. **PowerShell HTTP listener** (`Start-SystemDashboard.ps1`/`.psm1`) – exposes metrics and can continue to serve the static dashboard located under `wwwroot/` when you want a lightweight view hosted on Windows.
+5. **Flask analytics UI** (`app/app.py`) – a richer dashboard experience that queries PostgreSQL directly, highlights actionable issues (IIS 5xx bursts, authentication storms, Windows event spikes, router anomalies), and provides LAN device visibility and tracking.
 
 The service, ingestion helpers, and UI follow the project guidance of “PowerShell first” for orchestration and “PostgreSQL first-class” for storage. Scheduled tasks can still be layered on for Windows Event Log and IIS ingestion as described in the project charter.
 
@@ -27,6 +28,11 @@ To get started with LAN Observability:
 # Start the collector service  
 .\services\LanCollectorService.ps1
 ```
+
+Recent LAN updates:
+- Interface/band detection (wired, wireless 2.4/5 GHz) with RSSI/Tx/Rx and lease type.
+- Per-device nickname/location editing (stored on `telemetry.devices`).
+- Router syslog correlation shows per-device events in detail pages.
 
 For complete documentation, see [docs/LAN-OBSERVABILITY-README.md](docs/LAN-OBSERVABILITY-README.md).
 
@@ -79,13 +85,18 @@ For complete documentation, see [docs/LAN-OBSERVABILITY-README.md](docs/LAN-OBSE
    pwsh -File .\Install.ps1
    ```
    This copies the modules into `$env:ProgramFiles\PowerShell\Modules\SystemDashboard`, creates the Python virtual environment, ensures runtime folders exist under `var/`, and registers a Windows service named `SystemDashboardTelemetry` pointing at `services/SystemDashboardService.ps1`.
-7. **Start ingestion**
+7. **Install scheduled tasks (WebUI, LAN collector, Syslog collector)**
+   ```powershell
+   pwsh -File .\setup-permanent-services.ps1 -Install
+   ```
+   Tasks created: `SystemDashboard-WebUI`, `SystemDashboard-LANCollector`, `SystemDashboard-SyslogCollector`.
+8. **Start ingestion**
    ```powershell
    Start-Service SystemDashboardTelemetry
    Get-Content .\var\log\telemetry-service.log -Tail 20 -Wait
    ```
    You should see entries indicating syslog packets received and ASUS log batches ingested.
-8. **Run the web UI**
+9. **Run the web UI (dev)**
    ```powershell
    .\.venv\Scripts\Activate.ps1
    python .\app\app.py
@@ -120,9 +131,9 @@ The Flask app uses `psycopg2` to query PostgreSQL and renders actionable section
 
 - IIS 5xx surge detection (last 5 minutes vs. trailing baseline)
 - Authentication storms (401/403 bursts by client IP)
-- Windows critical/error event spikes over the last 10 minutes
-- Router anomalies (WAN drops, DHCP storms, failed logins)
-- Recent raw syslog entries for drill-down
+- Windows critical/error event spikes (events page now has severity/source/keyword charts)
+- Router anomalies and syslog drill-down (router page shows severity mix, WAN drop ports, Wi-Fi events)
+- LAN device inventory with per-device detail, RSSI/Tx/Rx, lease type, nickname/location editing, and wireless band detection
 
 If the database is unreachable, the UI gracefully falls back to mock data so development on non-Windows hosts remains possible.
 

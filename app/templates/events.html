@@ -8,7 +8,7 @@
     </div>
     <div class="toolbar">
       <input id="searchInput" type="search" placeholder="Search messages, sources..." />
-      <select id="levelFilter">
+      <select id="levelFilter" title="Filter by event level">
         <option value="">All Levels</option>
         <option>Error</option>
         <option>Warning</option>
@@ -29,7 +29,18 @@
 
   <div class="grid charts-grid">
     <section class="content-section">
-      <header class="section-header"><h2>Severity Mix</h2></header>
+      <header class="section-header"><h2>Severity Mix</h2>
+        <div class="range-selector">
+          <label for="rangeHours">Range:</label>
+          <select id="rangeHours">
+            <option value="1">1h</option>
+            <option value="6">6h</option>
+            <option value="24" selected>24h</option>
+            <option value="72">3d</option>
+            <option value="168">7d</option>
+          </select>
+        </div>
+      </header>
       <div class="chart-container"><canvas id="chart-severity"></canvas></div>
     </section>
     <section class="content-section">
@@ -40,16 +51,40 @@
       <header class="section-header"><h2>Keyword Hits</h2></header>
       <div class="chart-container"><canvas id="chart-keywords"></canvas></div>
     </section>
+    <section class="content-section full-span">
+      <header class="section-header"><h2>Severity Over Time</h2></header>
+      <div class="chart-container"><canvas id="chart-severity-trend"></canvas></div>
+    </section>
   </div>
 
-  <section class="content-section">
-    <header class="section-header">
-      <div>
-        <h2>Recent Events</h2>
-        <p class="muted">Last 200 events</p>
+    <section class="content-section">
+      <header class="section-header">
+        <div>
+          <h2>Recent Events</h2>
+          <p class="muted">Last 200 events (paginate to go back)</p>
+        </div>
+      <div class="table-actions">
+        <button class="btn-refresh" onclick="prevPage()">Prev</button>
+        <span id="pageIndicator" class="muted">Page 1</span>
+        <button class="btn-refresh" onclick="nextPage()">Next</button>
+        <button class="btn-refresh" onclick="refreshEvents()">Refresh</button>
       </div>
-      <button class="btn-refresh" onclick="refreshEvents()">Refresh</button>
-    </header>
+      </header>
+    <div class="table-controls">
+      <label>Sort by:
+        <select id="sortField">
+          <option value="time">Time</option>
+          <option value="level">Level</option>
+          <option value="source">Source</option>
+        </select>
+      </label>
+      <label>Order:
+        <select id="sortDir">
+          <option value="desc">Descending</option>
+          <option value="asc">Ascending</option>
+        </select>
+      </label>
+    </div>
     <div class="table-container">
       <table class="data-table" id="eventsTable">
         <thead><tr><th>Time</th><th>Level</th><th>Source</th><th>Message</th></tr></thead>
@@ -61,10 +96,12 @@
   </section>
 </section>
 
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" integrity="sha384-vEfONZqRTlzqQqNJqVqhqF12DJAkiFCMaZJdKdGPzVkqfAqQkPW/OLvVHxMoJNE8" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" crossorigin="anonymous"></script>
 <script>
-let chartSeverity, chartSources, chartKeywords;
+let chartSeverity, chartSources, chartKeywords, chartSeverityTrend;
 let currentEvents = [];
+let currentPage = 1;
+let rangeHours = 24;
 
 function formatTime(value) {
   if (!value) return '--';
@@ -73,7 +110,7 @@ function formatTime(value) {
 }
 
 async function loadSummary() {
-  const res = await fetch('/api/events/summary?max=500');
+  const res = await fetch(`/api/events/summary?max=500&since_hours=${rangeHours}`);
   const data = await res.json();
   updateSourceBanner(data.source);
   document.getElementById('stat-total').textContent = data.total || 0;
@@ -98,20 +135,31 @@ async function loadSummary() {
   const kwLabels = kwLabelsRaw.length ? kwLabelsRaw : ['No data'];
   const kwValues = kwValuesRaw.length ? kwValuesRaw : [0];
   renderBar('keywords', kwLabels, kwValues, 'Hits');
+
+  // Trend data
+  const trend = data.severity_timeline || [];
+  const labels = trend.map(p => p.bucket || '');
+  const err = trend.map(p => p.error || 0);
+  const warn = trend.map(p => p.warning || 0);
+  const info = trend.map(p => p.information || 0);
+  renderLineTrend(labels, err, warn, info);
 }
 
 async function loadEvents() {
-  const res = await fetch('/api/events?max=200');
+  const res = await fetch(`/api/events?max=200&page=${currentPage}&since_hours=${rangeHours}`);
   const data = await res.json();
   currentEvents = data.events || [];
   updateSourceBanner(data.source);
   renderTable();
+  updatePageIndicator();
 }
 
 function renderTable() {
   const tbody = document.getElementById('eventsBody');
   const search = document.getElementById('searchInput').value.toLowerCase();
   const level = document.getElementById('levelFilter').value;
+  const sortField = document.getElementById('sortField').value;
+  const sortDir = document.getElementById('sortDir').value;
 
   let filtered = currentEvents;
   if (search) {
@@ -123,6 +171,22 @@ function renderTable() {
   if (level) {
     filtered = filtered.filter(e => (e.level || '').toLowerCase().includes(level.toLowerCase()));
   }
+
+  filtered = filtered.slice().sort((a, b) => {
+    const dir = sortDir === 'asc' ? 1 : -1;
+    if (sortField === 'time') {
+      const ta = new Date(a.time || 0).getTime();
+      const tb = new Date(b.time || 0).getTime();
+      return (ta - tb) * dir;
+    }
+    if (sortField === 'level') {
+      return (a.level || '').localeCompare(b.level || '') * dir;
+    }
+    if (sortField === 'source') {
+      return (a.source || '').localeCompare(b.source || '') * dir;
+    }
+    return 0;
+  });
 
   if (filtered.length === 0) {
     tbody.innerHTML = '<tr><td colspan="4" class="empty">No events found.</td></tr>';
@@ -163,6 +227,30 @@ function renderBar(key, labels, values, label) {
   if (key === 'keywords') chartKeywords = new Chart(ctx, config);
 }
 
+function renderLineTrend(labels, errData, warnData, infoData) {
+  const ctx = document.getElementById('chart-severity-trend').getContext('2d');
+  if (chartSeverityTrend) chartSeverityTrend.destroy();
+  chartSeverityTrend = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        { label: 'Error', data: errData, borderColor: '#ef4444', backgroundColor: 'rgba(239,68,68,0.2)', tension: 0.3 },
+        { label: 'Warning', data: warnData, borderColor: '#f59e0b', backgroundColor: 'rgba(245,158,11,0.2)', tension: 0.3 },
+        { label: 'Information', data: infoData, borderColor: '#3b82f6', backgroundColor: 'rgba(59,130,246,0.2)', tension: 0.3 }
+      ]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { position: 'top', labels: { color: '#e5e7f3' } } },
+      scales: {
+        y: { beginAtZero: true, grid: { color: '#1f2642' }, ticks: { color: '#e5e7f3' } },
+        x: { grid: { color: '#1f2642' }, ticks: { color: '#e5e7f3' } }
+      }
+    }
+  });
+}
+
 function updateSourceBanner(source) {
   const banner = document.getElementById('data-source');
   if (!banner) return;
@@ -182,13 +270,38 @@ function updateSourceBanner(source) {
 }
 
 function refreshEvents() {
+  currentPage = 1;
   loadSummary();
   loadEvents();
+}
+
+function nextPage() {
+  currentPage += 1;
+  loadEvents();
+}
+
+function prevPage() {
+  if (currentPage > 1) {
+    currentPage -= 1;
+    loadEvents();
+  }
+}
+
+function updatePageIndicator() {
+  const el = document.getElementById('pageIndicator');
+  if (el) el.textContent = `Page ${currentPage}`;
 }
 
 document.getElementById('refreshBtn').addEventListener('click', refreshEvents);
 document.getElementById('searchInput').addEventListener('input', renderTable);
 document.getElementById('levelFilter').addEventListener('change', renderTable);
+document.getElementById('sortField').addEventListener('change', renderTable);
+document.getElementById('sortDir').addEventListener('change', renderTable);
+document.getElementById('rangeHours').addEventListener('change', (e) => {
+  rangeHours = Number(e.target.value) || 24;
+  currentPage = 1;
+  refreshEvents();
+});
 document.addEventListener('DOMContentLoaded', refreshEvents);
 </script>
 
@@ -261,6 +374,12 @@ document.addEventListener('DOMContentLoaded', refreshEvents);
 .chart-container { position: relative; min-height: 260px; }
 
 .table-container { overflow-x: auto; }
+.table-controls { display: flex; gap: 1rem; align-items: center; margin: 0.5rem 0 0.75rem 0; }
+.table-controls label { color: #cbd5e1; }
+.table-controls select { padding: 0.5rem; border: 1px solid #2a3553; border-radius: 6px; background: #0f1322; color: #e5e7f3; }
+.table-actions { display: flex; gap: 0.6rem; align-items: center; }
+.range-selector { display: flex; gap: 0.5rem; align-items: center; }
+.range-selector select { padding: 0.4rem 0.6rem; border: 1px solid #2a3553; border-radius: 6px; background: #0f1322; color: #e5e7f3; }
 .data-table { width: 100%; border-collapse: collapse; color: #e5e7eb; }
 .data-table th { background: #182038; padding: 0.75rem; text-align: left; font-weight: 600; border-bottom: 1px solid #242f4b; }
 .data-table td { padding: 0.75rem; border-bottom: 1px solid #1d2438; }
