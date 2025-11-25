@@ -282,8 +282,8 @@ jobs:
           } finally {
             # Cleanup
             if ($job) {
-              Stop-Job $job -Force
-              Remove-Job $job -Force
+              Stop-Job $job
+              Remove-Job $job
             }
             if ($flaskJob -and -not $flaskJob.HasExited) {
               Stop-Process $flaskJob -Force
