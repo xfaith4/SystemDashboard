@@ -736,7 +736,14 @@ def wifi():
 
 
 @app.route('/api/events')
+@app.route('/api/events/logs')
 def api_events():
+    """Return recent Windows event log entries.
+    
+    Supports both /api/events and /api/events/logs routes for convention consistency.
+    When connected to Postgres, queries the eventlog_windows_recent view.
+    Falls back to PowerShell Get-WinEvent on Windows or mock data elsewhere.
+    """
     level = request.args.get('level')
     max_events = int(request.args.get('max', '100'))
     page = int(request.args.get('page', '1'))
@@ -959,6 +966,158 @@ def api_ai_suggest():
     if err:
         return jsonify({'error': err}), 502
     return jsonify({'suggestion': suggestion})
+
+
+@app.route('/api/ai/explain', methods=['POST'])
+def api_ai_explain():
+    """
+    AI explanation endpoint for logs, events, and charts.
+    
+    Request body:
+      - type: 'router_log' | 'windows_event' | 'chart_summary' | 'dashboard_summary'
+      - context: JSON object with the relevant record(s) or aggregated stats
+      - userQuestion (optional): free-text question from the user
+    
+    Response:
+      - explanationHtml: HTML-safe explanation text
+      - severity: optional severity assessment
+      - recommendedActions: optional list of action suggestions
+    """
+    data = request.get_json(silent=True) or {}
+    explain_type = data.get('type', '')
+    context = data.get('context', {})
+    user_question = (data.get('userQuestion') or '')[:1000]
+    
+    # Validate type
+    valid_types = ['router_log', 'windows_event', 'chart_summary', 'dashboard_summary']
+    if explain_type not in valid_types:
+        return jsonify({'error': f'Invalid type. Must be one of: {", ".join(valid_types)}'}), 400
+    
+    if not context:
+        return jsonify({'error': 'Missing context'}), 400
+    
+    # Truncate context to avoid excessive API costs
+    # Serialize to JSON first, then truncate while keeping it valid
+    MAX_CONTEXT_CHARS = 6000
+    context_str = json.dumps(context)
+    if len(context_str) > MAX_CONTEXT_CHARS:
+        # Truncate and add indication that content was trimmed
+        context_str = context_str[:MAX_CONTEXT_CHARS] + '... [truncated]'
+    
+    # Build system prompt based on type
+    system_prompts = {
+        'router_log': 'You are a network engineer assistant helping analyze router syslog entries for a home system dashboard. Provide clear explanations and actionable advice.',
+        'windows_event': 'You are a Windows Event Log troubleshooting assistant for a home system dashboard. Explain events clearly and provide concrete steps to resolve issues.',
+        'chart_summary': 'You are a system monitoring analyst for a home dashboard. Analyze chart data and explain patterns, anomalies, and what actions the user should consider.',
+        'dashboard_summary': 'You are a home system health advisor. Summarize the overall state and highlight any issues that need attention.'
+    }
+    
+    # Build user prompt based on type
+    if explain_type == 'router_log':
+        user_prompt = f"Router/syslog entry:\n{context_str}\n\n"
+        if user_question:
+            user_prompt += f"User question: {user_question}\n\n"
+        user_prompt += "Please explain what this log entry means, whether it indicates a problem, and what action (if any) the user should take."
+    
+    elif explain_type == 'windows_event':
+        user_prompt = f"Windows Event Log entry:\n{context_str}\n\n"
+        if user_question:
+            user_prompt += f"User question: {user_question}\n\n"
+        user_prompt += "Please explain the probable cause and provide concrete steps to resolve any issues."
+    
+    elif explain_type == 'chart_summary':
+        user_prompt = f"Chart/aggregated statistics:\n{context_str}\n\n"
+        if user_question:
+            user_prompt += f"User question: {user_question}\n\n"
+        user_prompt += "Please analyze these statistics, identify any concerning patterns or anomalies, and suggest what the user should investigate or do."
+    
+    elif explain_type == 'dashboard_summary':
+        user_prompt = f"Dashboard health summary:\n{context_str}\n\n"
+        if user_question:
+            user_prompt += f"User question: {user_question}\n\n"
+        user_prompt += "Please summarize the overall system health, highlight any problems, and recommend priorities for the user."
+    
+    # Call OpenAI with customized system prompt
+    api_key = os.environ.get('OPENAI_API_KEY')
+    if not api_key:
+        # Return a helpful fallback message when API key is not configured
+        fallback_messages = {
+            'router_log': 'This is a router syslog entry. To get AI-powered explanations, configure the OPENAI_API_KEY environment variable.',
+            'windows_event': 'This is a Windows event log entry. To get AI-powered explanations, configure the OPENAI_API_KEY environment variable.',
+            'chart_summary': 'These are aggregated statistics. To get AI-powered analysis, configure the OPENAI_API_KEY environment variable.',
+            'dashboard_summary': 'This is your dashboard summary. To get AI-powered health analysis, configure the OPENAI_API_KEY environment variable.'
+        }
+        return jsonify({
+            'explanationHtml': f'<p>{fallback_messages.get(explain_type, "AI analysis unavailable.")}</p>',
+            'severity': 'info',
+            'recommendedActions': ['Configure OPENAI_API_KEY for AI-powered explanations']
+        })
+    
+    import urllib.request
+    import urllib.error
+    import ssl
+    
+    body = {
+        'model': os.environ.get('OPENAI_MODEL', 'gpt-4o-mini'),
+        'messages': [
+            {'role': 'system', 'content': system_prompts.get(explain_type, 'You are a helpful system assistant.')},
+            {'role': 'user', 'content': user_prompt},
+        ],
+        'temperature': 0.3,
+        'max_tokens': 500,
+    }
+    
+    req = urllib.request.Request(
+        os.environ.get('OPENAI_API_BASE', 'https://api.openai.com') + '/v1/chat/completions',
+        data=json.dumps(body).encode('utf-8'),
+        headers={'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'}
+    )
+    
+    try:
+        with urllib.request.urlopen(req, timeout=25, context=ssl.create_default_context()) as resp:
+            resp_body = json.loads(resp.read().decode('utf-8'))
+            content = resp_body.get('choices', [{}])[0].get('message', {}).get('content')
+            if not content:
+                return jsonify({'error': 'No explanation received from AI.'}), 502
+            
+            # Convert content to basic HTML safely
+            # First escape HTML entities, then handle formatting
+            explanation_text = content.strip()
+            explanation_html = html.escape(explanation_text)
+            
+            # Split into paragraphs on double newlines, filter empty ones
+            paragraphs = [p.strip() for p in explanation_html.split('\n\n') if p.strip()]
+            if paragraphs:
+                # Convert single newlines to <br> within paragraphs
+                paragraphs = [p.replace('\n', '<br>') for p in paragraphs]
+                explanation_html = ''.join(f'<p>{p}</p>' for p in paragraphs)
+            else:
+                # Fallback: wrap entire content in single paragraph
+                explanation_html = f'<p>{explanation_html.replace(chr(10), "<br>")}</p>'
+            
+            # Determine severity based on content keywords
+            content_lower = content.lower()
+            if any(word in content_lower for word in ['critical', 'immediate', 'urgent', 'severe']):
+                severity = 'critical'
+            elif any(word in content_lower for word in ['error', 'fail', 'problem', 'issue']):
+                severity = 'warning'
+            else:
+                severity = 'info'
+            
+            return jsonify({
+                'explanationHtml': explanation_html,
+                'severity': severity,
+                'recommendedActions': []
+            })
+    
+    except urllib.error.HTTPError as e:
+        try:
+            err = e.read().decode('utf-8')
+        except Exception:
+            err = str(e)
+        return jsonify({'error': f'OpenAI API error: {err}'}), 502
+    except Exception as ex:
+        return jsonify({'error': f'AI explanation failed: {ex}'}), 502
 
 
 @app.route('/health')

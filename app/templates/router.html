@@ -75,14 +75,28 @@
                         <th>Level</th>
                         <th>Message</th>
                         <th>Host</th>
+                        <th>Actions</th>
                     </tr>
                 </thead>
                 <tbody id="router-body">
-                    <tr><td colspan="4" class="loading">Loading logs...</td></tr>
+                    <tr><td colspan="5" class="loading">Loading logs...</td></tr>
                 </tbody>
             </table>
         </div>
     </section>
+
+    <!-- AI Explanation Modal -->
+    <div id="ai-modal" class="modal hidden">
+        <div class="modal-content">
+            <header class="modal-header">
+                <h3>AI Explanation</h3>
+                <button class="modal-close" onclick="closeAIModal()">&times;</button>
+            </header>
+            <div id="ai-modal-body" class="modal-body">
+                <p class="loading">Analyzing...</p>
+            </div>
+        </div>
+    </div>
 </section>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" crossorigin="anonymous"></script>
@@ -141,30 +155,55 @@ async function loadSummary() {
     renderBar('wifi', wifiLabels.length ? wifiLabels : ['No data'], wifiValues.length ? wifiValues : [0], 'Events', chartColors.info);
 }
 
+// Store logs data for Ask AI functionality
+let currentLogs = [];
+
 async function loadLogs() {
     const res = await fetch('/api/router/logs?limit=200');
     const data = await res.json();
     const logs = data.logs || [];
+    currentLogs = logs; // Store for Ask AI
     const source = data.source || 'db';
     updateSourceBanner(source);
     const tbody = document.getElementById('router-body');
 
     if (logs.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="4" class="empty">No router logs available</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="5" class="empty">No router logs available</td></tr>';
         return;
     }
 
-    tbody.innerHTML = logs.map(log => {
+    tbody.innerHTML = logs.map((log, index) => {
         const levelClass = (log.level || '').toLowerCase().replace(/[^a-z]/g, '');
+        // Escape HTML entities for display in table cells
+        const displayMessage = escapeHtml(log.message || '');
+        const displayHost = escapeHtml(log.host || '--');
         return `
             <tr>
                 <td>${formatTime(log.time)}</td>
-                <td><span class="badge badge-${levelClass}">${log.level || '--'}</span></td>
-                <td class="wrap">${log.message || ''}</td>
-                <td><code>${log.host || '--'}</code></td>
+                <td><span class="badge badge-${levelClass}">${escapeHtml(log.level || '--')}</span></td>
+                <td class="wrap">${displayMessage}</td>
+                <td><code>${displayHost}</code></td>
+                <td>
+                    <button class="btn-ask-ai" onclick="askAI(${index})" 
+                            title="Ask AI to explain this log entry">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="10"/>
+                            <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
+                            <line x1="12" y1="17" x2="12.01" y2="17"/>
+                        </svg>
+                        Ask AI
+                    </button>
+                </td>
             </tr>
         `;
     }).join('');
+}
+
+// Helper function to escape HTML entities
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
 }
 
 function renderBar(key, labels, values, label, colors) {
@@ -211,6 +250,92 @@ function updateSourceBanner(source) {
     }
 }
 
+// Ask AI functionality for router logs
+async function askAI(rowIndex) {
+    // Get log data from the stored logs array (safer than DOM attributes)
+    if (rowIndex < 0 || rowIndex >= currentLogs.length) {
+        console.error('Invalid log index:', rowIndex);
+        return;
+    }
+    
+    const log = currentLogs[rowIndex];
+    const logData = {
+        time: log.time || '',
+        level: log.level || '',
+        message: log.message || '',
+        host: log.host || ''
+    };
+    
+    // Show modal
+    const modal = document.getElementById('ai-modal');
+    const modalBody = document.getElementById('ai-modal-body');
+    modal.classList.remove('hidden');
+    modalBody.innerHTML = '<p class="loading">🔄 Analyzing log entry...</p>';
+    
+    try {
+        const response = await fetch('/api/ai/explain', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                type: 'router_log',
+                context: logData
+            })
+        });
+        
+        const result = await response.json();
+        
+        if (result.error) {
+            modalBody.innerHTML = `<p class="error">⚠️ ${escapeHtml(result.error)}</p>`;
+        } else {
+            let severityBadge = '';
+            if (result.severity === 'critical') {
+                severityBadge = '<span class="badge badge-error">Critical</span>';
+            } else if (result.severity === 'warning') {
+                severityBadge = '<span class="badge badge-warning">Warning</span>';
+            } else {
+                severityBadge = '<span class="badge badge-info">Info</span>';
+            }
+            
+            modalBody.innerHTML = `
+                <div class="ai-response">
+                    <div class="ai-severity">${severityBadge}</div>
+                    <div class="ai-explanation">${result.explanationHtml}</div>
+                    ${result.recommendedActions && result.recommendedActions.length > 0 ? `
+                        <div class="ai-actions">
+                            <h4>Recommended Actions:</h4>
+                            <ul>
+                                ${result.recommendedActions.map(a => `<li>${a}</li>`).join('')}
+                            </ul>
+                        </div>
+                    ` : ''}
+                </div>
+            `;
+        }
+    } catch (error) {
+        modalBody.innerHTML = `<p class="error">⚠️ Failed to get AI explanation: ${error.message}</p>`;
+    }
+}
+
+function closeAIModal() {
+    const modal = document.getElementById('ai-modal');
+    modal.classList.add('hidden');
+}
+
+// Close modal on clicking outside
+document.addEventListener('click', (e) => {
+    const modal = document.getElementById('ai-modal');
+    if (e.target === modal) {
+        closeAIModal();
+    }
+});
+
+// Close modal on Escape key
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        closeAIModal();
+    }
+});
+
 document.addEventListener('DOMContentLoaded', refreshRouter);
 </script>
 
@@ -242,6 +367,150 @@ document.addEventListener('DOMContentLoaded', refreshRouter);
 
 .table-container {
     overflow-x: auto;
+}
+
+/* Ask AI Button Styles */
+.btn-ask-ai {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.35rem 0.7rem;
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: #c7d2fe;
+    background: linear-gradient(135deg, #3730a3, #4f46e5);
+    border: 1px solid #6366f1;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.btn-ask-ai:hover {
+    background: linear-gradient(135deg, #4338ca, #6366f1);
+    border-color: #818cf8;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
+}
+
+.btn-ask-ai svg {
+    flex-shrink: 0;
+}
+
+/* Modal Styles */
+.modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    padding: 1rem;
+}
+
+.modal.hidden {
+    display: none;
+}
+
+.modal-content {
+    background: #12182a;
+    border: 1px solid #2a3553;
+    border-radius: 12px;
+    max-width: 600px;
+    width: 100%;
+    max-height: 80vh;
+    overflow: hidden;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem 1.25rem;
+    background: #182038;
+    border-bottom: 1px solid #2a3553;
+}
+
+.modal-header h3 {
+    margin: 0;
+    font-size: 1.1rem;
+    color: #e5e7eb;
+}
+
+.modal-close {
+    background: none;
+    border: none;
+    color: #94a3b8;
+    font-size: 1.5rem;
+    cursor: pointer;
+    padding: 0;
+    line-height: 1;
+}
+
+.modal-close:hover {
+    color: #e5e7eb;
+}
+
+.modal-body {
+    padding: 1.25rem;
+    overflow-y: auto;
+    max-height: calc(80vh - 60px);
+}
+
+.ai-response {
+    color: #e5e7eb;
+}
+
+.ai-severity {
+    margin-bottom: 1rem;
+}
+
+.ai-explanation {
+    line-height: 1.6;
+}
+
+.ai-explanation p {
+    margin: 0.75rem 0;
+}
+
+.ai-actions {
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid #2a3553;
+}
+
+.ai-actions h4 {
+    margin: 0 0 0.5rem;
+    font-size: 0.9rem;
+    color: #94a3b8;
+}
+
+.ai-actions ul {
+    margin: 0;
+    padding-left: 1.25rem;
+}
+
+.ai-actions li {
+    margin: 0.25rem 0;
+}
+
+.loading {
+    color: #94a3b8;
+    font-style: italic;
+}
+
+.error {
+    color: #fca5a5;
+}
+
+/* Badge styles for AI severity */
+.badge-info {
+    background: #1e3a8a;
+    color: #c7d2fe;
 }
 </style>
 {% endblock %}
