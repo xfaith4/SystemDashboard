@@ -225,6 +225,90 @@ class TestAPIEndpoints:
             data = json.loads(response.data)
             assert 'error' in data
 
+    def test_api_ai_explain_missing_type(self, client):
+        """Test AI explain API with invalid type."""
+        response = client.post('/api/ai/explain',
+                             json={'type': 'invalid', 'context': {}},
+                             content_type='application/json')
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert 'error' in data
+        assert 'Invalid type' in data['error']
+
+    def test_api_ai_explain_missing_context(self, client):
+        """Test AI explain API with missing context."""
+        response = client.post('/api/ai/explain',
+                             json={'type': 'router_log'},
+                             content_type='application/json')
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert 'error' in data
+        assert 'Missing context' in data['error']
+
+    def test_api_ai_explain_router_log_no_api_key(self, client):
+        """Test AI explain API for router_log without API key returns fallback."""
+        with patch.dict(os.environ, {}, clear=False):
+            # Ensure no OPENAI_API_KEY
+            if 'OPENAI_API_KEY' in os.environ:
+                del os.environ['OPENAI_API_KEY']
+            
+            response = client.post('/api/ai/explain',
+                                 json={
+                                     'type': 'router_log',
+                                     'context': {
+                                         'time': '2024-01-01T12:00:00Z',
+                                         'level': 'Warning',
+                                         'message': 'WAN connection unstable',
+                                         'host': 'router.local'
+                                     }
+                                 },
+                                 content_type='application/json')
+            
+            assert response.status_code == 200
+            data = json.loads(response.data)
+            assert 'explanationHtml' in data
+            assert 'severity' in data
+            assert data['severity'] == 'info'
+
+    def test_api_ai_explain_windows_event_no_api_key(self, client):
+        """Test AI explain API for windows_event without API key."""
+        with patch.dict(os.environ, {}, clear=False):
+            if 'OPENAI_API_KEY' in os.environ:
+                del os.environ['OPENAI_API_KEY']
+            
+            response = client.post('/api/ai/explain',
+                                 json={
+                                     'type': 'windows_event',
+                                     'context': {
+                                         'source': 'Application Error',
+                                         'id': 1000,
+                                         'level': 'Error',
+                                         'message': 'Test error message'
+                                     }
+                                 },
+                                 content_type='application/json')
+            
+            assert response.status_code == 200
+            data = json.loads(response.data)
+            assert 'explanationHtml' in data
+
+    def test_api_events_logs_route(self, client):
+        """Test the /api/events/logs route alias."""
+        response = client.get('/api/events/logs')
+        assert response.status_code == 200
+        
+        data = json.loads(response.data)
+        assert 'events' in data
+        assert isinstance(data['events'], list)
+
+    def test_api_events_logs_with_parameters(self, client):
+        """Test /api/events/logs with query parameters."""
+        response = client.get('/api/events/logs?level=error&max=10')
+        assert response.status_code == 200
+        
+        data = json.loads(response.data)
+        assert 'events' in data
+
     def test_api_trends_endpoint(self, client):
         """Test trends API endpoint returns 7-day data."""
         response = client.get('/api/trends')
