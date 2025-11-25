@@ -84,6 +84,17 @@ def _isoformat(value):
     if value is None:
         return ''
     if isinstance(value, str):
+        # Handle serialized /Date(1764037519528)/ from Windows EventLog JSON
+        if value.startswith('/Date(') and value.endswith(')/'):
+            try:
+                import re
+                match = re.search(r'/Date\((\-?\d+)\)/', value)
+                if match:
+                    ms = int(match.group(1))
+                    dt = datetime.datetime.utcfromtimestamp(ms / 1000.0)
+                    return dt.isoformat() + 'Z'
+            except Exception:
+                pass
         return value
     if isinstance(value, datetime.datetime):
         return value.isoformat()
@@ -111,7 +122,7 @@ def _severity_to_text(value):
         return str(value) if value is not None else ''
 
 
-def get_windows_events(level: str = None, max_events: int = 50, with_source: bool = False):
+def get_windows_events(level: str = None, max_events: int = 50, with_source: bool = False, since_hours: int = None, offset: int = 0):
     """Fetch recent Windows events via PowerShell. Level can be 'Error', 'Warning', or None for any.
     Returns list of dicts with time, source, id, level, message.
     """
@@ -197,6 +208,11 @@ def get_windows_events(level: str = None, max_events: int = 50, with_source: boo
                 'level': e.get('LevelDisplayName'),
                 'message': e.get('Message'),
             })
+        # Apply simple offset/pagination for UI
+        if offset > 0:
+            events = events[offset:]
+        if max_events:
+            events = events[:max_events]
         return (events, 'windows') if with_source else events
     except Exception:
         return ([], 'error') if with_source else []
@@ -247,7 +263,7 @@ def get_router_logs_from_db(limit: int = 100):
                        message,
                        source_host
                 FROM telemetry.syslog_recent
-                WHERE source = 'asus'
+                WHERE source IN ('asus', 'router', 'syslog')
                 ORDER BY received_utc DESC
                 LIMIT %s
                 """,
@@ -352,6 +368,57 @@ def summarize_system_events(events: list[dict]):
         for key, words in keywords.items():
             if any(w in msg for w in words):
                 summary['keyword_counts'][key] += 1
+
+        # Build hourly buckets for severity timeline
+        try:
+            t = e.get('time')
+            dt = None
+            if isinstance(t, datetime.datetime):
+                dt = t
+            elif isinstance(t, str):
+                try:
+                    dt = datetime.datetime.fromisoformat(t.replace('Z', '+00:00'))
+                except Exception:
+                    dt = None
+            if dt:
+                bucket = dt.replace(minute=0, second=0, microsecond=0)
+                key_bucket = bucket.isoformat()
+                if key_bucket not in summary:
+                    summary.setdefault('severity_timeline', [])
+                # Accumulate into dict map first for efficiency
+        except Exception:
+            pass
+
+    # Build severity timeline map
+    timeline_map = {}
+    for e in events:
+        dt = None
+        t = e.get('time')
+        if isinstance(t, datetime.datetime):
+            dt = t
+        elif isinstance(t, str):
+            try:
+                dt = datetime.datetime.fromisoformat(t.replace('Z', '+00:00'))
+            except Exception:
+                dt = None
+        if dt is None:
+            continue
+        bucket = dt.replace(minute=0, second=0, microsecond=0)
+        bucket_key = bucket.isoformat()
+        if bucket_key not in timeline_map:
+            timeline_map[bucket_key] = {'error': 0, 'warning': 0, 'information': 0}
+        sev_lower = (e.get('level') or 'information').lower()
+        if 'error' in sev_lower:
+            timeline_map[bucket_key]['error'] += 1
+        elif 'warn' in sev_lower:
+            timeline_map[bucket_key]['warning'] += 1
+        else:
+            timeline_map[bucket_key]['information'] += 1
+
+    timeline = []
+    for k, v in sorted(timeline_map.items()):
+        timeline.append({'bucket': k, **v})
+    summary['severity_timeline'] = timeline
 
     # convert source counts to top list
     def top_list(d, n=5):
@@ -672,15 +739,21 @@ def wifi():
 def api_events():
     level = request.args.get('level')
     max_events = int(request.args.get('max', '100'))
-    events_raw, source = get_windows_events(level=level, max_events=max_events, with_source=True)
+    page = int(request.args.get('page', '1'))
+    since_hours = request.args.get('since_hours')
+    offset = (page - 1) * max_events if page > 0 else 0
+    since = int(since_hours) if since_hours else None
+    events_raw, source = get_windows_events(level=level, max_events=max_events, with_source=True, since_hours=since, offset=offset)
     events = _normalize_events(events_raw)
-    return jsonify({'events': events, 'source': source})
+    return jsonify({'events': events, 'source': source, 'page': page})
 
 
 @app.route('/api/events/summary')
 def api_events_summary():
     max_events = int(request.args.get('max', '300'))
-    events_raw, source = get_windows_events(max_events=max_events, with_source=True)
+    since_hours = request.args.get('since_hours')
+    since = int(since_hours) if since_hours else None
+    events_raw, source = get_windows_events(max_events=max_events, with_source=True, since_hours=since)
     events = _normalize_events(events_raw)
     data = summarize_system_events(events)
     data['source'] = source

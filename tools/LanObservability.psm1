@@ -54,7 +54,7 @@ function Get-RouterClientListViaHttp {
     param(
         [Parameter(Mandatory)][string]$RouterIP,
         [Parameter()][string]$Username = 'xfaith',
-        $Password = $env:Router_Password,
+        [PSCredential] $Password = $env:Router_Password,
         [Parameter()][int]$TimeoutSeconds = 30
     )
 
@@ -126,7 +126,7 @@ function Get-RouterClientListViaSsh {
     param(
         [Parameter(Mandatory)][string]$RouterIP,
         [Parameter()][string]$Username = 'xfaith',
-        $Password = $env:Router_Password,
+        [Parameter()][PSCredential] $Password = $env:Router_Password,
         [Parameter()][int]$TimeoutSeconds = 30,
         [Parameter()][int]$Port = 1099
     )

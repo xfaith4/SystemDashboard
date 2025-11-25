@@ -21,6 +21,11 @@
   const errorTotalEl = document.getElementById('error-total');
   const refreshIntervalEl = document.getElementById('refresh-interval');
 
+  // If this page doesn't have the dashboard elements, bail out early.
+  if (!statusEl) {
+    return;
+  }
+
   if (refreshIntervalEl) {
     refreshIntervalEl.textContent = (REFRESH_INTERVAL / 1000).toString();
   }
