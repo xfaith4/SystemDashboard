@@ -23,7 +23,7 @@
       "MaxMessageBytes": 8192
     },
     "Asus": {
-      "Enabled": true,
+      "Enabled": false,
       "Uri": "http://192.168.50.1/syslog.txt",
       "HostName": "asus-router",
       "Username": "xfaith",
