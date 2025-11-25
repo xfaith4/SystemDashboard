@@ -723,11 +723,15 @@ function Start-TelemetryService {
 
             # Syslog TCP listener - accept new connections and read from existing ones
             if ($tcpListener) {
+                # TCP configuration constants
+                $TCP_RECEIVE_TIMEOUT_MS = 100
+                $TCP_READ_BUFFER_SIZE = $config.Service.Syslog.MaxMessageBytes
+                
                 # Accept new connections (non-blocking check)
                 try {
                     if ($tcpListener.Pending()) {
                         $newClient = $tcpListener.AcceptTcpClient()
-                        $newClient.ReceiveTimeout = 100
+                        $newClient.ReceiveTimeout = $TCP_RECEIVE_TIMEOUT_MS
                         $clientInfo = @{
                             Client = $newClient
                             Stream = $newClient.GetStream()
@@ -748,7 +752,7 @@ function Start-TelemetryService {
                 foreach ($clientInfo in $tcpClients) {
                     try {
                         if ($clientInfo.Client.Connected -and $clientInfo.Stream.DataAvailable) {
-                            $buffer = New-Object byte[] 8192
+                            $buffer = New-Object byte[] $TCP_READ_BUFFER_SIZE
                             $bytesRead = $clientInfo.Stream.Read($buffer, 0, $buffer.Length)
                             if ($bytesRead -gt 0) {
                                 $data = [System.Text.Encoding]::UTF8.GetString($buffer, 0, $bytesRead)

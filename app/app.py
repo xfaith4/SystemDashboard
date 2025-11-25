@@ -254,8 +254,9 @@ def get_router_logs(max_lines: int = 100, with_source: bool = False, offset: int
             # Apply filters for file-based logs
             if level_filter and level.lower() != level_filter.lower():
                 continue
+            # Skip logs when host_filter is specified since file-based logs don't contain host information
             if host_filter:
-                continue  # File-based logs don't have host info
+                continue
             if search_query and search_query.lower() not in message.lower():
                 continue
             
