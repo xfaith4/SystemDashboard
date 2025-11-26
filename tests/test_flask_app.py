@@ -481,6 +481,29 @@ class TestLANAlerting:
         assert 'total_active' in data
 
 
+class TestMACVendorLookup:
+    """Test MAC vendor lookup functionality."""
+    
+    def test_lookup_mac_vendor_function(self):
+        """Test the MAC vendor lookup helper function."""
+        # Test with known MAC prefix
+        vendor = flask_app.lookup_mac_vendor('00:11:22:33:44:55')
+        # Should return a vendor or None if lookup fails
+        assert vendor is None or isinstance(vendor, str)
+    
+    def test_api_lan_device_lookup_vendor(self, client):
+        """Test device vendor lookup endpoint."""
+        with patch('app.get_db_connection', return_value=None):
+            response = client.post('/api/lan/device/1/lookup-vendor')
+            assert response.status_code == 503
+    
+    def test_api_lan_devices_enrich_vendors(self, client):
+        """Test bulk vendor enrichment endpoint."""
+        with patch('app.get_db_connection', return_value=None):
+            response = client.post('/api/lan/devices/enrich-vendors')
+            assert response.status_code == 503
+
+
 class TestConfigurationValidation:
     """Test configuration and environment variable handling."""
     

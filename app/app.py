@@ -15,6 +15,13 @@ try:
 except Exception:  # pragma: no cover - optional dependency during local dev
     psycopg2 = None
 
+try:
+    from mac_vendor_lookup import MacLookup
+    mac_lookup = MacLookup()
+    mac_lookup.update_vendors()
+except Exception:  # pragma: no cover - optional dependency
+    mac_lookup = None
+
 app = Flask(__name__)
 
 CHATTY_THRESHOLD = int(os.environ.get('CHATTY_THRESHOLD', '500'))
@@ -120,6 +127,18 @@ def _severity_to_text(value):
         return SYSLOG_SEVERITY.get(int(value), str(int(value)))
     except (TypeError, ValueError):
         return str(value) if value is not None else ''
+
+
+def lookup_mac_vendor(mac_address):
+    """Look up the vendor name from a MAC address using OUI database."""
+    if not mac_address or not mac_lookup:
+        return None
+    
+    try:
+        vendor = mac_lookup.lookup(mac_address)
+        return vendor
+    except Exception:
+        return None
 
 
 def get_windows_events(level: str = None, max_events: int = 50, with_source: bool = False, since_hours: int = None, offset: int = 0):
@@ -1901,6 +1920,103 @@ def api_lan_alerts_stats():
         conn.close()
     
     return jsonify(stats)
+
+
+@app.route('/api/lan/device/<device_id>/lookup-vendor', methods=['POST'])
+def api_lan_device_lookup_vendor(device_id):
+    """Look up and update vendor information for a device based on MAC address."""
+    conn = get_db_connection()
+    if conn is None:
+        return jsonify({'error': 'Database unavailable'}), 503
+    
+    try:
+        # Get device MAC address
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("SELECT mac_address, vendor FROM telemetry.devices WHERE device_id = %s", (device_id,))
+            device = cur.fetchone()
+            
+            if not device:
+                return jsonify({'error': 'Device not found'}), 404
+            
+            # Look up vendor
+            vendor = lookup_mac_vendor(device['mac_address'])
+            
+            if not vendor:
+                return jsonify({'error': 'Vendor lookup failed', 'message': 'Could not determine vendor from MAC address'}), 404
+            
+            # Update device with vendor info
+            cur.execute("""
+                UPDATE telemetry.devices
+                SET vendor = %s,
+                    updated_at = NOW()
+                WHERE device_id = %s
+                RETURNING device_id;
+            """, (vendor, device_id))
+            updated = cur.fetchone()
+            
+            if not updated:
+                return jsonify({'error': 'Failed to update device'}), 500
+        
+        conn.commit()
+        return jsonify({'status': 'ok', 'vendor': vendor})
+    except Exception as exc:
+        app.logger.debug('Vendor lookup failed: %s', exc)
+        conn.rollback()
+        return jsonify({'error': 'Lookup error', 'message': str(exc)}), 500
+    finally:
+        conn.close()
+
+
+@app.route('/api/lan/devices/enrich-vendors', methods=['POST'])
+def api_lan_devices_enrich_vendors():
+    """Enrich all devices without vendor information by looking up their MAC addresses."""
+    conn = get_db_connection()
+    if conn is None:
+        return jsonify({'error': 'Database unavailable'}), 503
+    
+    if not mac_lookup:
+        return jsonify({'error': 'MAC vendor lookup not available'}), 503
+    
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            # Get devices without vendor info
+            cur.execute("""
+                SELECT device_id, mac_address
+                FROM telemetry.devices
+                WHERE vendor IS NULL OR vendor = ''
+                LIMIT 100
+            """)
+            devices = cur.fetchall()
+            
+            updated_count = 0
+            failed_count = 0
+            
+            for device in devices:
+                vendor = lookup_mac_vendor(device['mac_address'])
+                if vendor:
+                    cur.execute("""
+                        UPDATE telemetry.devices
+                        SET vendor = %s,
+                            updated_at = NOW()
+                        WHERE device_id = %s
+                    """, (vendor, device['device_id']))
+                    updated_count += 1
+                else:
+                    failed_count += 1
+        
+        conn.commit()
+        return jsonify({
+            'status': 'ok',
+            'updated': updated_count,
+            'failed': failed_count,
+            'total': len(devices)
+        })
+    except Exception as exc:
+        app.logger.debug('Bulk vendor enrichment failed: %s', exc)
+        conn.rollback()
+        return jsonify({'error': 'Enrichment error', 'message': str(exc)}), 500
+    finally:
+        conn.close()
 
 
 if __name__ == '__main__':
