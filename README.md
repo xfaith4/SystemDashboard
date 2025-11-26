@@ -168,6 +168,7 @@ For detailed troubleshooting, see [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING
 
 ## Documentation
 
+- **[Help Guide](docs/HELP.md)** - **Dashboard user guide** - How to use the dashboard, interpret metrics, and troubleshoot issues
 - **[Setup Guide](docs/SETUP.md)** - Complete installation and configuration instructions
 - **[Troubleshooting](docs/TROUBLESHOOTING.md)** - Common issues and solutions
 - **[LAN Observability](docs/LAN-OBSERVABILITY-README.md)** - Network device monitoring
