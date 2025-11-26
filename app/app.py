@@ -1709,6 +1709,200 @@ def lan_device_detail(device_id):
     return render_template('lan_device.html', device_id=device_id)
 
 
+@app.route('/api/lan/alerts')
+def api_lan_alerts():
+    """Get active LAN device alerts."""
+    limit = int(request.args.get('limit', '50'))
+    severity = request.args.get('severity')  # 'critical', 'warning', 'info'
+    alert_type = request.args.get('type')  # filter by alert type
+    
+    conn = get_db_connection()
+    if conn is None:
+        # Return mock alerts for development
+        import random
+        now = datetime.datetime.now(datetime.UTC)
+        mock_alerts = [
+            {
+                'alert_id': 1,
+                'device_id': 1,
+                'alert_type': 'weak_signal',
+                'severity': 'warning',
+                'title': 'Weak Wi-Fi Signal',
+                'message': 'Device signal strength is -78 dBm',
+                'hostname': 'laptop-work',
+                'created_at': (now - datetime.timedelta(hours=1)).isoformat(),
+                'is_acknowledged': False
+            },
+            {
+                'alert_id': 2,
+                'device_id': 2,
+                'alert_type': 'new_device',
+                'severity': 'info',
+                'title': 'New Device Detected',
+                'message': 'Unknown device joined the network',
+                'hostname': 'unknown',
+                'created_at': (now - datetime.timedelta(hours=3)).isoformat(),
+                'is_acknowledged': False
+            }
+        ]
+        return jsonify({'alerts': mock_alerts, 'total': len(mock_alerts)})
+    
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            query = """
+                SELECT 
+                    alert_id,
+                    device_id,
+                    alert_type,
+                    severity,
+                    title,
+                    message,
+                    metadata,
+                    is_acknowledged,
+                    acknowledged_at,
+                    is_resolved,
+                    created_at,
+                    mac_address,
+                    hostname,
+                    nickname,
+                    primary_ip_address,
+                    tags
+                FROM telemetry.device_alerts_active
+                WHERE 1=1
+            """
+            
+            params = []
+            if severity:
+                query += " AND severity = %s"
+                params.append(severity)
+            
+            if alert_type:
+                query += " AND alert_type = %s"
+                params.append(alert_type)
+            
+            query += " ORDER BY created_at DESC LIMIT %s"
+            params.append(limit)
+            
+            cur.execute(query, params)
+            rows = cur.fetchall()
+            
+            alerts = []
+            for row in rows:
+                alert = dict(row)
+                alert['created_at'] = _isoformat(alert.get('created_at'))
+                alert['acknowledged_at'] = _isoformat(alert.get('acknowledged_at'))
+                alerts.append(alert)
+            
+            # Get total count
+            cur.execute("SELECT COUNT(*) as total FROM telemetry.device_alerts_active")
+            total_row = cur.fetchone()
+            total = total_row['total'] if total_row else 0
+    except Exception as exc:
+        app.logger.debug('Alerts query failed: %s', exc)
+        return jsonify({'error': 'Database error'}), 500
+    finally:
+        conn.close()
+    
+    return jsonify({'alerts': alerts, 'total': total})
+
+
+@app.route('/api/lan/alerts/<alert_id>/acknowledge', methods=['POST'])
+def api_lan_alert_acknowledge(alert_id):
+    """Acknowledge an alert."""
+    payload = request.get_json(silent=True) or {}
+    acknowledged_by = payload.get('acknowledged_by', 'user')
+    
+    conn = get_db_connection()
+    if conn is None:
+        return jsonify({'error': 'Database unavailable'}), 503
+    
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE telemetry.device_alerts
+                SET is_acknowledged = true,
+                    acknowledged_at = NOW(),
+                    acknowledged_by = %s,
+                    updated_at = NOW()
+                WHERE alert_id = %s AND is_acknowledged = false
+                RETURNING alert_id;
+            """, (acknowledged_by, alert_id))
+            updated = cur.fetchone()
+            if not updated:
+                return jsonify({'error': 'Alert not found or already acknowledged'}), 404
+        conn.commit()
+        return jsonify({'status': 'ok'})
+    except Exception as exc:
+        app.logger.debug('Alert acknowledge failed: %s', exc)
+        conn.rollback()
+        return jsonify({'error': 'Database error'}), 500
+    finally:
+        conn.close()
+
+
+@app.route('/api/lan/alerts/<alert_id>/resolve', methods=['POST'])
+def api_lan_alert_resolve(alert_id):
+    """Resolve an alert."""
+    conn = get_db_connection()
+    if conn is None:
+        return jsonify({'error': 'Database unavailable'}), 503
+    
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE telemetry.device_alerts
+                SET is_resolved = true,
+                    resolved_at = NOW(),
+                    updated_at = NOW()
+                WHERE alert_id = %s AND is_resolved = false
+                RETURNING alert_id;
+            """, (alert_id,))
+            updated = cur.fetchone()
+            if not updated:
+                return jsonify({'error': 'Alert not found or already resolved'}), 404
+        conn.commit()
+        return jsonify({'status': 'ok'})
+    except Exception as exc:
+        app.logger.debug('Alert resolve failed: %s', exc)
+        conn.rollback()
+        return jsonify({'error': 'Database error'}), 500
+    finally:
+        conn.close()
+
+
+@app.route('/api/lan/alerts/stats')
+def api_lan_alerts_stats():
+    """Get alert statistics."""
+    conn = get_db_connection()
+    if conn is None:
+        return jsonify({
+            'total_active': 2,
+            'critical': 0,
+            'warning': 1,
+            'info': 1
+        })
+    
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("""
+                SELECT 
+                    COUNT(*) as total_active,
+                    COUNT(*) FILTER (WHERE severity = 'critical') as critical,
+                    COUNT(*) FILTER (WHERE severity = 'warning') as warning,
+                    COUNT(*) FILTER (WHERE severity = 'info') as info
+                FROM telemetry.device_alerts
+                WHERE is_resolved = false
+            """)
+            stats = dict(cur.fetchone() or {})
+    except Exception as exc:
+        app.logger.debug('Alert stats query failed: %s', exc)
+        return jsonify({'error': 'Database error'}), 500
+    finally:
+        conn.close()
+    
+    return jsonify(stats)
+
+
 if __name__ == '__main__':
     # Enable debug for development convenience
     port = int(os.environ.get('DASHBOARD_PORT', '5000'))
