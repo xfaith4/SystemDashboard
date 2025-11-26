@@ -30,6 +30,18 @@
                 </select>
             </label>
             <label>
+                <span>Tag</span>
+                <select id="filter-tag" onchange="applyFilters()">
+                    <option value="">All Tags</option>
+                    <option value="iot">IoT Device</option>
+                    <option value="guest">Guest Device</option>
+                    <option value="critical">Critical Infrastructure</option>
+                    <option value="mobile">Mobile Device</option>
+                    <option value="workstation">Workstation</option>
+                    <option value="server">Server</option>
+                </select>
+            </label>
+            <label>
                 <span>Search</span>
                 <input type="text" id="search-text" placeholder="Hostname, IP, or MAC" onkeyup="applySearch()" />
             </label>
@@ -48,6 +60,7 @@
                         <th>MAC Address</th>
                         <th>Vendor</th>
                         <th>Location</th>
+                        <th>Tags</th>
                         <th>Interface</th>
                         <th>Signal</th>
                         <th>Rates (Tx/Rx)</th>
@@ -72,6 +85,7 @@ let allDevices = [];
 let currentFilters = {
     state: 'active',
     interface: '',
+    tag: '',
     search: ''
 };
 
@@ -85,10 +99,12 @@ async function loadDevices() {
     try {
         const state = currentFilters.state;
         const iface = currentFilters.interface;
+        const tag = currentFilters.tag;
         
         let url = '/api/lan/devices?limit=500';
         if (state) url += `&state=${state}`;
         if (iface) url += `&interface=${iface}`;
+        if (tag) url += `&tag=${tag}`;
         
         const response = await fetch(url);
         const data = await response.json();
@@ -138,6 +154,7 @@ function renderDevices() {
                 <td><code>${device.mac_address}</code></td>
                 <td>${device.vendor || '--'}</td>
                 <td>${device.location || '--'}</td>
+                <td>${device.tags ? device.tags.split(',').map(t => `<span class="tag-badge">${t.trim()}</span>`).join(' ') : '--'}</td>
                 <td><span class="badge">${device.last_interface || '--'}</span></td>
                 <td>${rssi}</td>
                 <td>${tx} / ${rx}</td>
@@ -153,6 +170,7 @@ function renderDevices() {
 function applyFilters() {
     currentFilters.state = document.getElementById('filter-state').value;
     currentFilters.interface = document.getElementById('filter-interface').value;
+    currentFilters.tag = document.getElementById('filter-tag').value;
     loadDevices();
 }
 
@@ -218,6 +236,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
 .table-container {
     overflow-x: auto;
+}
+
+.tag-badge {
+    display: inline-block;
+    padding: 0.2rem 0.5rem;
+    background: var(--accent-primary);
+    color: var(--text-primary);
+    border-radius: 0.25rem;
+    font-size: 0.75rem;
+    font-weight: 500;
+    margin-right: 0.25rem;
 }
 </style>
 {% endblock %}

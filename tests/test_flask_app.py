@@ -395,6 +395,44 @@ class TestAPIEndpoints:
             assert value >= 0
 
 
+class TestLANDeviceTagging:
+    """Test LAN device tagging functionality."""
+    
+    def test_lan_devices_endpoint(self, client):
+        """Test LAN devices endpoint returns successfully."""
+        response = client.get('/api/lan/devices')
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert 'devices' in data
+    
+    def test_lan_devices_with_tag_filter(self, client):
+        """Test LAN devices endpoint with tag filtering."""
+        response = client.get('/api/lan/devices?tag=iot')
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert 'devices' in data
+    
+    def test_lan_device_update_with_tags(self, client):
+        """Test updating device with tags."""
+        # Mock database connection to return unavailable
+        with patch('app.get_db_connection', return_value=None):
+            response = client.post('/api/lan/device/1/update',
+                                  json={'tags': 'iot,critical'},
+                                  content_type='application/json')
+            assert response.status_code == 503
+    
+    def test_lan_device_update_invalid_tags(self, client):
+        """Test device update with invalid tags type."""
+        with patch('app.get_db_connection', return_value=None):
+            response = client.post('/api/lan/device/1/update',
+                                  json={'tags': 123},
+                                  content_type='application/json')
+            assert response.status_code == 400
+            data = json.loads(response.data)
+            assert 'error' in data
+            assert 'tags' in data['error'].lower()
+
+
 class TestConfigurationValidation:
     """Test configuration and environment variable handling."""
     
