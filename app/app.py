@@ -1366,6 +1366,7 @@ def api_lan_devices():
     state = request.args.get('state')  # 'active', 'inactive', or None for all
     interface = request.args.get('interface')  # filter by interface type
     tag = request.args.get('tag')  # filter by tag (iot, guest, critical)
+    network_type = request.args.get('network_type')  # filter by network type (main, guest, iot)
     limit = int(request.args.get('limit', '100'))
     
     conn = get_db_connection()
@@ -1393,6 +1394,7 @@ def api_lan_devices():
                     d.last_seen_utc,
                     d.is_active,
                     d.tags,
+                    d.network_type,
                     ds.interface AS last_interface,
                     ds.rssi AS last_rssi,
                     ds.tx_rate_mbps AS last_tx_rate_mbps,
@@ -1427,6 +1429,10 @@ def api_lan_devices():
             if tag:
                 query += " AND d.tags ILIKE %s"
                 params.append(f'%{tag}%')
+            
+            if network_type:
+                query += " AND d.network_type = %s"
+                params.append(network_type)
             
             query += " ORDER BY d.last_seen_utc DESC LIMIT %s"
             params.append(limit)
@@ -1557,11 +1563,12 @@ def api_lan_device_detail(device_id):
 
 @app.route('/api/lan/device/<device_id>/update', methods=['POST', 'PATCH'])
 def api_lan_device_update(device_id):
-    """Update nickname/location/tags for a device."""
+    """Update nickname/location/tags/network_type for a device."""
     payload = request.get_json(silent=True) or {}
     nickname = payload.get('nickname')
     location = payload.get('location')
     tags = payload.get('tags')
+    network_type = payload.get('network_type')
 
     if nickname is not None and not isinstance(nickname, str):
         return jsonify({'error': 'Invalid nickname'}), 400
@@ -1569,6 +1576,8 @@ def api_lan_device_update(device_id):
         return jsonify({'error': 'Invalid location'}), 400
     if tags is not None and not isinstance(tags, str):
         return jsonify({'error': 'Invalid tags'}), 400
+    if network_type is not None and not isinstance(network_type, str):
+        return jsonify({'error': 'Invalid network_type'}), 400
 
     conn = get_db_connection()
     if conn is None:
@@ -1582,10 +1591,11 @@ def api_lan_device_update(device_id):
                     nickname = COALESCE(%s, nickname),
                     location = COALESCE(%s, location),
                     tags = COALESCE(%s, tags),
+                    network_type = COALESCE(%s, network_type),
                     updated_at = NOW()
                 WHERE device_id = %s
                 RETURNING device_id;
-            """, (nickname, location, tags, device_id))
+            """, (nickname, location, tags, network_type, device_id))
             updated = cur.fetchone()
             if not updated:
                 return jsonify({'error': 'Device not found'}), 404
