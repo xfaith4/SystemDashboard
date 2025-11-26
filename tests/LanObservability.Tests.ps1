@@ -79,7 +79,9 @@ Describe 'LanObservability - Null Safety Tests' {
             }
             
             # Mock connection
-            $mockConnection = New-MockObject -Type System.Data.SQLite.SQLiteConnection
+            $mockConnection = [PSCustomObject]@{ 
+                State = 'Open'
+            }
             
             # Mock Invoke-RouterClientPoll to return empty array
             Mock Invoke-RouterClientPoll { @() } -ModuleName LanObservability
