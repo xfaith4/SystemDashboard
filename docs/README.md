@@ -13,6 +13,12 @@ This directory contains all documentation for the System Dashboard project.
 
 ## Using the System
 
+- **[Help Guide](HELP.md)** - **START HERE** - Comprehensive dashboard user guide
+  - Dashboard overview and navigation
+  - Understanding metrics and alerts
+  - How to interpret charts and graphs
+  - Day-to-day usage workflows
+  - Troubleshooting and FAQ
 - **[Main README](../README.md)** - Project overview and quick start
 - **[LAN Observability](LAN-OBSERVABILITY-README.md)** - Network device monitoring
   - Device inventory and tracking
