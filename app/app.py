@@ -1434,9 +1434,6 @@ def api_lan_devices():
             if interface:
                 query += " AND ds.interface ILIKE %s"
                 params.append(f'%{interface}%')
-<<<<<<< HEAD
-
-=======
             
             if tag:
                 query += " AND d.tags ILIKE %s"
@@ -1446,7 +1443,6 @@ def api_lan_devices():
                 query += " AND d.network_type = %s"
                 params.append(network_type)
             
->>>>>>> a4541ded2bdb1cbbec5535e660d470eea1874576
             query += " ORDER BY d.last_seen_utc DESC LIMIT %s"
             params.append(limit)
 
