@@ -543,5 +543,146 @@ class TestConfigurationValidation:
                 assert logs == []
 
 
+class TestEventsSummaryAndTimeline:
+    """Test events summary API and severity timeline generation."""
+    
+    def test_api_events_summary_endpoint(self, client):
+        """Test events summary API endpoint returns required data."""
+        response = client.get('/api/events/summary')
+        assert response.status_code == 200
+        
+        data = json.loads(response.data)
+        # Check required fields
+        assert 'total' in data
+        assert 'severity_counts' in data
+        assert 'source_counts' in data
+        assert 'keyword_counts' in data
+        assert 'severity_timeline' in data
+        assert 'sources_top' in data
+        assert 'source' in data
+    
+    def test_api_events_summary_with_parameters(self, client):
+        """Test events summary with query parameters."""
+        response = client.get('/api/events/summary?max=100&since_hours=24')
+        assert response.status_code == 200
+        
+        data = json.loads(response.data)
+        assert 'total' in data
+        assert 'severity_timeline' in data
+    
+    def test_api_events_summary_log_types_filter(self, client):
+        """Test events summary with log type filtering."""
+        response = client.get('/api/events/summary?log_types=Application,System')
+        assert response.status_code == 200
+        
+        data = json.loads(response.data)
+        assert 'total' in data
+    
+    def test_severity_timeline_structure(self, client):
+        """Test that severity timeline has the correct structure for visualization."""
+        response = client.get('/api/events/summary?max=200&since_hours=24')
+        assert response.status_code == 200
+        
+        data = json.loads(response.data)
+        timeline = data.get('severity_timeline', [])
+        
+        # Timeline should be a list
+        assert isinstance(timeline, list)
+        
+        # Each bucket should have required fields
+        for bucket in timeline:
+            assert 'bucket' in bucket
+            assert 'error' in bucket
+            assert 'warning' in bucket
+            assert 'information' in bucket
+            # Counts should be non-negative integers
+            assert isinstance(bucket['error'], int) and bucket['error'] >= 0
+            assert isinstance(bucket['warning'], int) and bucket['warning'] >= 0
+            assert isinstance(bucket['information'], int) and bucket['information'] >= 0
+    
+    def test_ai_explain_windows_event_with_api_key(self, client):
+        """Test AI explain for Windows event with mocked OpenAI response."""
+        # Mock the urllib.request.urlopen to simulate OpenAI API call
+        mock_response_data = {
+            'choices': [{
+                'message': {
+                    'content': 'This is a test explanation for the Windows event. The error indicates a critical system failure.'
+                }
+            }]
+        }
+        
+        with patch.dict(os.environ, {'OPENAI_API_KEY': 'test-key'}):
+            with patch('urllib.request.urlopen') as mock_urlopen:
+                # Create mock response object
+                mock_resp = type('MockResponse', (), {
+                    'read': lambda self: json.dumps(mock_response_data).encode('utf-8'),
+                    '__enter__': lambda self: self,
+                    '__exit__': lambda self, *args: None
+                })()
+                mock_urlopen.return_value = mock_resp
+                
+                response = client.post('/api/ai/explain',
+                                     json={
+                                         'type': 'windows_event',
+                                         'context': {
+                                             'time': '2024-01-01T12:00:00Z',
+                                             'level': 'Error',
+                                             'source': 'Application Error',
+                                             'message': 'Critical system failure',
+                                             'log_type': 'System',
+                                             'id': 1001
+                                         },
+                                         'userQuestion': 'What does this error mean?'
+                                     },
+                                     content_type='application/json')
+                
+                assert response.status_code == 200
+                data = json.loads(response.data)
+                assert 'explanationHtml' in data
+                assert 'severity' in data
+                # Should detect 'critical' in content and set severity
+                assert data['severity'] in ['critical', 'warning', 'info']
+                assert 'recommendedActions' in data
+    
+    def test_ai_explain_trend_analysis(self, client):
+        """Test AI explain for trend analysis with multiple events."""
+        mock_response_data = {
+            'choices': [{
+                'message': {
+                    'content': 'Analysis shows recurring pattern of authentication failures during peak hours.'
+                }
+            }]
+        }
+        
+        with patch.dict(os.environ, {'OPENAI_API_KEY': 'test-key'}):
+            with patch('urllib.request.urlopen') as mock_urlopen:
+                mock_resp = type('MockResponse', (), {
+                    'read': lambda self: json.dumps(mock_response_data).encode('utf-8'),
+                    '__enter__': lambda self: self,
+                    '__exit__': lambda self, *args: None
+                })()
+                mock_urlopen.return_value = mock_resp
+                
+                response = client.post('/api/ai/explain',
+                                     json={
+                                         'type': 'windows_event',
+                                         'context': {
+                                             'analysis_type': 'trends',
+                                             'event_count': 50,
+                                             'log_types': ['Application', 'Security', 'System'],
+                                             'events': [
+                                                 {'time': '2024-01-01T10:00:00Z', 'level': 'Error', 'source': 'Security', 'message': 'Login failed'},
+                                                 {'time': '2024-01-01T10:15:00Z', 'level': 'Error', 'source': 'Security', 'message': 'Login failed'}
+                                             ]
+                                         },
+                                         'userQuestion': 'Analyze these events for trends'
+                                     },
+                                     content_type='application/json')
+                
+                assert response.status_code == 200
+                data = json.loads(response.data)
+                assert 'explanationHtml' in data
+
+
 if __name__ == '__main__':
     pytest.main([__file__])
