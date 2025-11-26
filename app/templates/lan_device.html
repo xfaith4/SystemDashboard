@@ -39,6 +39,10 @@
                 <span class="value" id="info-location">--</span>
             </div>
             <div class="info-item">
+                <span class="label">Tags</span>
+                <span class="value" id="info-tags">--</span>
+            </div>
+            <div class="info-item">
                 <span class="label">Vendor</span>
                 <span class="value" id="info-vendor">--</span>
             </div>
@@ -133,6 +137,18 @@
                 <label for="edit-location">Location</label>
                 <input type="text" id="edit-location" placeholder="Enter location (room, area)" />
             </div>
+            <div class="form-group">
+                <label for="edit-tags">Tags</label>
+                <select id="edit-tags" multiple>
+                    <option value="iot">IoT Device</option>
+                    <option value="guest">Guest Device</option>
+                    <option value="critical">Critical Infrastructure</option>
+                    <option value="mobile">Mobile Device</option>
+                    <option value="workstation">Workstation</option>
+                    <option value="server">Server</option>
+                </select>
+                <small style="color: var(--text-muted); margin-top: 0.25rem; display: block;">Hold Ctrl/Cmd to select multiple tags</small>
+            </div>
             <div class="form-actions">
                 <button class="btn-refresh" onclick="saveDeviceEdits()">Save Changes</button>
                 <span id="edit-status" class="edit-status"></span>
@@ -196,6 +212,7 @@ async function loadDeviceInfo() {
         document.getElementById('info-hostname').textContent = device.hostname || '--';
         document.getElementById('info-interface').textContent = device.last_interface || '--';
         document.getElementById('info-location').textContent = device.location || '--';
+        document.getElementById('info-tags').textContent = device.tags || '--';
         document.getElementById('info-lease').textContent = device.lease_type || '--';
         document.getElementById('info-rssi').textContent = device.last_rssi !== null && device.last_rssi !== undefined ? `${device.last_rssi} dBm` : '--';
         const tx = device.last_tx_rate_mbps && device.last_tx_rate_mbps > 0 ? device.last_tx_rate_mbps.toFixed(1) : '--';
@@ -208,8 +225,15 @@ async function loadDeviceInfo() {
 
         const nickInput = document.getElementById('edit-nickname');
         const locInput = document.getElementById('edit-location');
+        const tagsSelect = document.getElementById('edit-tags');
         if (nickInput) nickInput.value = device.nickname || '';
         if (locInput) locInput.value = device.location || '';
+        if (tagsSelect && device.tags) {
+            const tags = device.tags.split(',').map(t => t.trim());
+            Array.from(tagsSelect.options).forEach(option => {
+                option.selected = tags.includes(option.value);
+            });
+        }
     } catch (error) {
         console.error('Failed to load device info:', error);
     }
@@ -218,6 +242,9 @@ async function loadDeviceInfo() {
 async function saveDeviceEdits() {
     const nickname = document.getElementById('edit-nickname').value.trim();
     const location = document.getElementById('edit-location').value.trim();
+    const tagsSelect = document.getElementById('edit-tags');
+    const selectedTags = Array.from(tagsSelect.selectedOptions).map(o => o.value);
+    const tags = selectedTags.join(',');
     const statusEl = document.getElementById('edit-status');
     statusEl.textContent = 'Saving...';
     statusEl.className = 'edit-status saving';
@@ -226,7 +253,7 @@ async function saveDeviceEdits() {
         const response = await fetch(`/api/lan/device/${deviceId}/update`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ nickname, location })
+            body: JSON.stringify({ nickname, location, tags })
         });
 
         if (!response.ok) {
@@ -521,10 +548,21 @@ document.addEventListener('DOMContentLoaded', () => {
     font-size: 0.95rem;
 }
 
-.form-group input:focus {
+.form-group input:focus,
+.form-group select:focus {
     outline: none;
     border-color: var(--accent-primary);
     box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+.form-group select {
+    padding: var(--space-sm) var(--space-md);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-md);
+    color: var(--text-primary);
+    font-size: 0.95rem;
+    min-height: 100px;
 }
 
 .form-actions {

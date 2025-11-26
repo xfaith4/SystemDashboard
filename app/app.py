@@ -1346,6 +1346,7 @@ def api_lan_devices():
     """List all LAN devices with optional filtering."""
     state = request.args.get('state')  # 'active', 'inactive', or None for all
     interface = request.args.get('interface')  # filter by interface type
+    tag = request.args.get('tag')  # filter by tag (iot, guest, critical)
     limit = int(request.args.get('limit', '100'))
     
     conn = get_db_connection()
@@ -1403,6 +1404,10 @@ def api_lan_devices():
             if interface:
                 query += " AND ds.interface ILIKE %s"
                 params.append(f'%{interface}%')
+            
+            if tag:
+                query += " AND d.tags ILIKE %s"
+                params.append(f'%{tag}%')
             
             query += " ORDER BY d.last_seen_utc DESC LIMIT %s"
             params.append(limit)
@@ -1533,15 +1538,18 @@ def api_lan_device_detail(device_id):
 
 @app.route('/api/lan/device/<device_id>/update', methods=['POST', 'PATCH'])
 def api_lan_device_update(device_id):
-    """Update nickname/location for a device."""
+    """Update nickname/location/tags for a device."""
     payload = request.get_json(silent=True) or {}
     nickname = payload.get('nickname')
     location = payload.get('location')
+    tags = payload.get('tags')
 
     if nickname is not None and not isinstance(nickname, str):
         return jsonify({'error': 'Invalid nickname'}), 400
     if location is not None and not isinstance(location, str):
         return jsonify({'error': 'Invalid location'}), 400
+    if tags is not None and not isinstance(tags, str):
+        return jsonify({'error': 'Invalid tags'}), 400
 
     conn = get_db_connection()
     if conn is None:
@@ -1554,10 +1562,11 @@ def api_lan_device_update(device_id):
                 SET
                     nickname = COALESCE(%s, nickname),
                     location = COALESCE(%s, location),
+                    tags = COALESCE(%s, tags),
                     updated_at = NOW()
                 WHERE device_id = %s
                 RETURNING device_id;
-            """, (nickname, location, device_id))
+            """, (nickname, location, tags, device_id))
             updated = cur.fetchone()
             if not updated:
                 return jsonify({'error': 'Device not found'}), 404
