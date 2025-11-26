@@ -18,7 +18,7 @@ except Exception:  # pragma: no cover - optional dependency during local dev
 try:
     from mac_vendor_lookup import MacLookup
     mac_lookup = MacLookup()
-    mac_lookup.update_vendors()
+    # Lazy initialization - update_vendors() will be called on first lookup if needed
 except Exception:  # pragma: no cover - optional dependency
     mac_lookup = None
 
@@ -137,7 +137,16 @@ def lookup_mac_vendor(mac_address):
     try:
         vendor = mac_lookup.lookup(mac_address)
         return vendor
-    except Exception:
+    except KeyError:
+        # MAC address not found in database
+        return None
+    except ValueError as e:
+        # Invalid MAC address format
+        app.logger.debug('Invalid MAC address format: %s, error: %s', mac_address, e)
+        return None
+    except Exception as e:
+        # Other errors (network issues, etc.)
+        app.logger.warning('MAC vendor lookup failed for %s: %s', mac_address, e)
         return None
 
 
@@ -2047,7 +2056,7 @@ def api_lan_devices_enrich_vendors():
         return jsonify({'error': 'Database unavailable'}), 503
     
     if not mac_lookup:
-        return jsonify({'error': 'MAC vendor lookup not available'}), 503
+        return jsonify({'error': 'MAC vendor lookup feature not configured. Install mac-vendor-lookup package.'}), 501
     
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
