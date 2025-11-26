@@ -143,6 +143,7 @@
                         <th>Level</th>
                         <th>Source</th>
                         <th>Message</th>
+                        <th>Actions</th>
                     </tr>
                 </thead>
                 <tbody id="eventsBody">
@@ -251,11 +252,21 @@ async function loadSummary() {
     const kwValues = kwValuesRaw.length ? kwValuesRaw : [0];
     renderBar('keywords', kwLabels, kwValues, 'Hits');
 
+    // Process severity timeline data for the "Severity Over Time" histogram
+    // Backend provides an array of time buckets, each with error/warning/information counts
+    // This ensures the chart displays multiple time intervals, not a single aggregated value
     const trend = data.severity_timeline || [];
+    console.log('[Load Summary] Severity timeline buckets:', trend.length, trend);
+    
+    // Convert ISO timestamp buckets to EST time labels for x-axis
     const labels = trend.map(p => p.bucket ? new Date(p.bucket).toLocaleTimeString('en-US', {timeZone: 'America/New_York', hour: '2-digit', minute:'2-digit', hour12: false}) : '');
+    
+    // Extract severity counts for each bucket to create three separate trend lines
     const err = trend.map(p => p.error || 0);
     const warn = trend.map(p => p.warning || 0);
     const info = trend.map(p => p.information || 0);
+    
+    // Render the multi-line chart with all severity levels over time
     renderLineTrend(labels, err, warn, info);
 }
 
@@ -306,10 +317,12 @@ function renderTable() {
         return;
     }
 
-    tbody.innerHTML = filtered.map(e => {
+    tbody.innerHTML = filtered.map((e, index) => {
         const levelClass = (e.level || 'info').toLowerCase();
         const logType = e.log_type || '';
         const logTypeBadge = logType ? `<span class="badge badge-log-type">${logType}</span>` : '--';
+        // Get the original index in currentEvents array for Ask AI functionality
+        const originalIndex = currentEvents.indexOf(e);
         return `
             <tr>
                 <td>${formatTime(e.time)}</td>
@@ -317,6 +330,17 @@ function renderTable() {
                 <td><span class="badge badge-${levelClass}">${e.level || 'Info'}</span></td>
                 <td>${e.source || '--'}</td>
                 <td class="wrap">${e.message || ''}</td>
+                <td>
+                    <button class="btn-ask-ai" onclick="askAI(${originalIndex})" 
+                            title="Ask AI to explain this event">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="10"/>
+                            <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
+                            <line x1="12" y1="17" x2="12.01" y2="17"/>
+                        </svg>
+                        Ask AI
+                    </button>
+                </td>
             </tr>
         `;
     }).join('');
@@ -347,16 +371,33 @@ function renderBar(key, labels, values, label) {
     if (key === 'keywords') chartKeywords = new Chart(ctx, config);
 }
 
+/**
+ * Render the Severity Over Time line chart with multiple time buckets
+ * Displays three severity levels (Error, Warning, Information) as separate lines
+ * Each data point represents the count of events in that severity level for a specific hour
+ * 
+ * @param {string[]} labels - Array of formatted time labels for x-axis (e.g., "14:00", "15:00")
+ * @param {number[]} errData - Array of error event counts per time bucket
+ * @param {number[]} warnData - Array of warning event counts per time bucket
+ * @param {number[]} infoData - Array of information event counts per time bucket
+ */
 function renderLineTrend(labels, errData, warnData, infoData) {
     const ctx = document.getElementById('chart-severity-trend').getContext('2d');
+    
+    // Destroy existing chart instance to prevent memory leaks
     if (chartSeverityTrend) chartSeverityTrend.destroy();
+    
+    // Create new multi-line chart with three severity datasets
     chartSeverityTrend = new Chart(ctx, {
         type: 'line',
         data: {
-            labels,
+            labels,  // Time bucket labels on x-axis
             datasets: [
+                // Error severity line - red color
                 { label: 'Error', data: errData, borderColor: chartColors.error, backgroundColor: 'rgba(239,68,68,0.1)', fill: true, tension: 0.3 },
+                // Warning severity line - orange color
                 { label: 'Warning', data: warnData, borderColor: chartColors.warning, backgroundColor: 'rgba(245,158,11,0.1)', fill: true, tension: 0.3 },
+                // Information severity line - blue color
                 { label: 'Information', data: infoData, borderColor: chartColors.info, backgroundColor: 'rgba(59,130,246,0.1)', fill: true, tension: 0.3 }
             ]
         },
@@ -415,14 +456,120 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
+// Ask AI functionality for individual Windows Event Log entries
+// This provides AI-powered explanations and resolution suggestions for specific events
+async function askAI(eventIndex) {
+    // Validate event index and retrieve event data from stored array
+    if (eventIndex < 0 || eventIndex >= currentEvents.length) {
+        console.error('Invalid event index:', eventIndex);
+        return;
+    }
+    
+    const event = currentEvents[eventIndex];
+    const eventData = {
+        time: event.time || '',
+        level: event.level || '',
+        source: event.source || '',
+        message: event.message || '',
+        log_type: event.log_type || '',
+        id: event.id || ''
+    };
+    
+    // Log AI request for observability
+    console.log('[Ask AI] Requesting explanation for event:', {
+        index: eventIndex,
+        log_type: eventData.log_type,
+        level: eventData.level,
+        source: eventData.source
+    });
+    
+    // Show modal with loading state
+    const modal = document.getElementById('ai-modal');
+    const modalBody = document.getElementById('ai-modal-body');
+    modal.classList.remove('hidden');
+    modalBody.innerHTML = '<p class="loading">🔄 Analyzing event with AI...</p>';
+    
+    try {
+        // Send event data to AI explain endpoint for analysis
+        const response = await fetch('/api/ai/explain', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                type: 'windows_event',
+                context: eventData,
+                userQuestion: `Explain this Windows ${eventData.log_type || 'Event'} Log entry. What does it mean, what could have caused it, and what should I do about it?`
+            })
+        });
+        
+        const result = await response.json();
+        
+        // Log response for observability
+        console.log('[Ask AI] Received response:', { 
+            success: !result.error,
+            severity: result.severity
+        });
+        
+        if (result.error) {
+            // Display error message if AI request failed
+            modalBody.innerHTML = `<p class="error">⚠️ ${escapeHtml(result.error)}</p>`;
+        } else {
+            // Render AI explanation with severity badge and recommended actions
+            let severityBadge = '';
+            if (result.severity === 'critical') {
+                severityBadge = '<span class="badge badge-error">Critical</span>';
+            } else if (result.severity === 'warning') {
+                severityBadge = '<span class="badge badge-warning">Warning</span>';
+            } else {
+                severityBadge = '<span class="badge badge-info">Info</span>';
+            }
+            
+            modalBody.innerHTML = `
+                <div class="ai-response">
+                    <div class="ai-severity">${severityBadge}</div>
+                    <div class="event-details">
+                        <strong>${escapeHtml(eventData.source || 'Unknown Source')}</strong>
+                        ${eventData.id ? `<span class="event-id">(Event ID: ${escapeHtml(eventData.id)})</span>` : ''}
+                        <span class="badge badge-${(eventData.level || 'info').toLowerCase()}">${escapeHtml(eventData.level || 'Info')}</span>
+                    </div>
+                    <div class="ai-explanation">${result.explanationHtml}</div>
+                    ${result.recommendedActions && result.recommendedActions.length > 0 ? `
+                        <div class="ai-actions">
+                            <h4>Recommended Actions:</h4>
+                            <ul>
+                                ${result.recommendedActions.map(a => `<li>${a}</li>`).join('')}
+                            </ul>
+                        </div>
+                    ` : ''}
+                </div>
+            `;
+        }
+    } catch (error) {
+        // Log and display error if request fails
+        console.error('[Ask AI] Request failed:', error);
+        modalBody.innerHTML = `<p class="error">⚠️ Failed to get AI explanation: ${error.message}</p>`;
+    }
+}
+
 // Analyze Trends functionality for events
+// Performs cross-log-type trend analysis when multiple log types are selected
+// or single log type analysis for focused insights
 async function analyzeTrends() {
+    // Log trend analysis request for observability
+    console.log('[Analyze Trends] Starting trend analysis');
+    
     // Show modal
     const modal = document.getElementById('ai-modal');
     const modalBody = document.getElementById('ai-modal-body');
     modal.classList.remove('hidden');
     
     const selectedLogTypes = getSelectedLogTypes();
+    
+    // Log selected configuration for debugging
+    console.log('[Analyze Trends] Configuration:', {
+        logTypes: selectedLogTypes,
+        rangeHours: rangeHours,
+        crossReference: selectedLogTypes.length === 3
+    });
     
     try {
         let events = [];
@@ -505,6 +652,13 @@ async function analyzeTrends() {
         
         const result = await aiResponse.json();
         
+        // Log AI response for observability
+        console.log('[Analyze Trends] AI response received:', {
+            success: !result.error,
+            severity: result.severity,
+            hasActions: result.recommendedActions?.length > 0
+        });
+        
         if (result.error) {
             modalBody.innerHTML = `<p class="error">⚠️ ${escapeHtml(result.error)}</p>`;
         } else {
@@ -534,6 +688,8 @@ async function analyzeTrends() {
             `;
         }
     } catch (error) {
+        // Log error for debugging
+        console.error('[Analyze Trends] Request failed:', error);
         modalBody.innerHTML = `<p class="error">⚠️ Failed to analyze trends: ${error.message}</p>`;
     }
 }
@@ -825,6 +981,56 @@ document.addEventListener('DOMContentLoaded', refreshEvents);
     border-radius: var(--radius-sm);
     color: var(--text-primary);
     font-size: 0.85rem;
+}
+
+/* Ask AI button styles */
+.btn-ask-ai {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.4rem 0.65rem;
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: #fff;
+    background: linear-gradient(135deg, #8b5cf6, #7c3aed);
+    border: 1px solid #8b5cf6;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+}
+
+.btn-ask-ai:hover {
+    background: linear-gradient(135deg, #7c3aed, #6d28d9);
+    border-color: #a78bfa;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(139, 92, 246, 0.3);
+}
+
+.btn-ask-ai svg {
+    flex-shrink: 0;
+}
+
+/* Event details in AI modal */
+.event-details {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+    padding: 0.75rem;
+    background: rgba(139, 92, 246, 0.1);
+    border-radius: 6px;
+    border-left: 3px solid #8b5cf6;
+}
+
+.event-details strong {
+    color: #c7d2fe;
+}
+
+.event-id {
+    color: #94a3b8;
+    font-size: 0.85rem;
+    font-family: monospace;
 }
 
 .chart-container {
