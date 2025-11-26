@@ -1510,9 +1510,20 @@ def api_ai_feedback_list():
     
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            # Build WHERE clause
-            conditions = [f"created_at >= NOW() - INTERVAL '{int(since_days)} days'"]
+            # Build WHERE clause with parameterized conditions
+            conditions = []
             params = []
+            
+            # Validate and add since_days parameter
+            try:
+                days_value = int(since_days)
+                if days_value < 1 or days_value > 365:
+                    days_value = 30  # Default to 30 if out of range
+            except (ValueError, TypeError):
+                days_value = 30  # Default to 30 if invalid
+            
+            conditions.append("created_at >= NOW() - INTERVAL '%s days'")
+            params.append(days_value)
             
             if review_status:
                 conditions.append("review_status = %s")
