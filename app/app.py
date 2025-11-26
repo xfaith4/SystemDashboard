@@ -133,7 +133,7 @@ def lookup_mac_vendor(mac_address):
     """Look up the vendor name from a MAC address using OUI database."""
     if not mac_address or not mac_lookup:
         return None
-    
+
     try:
         vendor = mac_lookup.lookup(mac_address)
         return vendor
@@ -1434,19 +1434,15 @@ def api_lan_devices():
             if interface:
                 query += " AND ds.interface ILIKE %s"
                 params.append(f'%{interface}%')
-<<<<<<< HEAD
 
-=======
-            
             if tag:
                 query += " AND d.tags ILIKE %s"
                 params.append(f'%{tag}%')
-            
+
             if network_type:
                 query += " AND d.network_type = %s"
                 params.append(network_type)
-            
->>>>>>> a4541ded2bdb1cbbec5535e660d470eea1874576
+
             query += " ORDER BY d.last_seen_utc DESC LIMIT %s"
             params.append(limit)
 
@@ -1737,7 +1733,7 @@ def api_lan_device_events(device_id):
 def api_lan_device_connection_events(device_id):
     """Get connection/disconnection event timeline for a device."""
     limit = int(request.args.get('limit', '50'))
-    
+
     conn = get_db_connection()
     if conn is None:
         # Return mock events
@@ -1763,11 +1759,11 @@ def api_lan_device_connection_events(device_id):
             }
         ]
         return jsonify({'events': events})
-    
+
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute("""
-                SELECT 
+                SELECT
                     event_id,
                     event_type,
                     event_time,
@@ -1780,7 +1776,7 @@ def api_lan_device_connection_events(device_id):
                 LIMIT %s
             """, (device_id, limit))
             rows = cur.fetchall()
-            
+
             events = []
             for row in rows:
                 event = dict(row)
@@ -1791,7 +1787,7 @@ def api_lan_device_connection_events(device_id):
         return jsonify({'error': 'Database error'}), 500
     finally:
         conn.close()
-    
+
     return jsonify({'events': events})
 
 
@@ -1819,7 +1815,7 @@ def api_lan_alerts():
     limit = int(request.args.get('limit', '50'))
     severity = request.args.get('severity')  # 'critical', 'warning', 'info'
     alert_type = request.args.get('type')  # filter by alert type
-    
+
     conn = get_db_connection()
     if conn is None:
         # Return mock alerts for development
@@ -1850,11 +1846,11 @@ def api_lan_alerts():
             }
         ]
         return jsonify({'alerts': mock_alerts, 'total': len(mock_alerts)})
-    
+
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             query = """
-                SELECT 
+                SELECT
                     alert_id,
                     device_id,
                     alert_type,
@@ -1874,29 +1870,29 @@ def api_lan_alerts():
                 FROM telemetry.device_alerts_active
                 WHERE 1=1
             """
-            
+
             params = []
             if severity:
                 query += " AND severity = %s"
                 params.append(severity)
-            
+
             if alert_type:
                 query += " AND alert_type = %s"
                 params.append(alert_type)
-            
+
             query += " ORDER BY created_at DESC LIMIT %s"
             params.append(limit)
-            
+
             cur.execute(query, params)
             rows = cur.fetchall()
-            
+
             alerts = []
             for row in rows:
                 alert = dict(row)
                 alert['created_at'] = _isoformat(alert.get('created_at'))
                 alert['acknowledged_at'] = _isoformat(alert.get('acknowledged_at'))
                 alerts.append(alert)
-            
+
             # Get total count
             cur.execute("SELECT COUNT(*) as total FROM telemetry.device_alerts_active")
             total_row = cur.fetchone()
@@ -1906,7 +1902,7 @@ def api_lan_alerts():
         return jsonify({'error': 'Database error'}), 500
     finally:
         conn.close()
-    
+
     return jsonify({'alerts': alerts, 'total': total})
 
 
@@ -1915,11 +1911,11 @@ def api_lan_alert_acknowledge(alert_id):
     """Acknowledge an alert."""
     payload = request.get_json(silent=True) or {}
     acknowledged_by = payload.get('acknowledged_by', 'user')
-    
+
     conn = get_db_connection()
     if conn is None:
         return jsonify({'error': 'Database unavailable'}), 503
-    
+
     try:
         with conn.cursor() as cur:
             cur.execute("""
@@ -1950,7 +1946,7 @@ def api_lan_alert_resolve(alert_id):
     conn = get_db_connection()
     if conn is None:
         return jsonify({'error': 'Database unavailable'}), 503
-    
+
     try:
         with conn.cursor() as cur:
             cur.execute("""
@@ -1985,11 +1981,11 @@ def api_lan_alerts_stats():
             'warning': 1,
             'info': 1
         })
-    
+
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute("""
-                SELECT 
+                SELECT
                     COUNT(*) as total_active,
                     COUNT(*) FILTER (WHERE severity = 'critical') as critical,
                     COUNT(*) FILTER (WHERE severity = 'warning') as warning,
@@ -2003,7 +1999,7 @@ def api_lan_alerts_stats():
         return jsonify({'error': 'Database error'}), 500
     finally:
         conn.close()
-    
+
     return jsonify(stats)
 
 
@@ -2013,22 +2009,22 @@ def api_lan_device_lookup_vendor(device_id):
     conn = get_db_connection()
     if conn is None:
         return jsonify({'error': 'Database unavailable'}), 503
-    
+
     try:
         # Get device MAC address
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute("SELECT mac_address, vendor FROM telemetry.devices WHERE device_id = %s", (device_id,))
             device = cur.fetchone()
-            
+
             if not device:
                 return jsonify({'error': 'Device not found'}), 404
-            
+
             # Look up vendor
             vendor = lookup_mac_vendor(device['mac_address'])
-            
+
             if not vendor:
                 return jsonify({'error': 'Vendor lookup failed', 'message': 'Could not determine vendor from MAC address'}), 404
-            
+
             # Update device with vendor info
             cur.execute("""
                 UPDATE telemetry.devices
@@ -2038,10 +2034,10 @@ def api_lan_device_lookup_vendor(device_id):
                 RETURNING device_id;
             """, (vendor, device_id))
             updated = cur.fetchone()
-            
+
             if not updated:
                 return jsonify({'error': 'Failed to update device'}), 500
-        
+
         conn.commit()
         return jsonify({'status': 'ok', 'vendor': vendor})
     except Exception as exc:
@@ -2058,10 +2054,10 @@ def api_lan_devices_enrich_vendors():
     conn = get_db_connection()
     if conn is None:
         return jsonify({'error': 'Database unavailable'}), 503
-    
+
     if not mac_lookup:
         return jsonify({'error': 'MAC vendor lookup feature not configured. Install mac-vendor-lookup package.'}), 501
-    
+
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             # Get devices without vendor info
@@ -2072,10 +2068,10 @@ def api_lan_devices_enrich_vendors():
                 LIMIT 100
             """)
             devices = cur.fetchall()
-            
+
             updated_count = 0
             failed_count = 0
-            
+
             for device in devices:
                 vendor = lookup_mac_vendor(device['mac_address'])
                 if vendor:
@@ -2088,7 +2084,7 @@ def api_lan_devices_enrich_vendors():
                     updated_count += 1
                 else:
                     failed_count += 1
-        
+
         conn.commit()
         return jsonify({
             'status': 'ok',
