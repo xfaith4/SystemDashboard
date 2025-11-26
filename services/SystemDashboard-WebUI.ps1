@@ -6,8 +6,6 @@ param(
 )
 
 # Configuration
-$ServiceName = "SystemDashboard-WebUI"
-$ServiceDescription = "System Dashboard Flask Web Interface"
 $TelemetryModulePath = Join-Path $PSScriptRoot "..\tools\SystemDashboard.Telemetry.psm1"
 Import-Module $TelemetryModulePath -Force -Global
 
