@@ -15,6 +15,13 @@ try:
 except Exception:  # pragma: no cover - optional dependency during local dev
     psycopg2 = None
 
+try:
+    from mac_vendor_lookup import MacLookup
+    mac_lookup = MacLookup()
+    # Lazy initialization - update_vendors() will be called on first lookup if needed
+except Exception:  # pragma: no cover - optional dependency
+    mac_lookup = None
+
 app = Flask(__name__)
 
 CHATTY_THRESHOLD = int(os.environ.get('CHATTY_THRESHOLD', '500'))
@@ -120,6 +127,27 @@ def _severity_to_text(value):
         return SYSLOG_SEVERITY.get(int(value), str(int(value)))
     except (TypeError, ValueError):
         return str(value) if value is not None else ''
+
+
+def lookup_mac_vendor(mac_address):
+    """Look up the vendor name from a MAC address using OUI database."""
+    if not mac_address or not mac_lookup:
+        return None
+    
+    try:
+        vendor = mac_lookup.lookup(mac_address)
+        return vendor
+    except KeyError:
+        # MAC address not found in database
+        return None
+    except ValueError as e:
+        # Invalid MAC address format
+        app.logger.debug('Invalid MAC address format: %s, error: %s', mac_address, e)
+        return None
+    except Exception as e:
+        # Other errors (network issues, etc.)
+        app.logger.warning('MAC vendor lookup failed for %s: %s', mac_address, e)
+        return None
 
 
 def get_windows_events(level: str = None, max_events: int = 50, with_source: bool = False, since_hours: int = None, offset: int = 0):
@@ -1346,6 +1374,8 @@ def api_lan_devices():
     """List all LAN devices with optional filtering."""
     state = request.args.get('state')  # 'active', 'inactive', or None for all
     interface = request.args.get('interface')  # filter by interface type
+    tag = request.args.get('tag')  # filter by tag (iot, guest, critical)
+    network_type = request.args.get('network_type')  # filter by network type (main, guest, iot)
     limit = int(request.args.get('limit', '100'))
     
     conn = get_db_connection()
@@ -1373,6 +1403,7 @@ def api_lan_devices():
                     d.last_seen_utc,
                     d.is_active,
                     d.tags,
+                    d.network_type,
                     ds.interface AS last_interface,
                     ds.rssi AS last_rssi,
                     ds.tx_rate_mbps AS last_tx_rate_mbps,
@@ -1403,6 +1434,14 @@ def api_lan_devices():
             if interface:
                 query += " AND ds.interface ILIKE %s"
                 params.append(f'%{interface}%')
+            
+            if tag:
+                query += " AND d.tags ILIKE %s"
+                params.append(f'%{tag}%')
+            
+            if network_type:
+                query += " AND d.network_type = %s"
+                params.append(network_type)
             
             query += " ORDER BY d.last_seen_utc DESC LIMIT %s"
             params.append(limit)
@@ -1533,15 +1572,21 @@ def api_lan_device_detail(device_id):
 
 @app.route('/api/lan/device/<device_id>/update', methods=['POST', 'PATCH'])
 def api_lan_device_update(device_id):
-    """Update nickname/location for a device."""
+    """Update nickname/location/tags/network_type for a device."""
     payload = request.get_json(silent=True) or {}
     nickname = payload.get('nickname')
     location = payload.get('location')
+    tags = payload.get('tags')
+    network_type = payload.get('network_type')
 
     if nickname is not None and not isinstance(nickname, str):
         return jsonify({'error': 'Invalid nickname'}), 400
     if location is not None and not isinstance(location, str):
         return jsonify({'error': 'Invalid location'}), 400
+    if tags is not None and not isinstance(tags, str):
+        return jsonify({'error': 'Invalid tags'}), 400
+    if network_type is not None and not isinstance(network_type, str):
+        return jsonify({'error': 'Invalid network_type'}), 400
 
     conn = get_db_connection()
     if conn is None:
@@ -1554,10 +1599,12 @@ def api_lan_device_update(device_id):
                 SET
                     nickname = COALESCE(%s, nickname),
                     location = COALESCE(%s, location),
+                    tags = COALESCE(%s, tags),
+                    network_type = COALESCE(%s, network_type),
                     updated_at = NOW()
                 WHERE device_id = %s
                 RETURNING device_id;
-            """, (nickname, location, device_id))
+            """, (nickname, location, tags, network_type, device_id))
             updated = cur.fetchone()
             if not updated:
                 return jsonify({'error': 'Device not found'}), 404
@@ -1682,6 +1729,68 @@ def api_lan_device_events(device_id):
     return jsonify({'events': events})
 
 
+@app.route('/api/lan/device/<device_id>/connection-events')
+def api_lan_device_connection_events(device_id):
+    """Get connection/disconnection event timeline for a device."""
+    limit = int(request.args.get('limit', '50'))
+    
+    conn = get_db_connection()
+    if conn is None:
+        # Return mock events
+        now = datetime.datetime.now(datetime.UTC)
+        events = [
+            {
+                'event_id': 1,
+                'event_type': 'connected',
+                'event_time': (now - datetime.timedelta(hours=2)).isoformat(),
+                'details': 'Device connected to network'
+            },
+            {
+                'event_id': 2,
+                'event_type': 'disconnected',
+                'event_time': (now - datetime.timedelta(hours=5)).isoformat(),
+                'details': 'Device went offline'
+            },
+            {
+                'event_id': 3,
+                'event_type': 'connected',
+                'event_time': (now - datetime.timedelta(days=1)).isoformat(),
+                'details': 'Device connected to network'
+            }
+        ]
+        return jsonify({'events': events})
+    
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("""
+                SELECT 
+                    event_id,
+                    event_type,
+                    event_time,
+                    previous_state,
+                    new_state,
+                    details
+                FROM telemetry.device_events
+                WHERE device_id = %s
+                ORDER BY event_time DESC
+                LIMIT %s
+            """, (device_id, limit))
+            rows = cur.fetchall()
+            
+            events = []
+            for row in rows:
+                event = dict(row)
+                event['event_time'] = _isoformat(event.get('event_time'))
+                events.append(event)
+    except Exception as exc:
+        app.logger.debug('Device connection events query failed: %s', exc)
+        return jsonify({'error': 'Database error'}), 500
+    finally:
+        conn.close()
+    
+    return jsonify({'events': events})
+
+
 @app.route('/lan')
 def lan_overview():
     """LAN overview dashboard page."""
@@ -1698,6 +1807,297 @@ def lan_devices():
 def lan_device_detail(device_id):
     """LAN device detail page."""
     return render_template('lan_device.html', device_id=device_id)
+
+
+@app.route('/api/lan/alerts')
+def api_lan_alerts():
+    """Get active LAN device alerts."""
+    limit = int(request.args.get('limit', '50'))
+    severity = request.args.get('severity')  # 'critical', 'warning', 'info'
+    alert_type = request.args.get('type')  # filter by alert type
+    
+    conn = get_db_connection()
+    if conn is None:
+        # Return mock alerts for development
+        import random
+        now = datetime.datetime.now(datetime.UTC)
+        mock_alerts = [
+            {
+                'alert_id': 1,
+                'device_id': 1,
+                'alert_type': 'weak_signal',
+                'severity': 'warning',
+                'title': 'Weak Wi-Fi Signal',
+                'message': 'Device signal strength is -78 dBm',
+                'hostname': 'laptop-work',
+                'created_at': (now - datetime.timedelta(hours=1)).isoformat(),
+                'is_acknowledged': False
+            },
+            {
+                'alert_id': 2,
+                'device_id': 2,
+                'alert_type': 'new_device',
+                'severity': 'info',
+                'title': 'New Device Detected',
+                'message': 'Unknown device joined the network',
+                'hostname': 'unknown',
+                'created_at': (now - datetime.timedelta(hours=3)).isoformat(),
+                'is_acknowledged': False
+            }
+        ]
+        return jsonify({'alerts': mock_alerts, 'total': len(mock_alerts)})
+    
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            query = """
+                SELECT 
+                    alert_id,
+                    device_id,
+                    alert_type,
+                    severity,
+                    title,
+                    message,
+                    metadata,
+                    is_acknowledged,
+                    acknowledged_at,
+                    is_resolved,
+                    created_at,
+                    mac_address,
+                    hostname,
+                    nickname,
+                    primary_ip_address,
+                    tags
+                FROM telemetry.device_alerts_active
+                WHERE 1=1
+            """
+            
+            params = []
+            if severity:
+                query += " AND severity = %s"
+                params.append(severity)
+            
+            if alert_type:
+                query += " AND alert_type = %s"
+                params.append(alert_type)
+            
+            query += " ORDER BY created_at DESC LIMIT %s"
+            params.append(limit)
+            
+            cur.execute(query, params)
+            rows = cur.fetchall()
+            
+            alerts = []
+            for row in rows:
+                alert = dict(row)
+                alert['created_at'] = _isoformat(alert.get('created_at'))
+                alert['acknowledged_at'] = _isoformat(alert.get('acknowledged_at'))
+                alerts.append(alert)
+            
+            # Get total count
+            cur.execute("SELECT COUNT(*) as total FROM telemetry.device_alerts_active")
+            total_row = cur.fetchone()
+            total = total_row['total'] if total_row else 0
+    except Exception as exc:
+        app.logger.debug('Alerts query failed: %s', exc)
+        return jsonify({'error': 'Database error'}), 500
+    finally:
+        conn.close()
+    
+    return jsonify({'alerts': alerts, 'total': total})
+
+
+@app.route('/api/lan/alerts/<alert_id>/acknowledge', methods=['POST'])
+def api_lan_alert_acknowledge(alert_id):
+    """Acknowledge an alert."""
+    payload = request.get_json(silent=True) or {}
+    acknowledged_by = payload.get('acknowledged_by', 'user')
+    
+    conn = get_db_connection()
+    if conn is None:
+        return jsonify({'error': 'Database unavailable'}), 503
+    
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE telemetry.device_alerts
+                SET is_acknowledged = true,
+                    acknowledged_at = NOW(),
+                    acknowledged_by = %s,
+                    updated_at = NOW()
+                WHERE alert_id = %s AND is_acknowledged = false
+                RETURNING alert_id;
+            """, (acknowledged_by, alert_id))
+            updated = cur.fetchone()
+            if not updated:
+                return jsonify({'error': 'Alert not found or already acknowledged'}), 404
+        conn.commit()
+        return jsonify({'status': 'ok'})
+    except Exception as exc:
+        app.logger.debug('Alert acknowledge failed: %s', exc)
+        conn.rollback()
+        return jsonify({'error': 'Database error'}), 500
+    finally:
+        conn.close()
+
+
+@app.route('/api/lan/alerts/<alert_id>/resolve', methods=['POST'])
+def api_lan_alert_resolve(alert_id):
+    """Resolve an alert."""
+    conn = get_db_connection()
+    if conn is None:
+        return jsonify({'error': 'Database unavailable'}), 503
+    
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE telemetry.device_alerts
+                SET is_resolved = true,
+                    resolved_at = NOW(),
+                    updated_at = NOW()
+                WHERE alert_id = %s AND is_resolved = false
+                RETURNING alert_id;
+            """, (alert_id,))
+            updated = cur.fetchone()
+            if not updated:
+                return jsonify({'error': 'Alert not found or already resolved'}), 404
+        conn.commit()
+        return jsonify({'status': 'ok'})
+    except Exception as exc:
+        app.logger.debug('Alert resolve failed: %s', exc)
+        conn.rollback()
+        return jsonify({'error': 'Database error'}), 500
+    finally:
+        conn.close()
+
+
+@app.route('/api/lan/alerts/stats')
+def api_lan_alerts_stats():
+    """Get alert statistics."""
+    conn = get_db_connection()
+    if conn is None:
+        return jsonify({
+            'total_active': 2,
+            'critical': 0,
+            'warning': 1,
+            'info': 1
+        })
+    
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("""
+                SELECT 
+                    COUNT(*) as total_active,
+                    COUNT(*) FILTER (WHERE severity = 'critical') as critical,
+                    COUNT(*) FILTER (WHERE severity = 'warning') as warning,
+                    COUNT(*) FILTER (WHERE severity = 'info') as info
+                FROM telemetry.device_alerts
+                WHERE is_resolved = false
+            """)
+            stats = dict(cur.fetchone() or {})
+    except Exception as exc:
+        app.logger.debug('Alert stats query failed: %s', exc)
+        return jsonify({'error': 'Database error'}), 500
+    finally:
+        conn.close()
+    
+    return jsonify(stats)
+
+
+@app.route('/api/lan/device/<device_id>/lookup-vendor', methods=['POST'])
+def api_lan_device_lookup_vendor(device_id):
+    """Look up and update vendor information for a device based on MAC address."""
+    conn = get_db_connection()
+    if conn is None:
+        return jsonify({'error': 'Database unavailable'}), 503
+    
+    try:
+        # Get device MAC address
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("SELECT mac_address, vendor FROM telemetry.devices WHERE device_id = %s", (device_id,))
+            device = cur.fetchone()
+            
+            if not device:
+                return jsonify({'error': 'Device not found'}), 404
+            
+            # Look up vendor
+            vendor = lookup_mac_vendor(device['mac_address'])
+            
+            if not vendor:
+                return jsonify({'error': 'Vendor lookup failed', 'message': 'Could not determine vendor from MAC address'}), 404
+            
+            # Update device with vendor info
+            cur.execute("""
+                UPDATE telemetry.devices
+                SET vendor = %s,
+                    updated_at = NOW()
+                WHERE device_id = %s
+                RETURNING device_id;
+            """, (vendor, device_id))
+            updated = cur.fetchone()
+            
+            if not updated:
+                return jsonify({'error': 'Failed to update device'}), 500
+        
+        conn.commit()
+        return jsonify({'status': 'ok', 'vendor': vendor})
+    except Exception as exc:
+        app.logger.debug('Vendor lookup failed: %s', exc)
+        conn.rollback()
+        return jsonify({'error': 'Lookup error', 'message': str(exc)}), 500
+    finally:
+        conn.close()
+
+
+@app.route('/api/lan/devices/enrich-vendors', methods=['POST'])
+def api_lan_devices_enrich_vendors():
+    """Enrich all devices without vendor information by looking up their MAC addresses."""
+    conn = get_db_connection()
+    if conn is None:
+        return jsonify({'error': 'Database unavailable'}), 503
+    
+    if not mac_lookup:
+        return jsonify({'error': 'MAC vendor lookup feature not configured. Install mac-vendor-lookup package.'}), 501
+    
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            # Get devices without vendor info
+            cur.execute("""
+                SELECT device_id, mac_address
+                FROM telemetry.devices
+                WHERE vendor IS NULL OR vendor = ''
+                LIMIT 100
+            """)
+            devices = cur.fetchall()
+            
+            updated_count = 0
+            failed_count = 0
+            
+            for device in devices:
+                vendor = lookup_mac_vendor(device['mac_address'])
+                if vendor:
+                    cur.execute("""
+                        UPDATE telemetry.devices
+                        SET vendor = %s,
+                            updated_at = NOW()
+                        WHERE device_id = %s
+                    """, (vendor, device['device_id']))
+                    updated_count += 1
+                else:
+                    failed_count += 1
+        
+        conn.commit()
+        return jsonify({
+            'status': 'ok',
+            'updated': updated_count,
+            'failed': failed_count,
+            'total': len(devices)
+        })
+    except Exception as exc:
+        app.logger.debug('Bulk vendor enrichment failed: %s', exc)
+        conn.rollback()
+        return jsonify({'error': 'Enrichment error', 'message': str(exc)}), 500
+    finally:
+        conn.close()
 
 
 if __name__ == '__main__':
