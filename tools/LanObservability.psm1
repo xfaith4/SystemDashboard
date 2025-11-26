@@ -109,6 +109,7 @@ function Get-RouterClientListViaHttp {
     }
     catch {
         Write-Warning "Failed to fetch client list via HTTP: $_"
+        return @()
     }
 
     return $clients
@@ -159,7 +160,7 @@ function Get-RouterClientListViaSsh {
     # Check if Posh-SSH is available
     if (-not (Get-Module -Name Posh-SSH -ListAvailable)) {
         Write-Warning "Posh-SSH module not available. Install with: Install-Module -Name Posh-SSH"
-        return $clients
+        return @()
     }
 
     Import-Module Posh-SSH -ErrorAction SilentlyContinue
@@ -272,6 +273,7 @@ function Get-RouterClientListViaSsh {
     }
     catch {
         Write-Warning "Failed to fetch client list via SSH: $_"
+        return @()
     }
 
     return $clients
@@ -315,12 +317,14 @@ function Invoke-RouterClientPoll {
         $sshHost = $Config.Service.Asus.SSH.Host
         $sshPort = $Config.Service.Asus.SSH.Port
         $clients = Get-RouterClientListViaSsh -RouterIP $sshHost -Username $username -Password $password -Port $sshPort
+        if ($null -eq $clients) { $clients = @() }
     }
 
     # Fallback to HTTP if SSH didn't work
     if ($clients.Count -eq 0) {
         Write-Verbose "Attempting to fetch clients via HTTP"
         $clients = Get-RouterClientListViaHttp -RouterIP $routerIP -Username $username -Password $password
+        if ($null -eq $clients) { $clients = @() }
     }
 
     # Normalize MAC addresses to consistent format (uppercase with colons)
@@ -469,6 +473,7 @@ function Invoke-LanDeviceCollection {
 
     # Poll router for clients
     $clients = Invoke-RouterClientPoll -Config $Config
+    if ($null -eq $clients) { $clients = @() }
 
     if ($clients.Count -eq 0) {
         Write-Warning "No clients retrieved from router"
