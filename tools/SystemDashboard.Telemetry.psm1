@@ -555,7 +555,7 @@ function Invoke-AsusWifiClientScan {
     }
 
     $routerIP = $Config.SSH.HostName ?? $Config.HostName ?? '192.168.50.1'
-    $username = $Config.SSH.Username ?? $Config.Username ?? 'admin'
+    $username = $Config.SSH.Username ?? $Config.Username ?? 'xfaith'
     $password = Resolve-SystemDashboardSecret -Secret ($Config.SSH.PasswordSecret ?? $Config.PasswordSecret) -Fallback ($Config.SSH.Password ?? $Config.Password)
 
     if (-not $password) {
@@ -706,7 +706,7 @@ function Start-TelemetryService {
     }
     catch {
         Write-TelemetryLog -LogPath $logPath -Message "Failed to bind syslog TCP listener to $($config.Service.Syslog.BindAddress):$($config.Service.Syslog.Port) - $($_.Exception.Message)" -Level 'ERROR'
-        if ($tcpListener) { 
+        if ($tcpListener) {
             try { $tcpListener.Stop() } catch { }
         }
         $tcpListener = $null
@@ -757,7 +757,7 @@ function Start-TelemetryService {
                 # TCP configuration constants
                 $TCP_RECEIVE_TIMEOUT_MS = 100
                 $TCP_READ_BUFFER_SIZE = $config.Service.Syslog.MaxMessageBytes
-                
+
                 # Accept new connections (non-blocking check)
                 try {
                     if ($tcpListener.Pending()) {
@@ -788,13 +788,13 @@ function Start-TelemetryService {
                             if ($bytesRead -gt 0) {
                                 $data = [System.Text.Encoding]::UTF8.GetString($buffer, 0, $bytesRead)
                                 $clientInfo.Buffer += $data
-                                
+
                                 # Process complete lines (syslog messages end with newline)
                                 while ($clientInfo.Buffer.Contains("`n")) {
                                     $nlIndex = $clientInfo.Buffer.IndexOf("`n")
                                     $line = $clientInfo.Buffer.Substring(0, $nlIndex).TrimEnd("`r")
                                     $clientInfo.Buffer = $clientInfo.Buffer.Substring($nlIndex + 1)
-                                    
+
                                     if (-not [string]::IsNullOrWhiteSpace($line)) {
                                         $parsed = ConvertFrom-SyslogLine -Line $line
                                         $syslogEvent = [pscustomobject]@{
