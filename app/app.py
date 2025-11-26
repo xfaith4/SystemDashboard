@@ -571,24 +571,38 @@ def summarize_system_events(events: list[dict]):
         except Exception:
             pass
 
-    # Build severity timeline map
+    # Build severity timeline map for histogram visualization
+    # Each bucket represents one hour and contains counts for error, warning, and information levels
+    # This allows the frontend to display severity distribution over time
     timeline_map = {}
     for e in events:
         dt = None
         t = e.get('time')
+        
+        # Parse event timestamp to datetime object
         if isinstance(t, datetime.datetime):
             dt = t
         elif isinstance(t, str):
             try:
+                # Handle ISO format timestamps with Z suffix
                 dt = datetime.datetime.fromisoformat(t.replace('Z', '+00:00'))
             except Exception:
                 dt = None
+        
+        # Skip events without valid timestamps
         if dt is None:
             continue
+        
+        # Create hourly bucket by truncating minutes and seconds
+        # This groups events into 1-hour intervals for the timeline chart
         bucket = dt.replace(minute=0, second=0, microsecond=0)
         bucket_key = bucket.isoformat()
+        
+        # Initialize bucket if not exists with zero counts for all severity levels
         if bucket_key not in timeline_map:
             timeline_map[bucket_key] = {'error': 0, 'warning': 0, 'information': 0}
+        
+        # Increment appropriate severity counter based on event level
         sev_lower = (e.get('level') or 'information').lower()
         if 'error' in sev_lower:
             timeline_map[bucket_key]['error'] += 1
@@ -597,6 +611,8 @@ def summarize_system_events(events: list[dict]):
         else:
             timeline_map[bucket_key]['information'] += 1
 
+    # Convert timeline map to sorted list of time buckets for chart rendering
+    # Sorting ensures chronological order in the visualization
     timeline = []
     for k, v in sorted(timeline_map.items()):
         timeline.append({'bucket': k, **v})
@@ -1013,6 +1029,12 @@ def api_events():
 
 @app.route('/api/events/summary')
 def api_events_summary():
+    """
+    Retrieve and summarize Windows Event Log data.
+    
+    Returns aggregated statistics including severity counts, top sources,
+    keyword analysis, and time-series severity timeline for visualization.
+    """
     max_events = int(request.args.get('max', '300'))
     since_hours = request.args.get('since_hours')
     log_types_param = request.args.get('log_types', '')
@@ -1023,11 +1045,21 @@ def api_events_summary():
     else:
         log_types = None  # Will default to all three in get_windows_events
     
+    # Log summary request for observability
+    app.logger.info('Events summary requested - max: %d, since_hours: %s, log_types: %s',
+                    max_events, since_hours, log_types)
+    
     since = int(since_hours) if since_hours else None
     events_raw, source = get_windows_events(max_events=max_events, with_source=True, since_hours=since, log_types=log_types)
     events = _normalize_events(events_raw)
     data = summarize_system_events(events)
     data['source'] = source
+    
+    # Log timeline generation for debugging histogram issues
+    timeline_count = len(data.get('severity_timeline', []))
+    app.logger.info('Events summary generated - events: %d, timeline_buckets: %d, source: %s',
+                    len(events), timeline_count, source)
+    
     return jsonify(data)
 
 
@@ -1251,13 +1283,19 @@ def api_ai_explain():
     explain_type = data.get('type', '')
     context = data.get('context', {})
     user_question = (data.get('userQuestion') or '')[:1000]
+    
+    # Log AI explanation request for observability and troubleshooting
+    app.logger.info('AI explain request - type: %s, has_context: %s, has_question: %s',
+                    explain_type, bool(context), bool(user_question))
 
     # Validate type
     valid_types = ['router_log', 'windows_event', 'chart_summary', 'dashboard_summary']
     if explain_type not in valid_types:
+        app.logger.warning('AI explain invalid type: %s', explain_type)
         return jsonify({'error': f'Invalid type. Must be one of: {", ".join(valid_types)}'}), 400
 
     if not context:
+        app.logger.warning('AI explain missing context for type: %s', explain_type)
         return jsonify({'error': 'Missing context'}), 400
 
     # Truncate context to avoid excessive API costs
@@ -1304,6 +1342,8 @@ def api_ai_explain():
     # Call OpenAI with customized system prompt
     api_key = os.environ.get("OPENAI_API_KEY", "")
     if not api_key:
+        # Log when API key is not configured for observability
+        app.logger.info('AI explain request without API key - type: %s', explain_type)
         # Return a helpful fallback message when API key is not configured
         fallback_messages = {
             'router_log': 'This is a router syslog entry. To get AI-powered explanations, configure the OPENAI_API_KEY environment variable.',
@@ -1338,10 +1378,14 @@ def api_ai_explain():
     )
 
     try:
+        # Log OpenAI API request for monitoring
+        app.logger.debug('Calling OpenAI API for type: %s', explain_type)
+        
         with urllib.request.urlopen(req, timeout=25, context=ssl.create_default_context()) as resp:
             resp_body = json.loads(resp.read().decode('utf-8'))
             content = resp_body.get('choices', [{}])[0].get('message', {}).get('content')
             if not content:
+                app.logger.error('OpenAI returned empty response for type: %s', explain_type)
                 return jsonify({'error': 'No explanation received from AI.'}), 502
 
             # Convert content to basic HTML safely
@@ -1368,6 +1412,9 @@ def api_ai_explain():
             else:
                 severity = 'info'
 
+            # Log successful AI response for observability
+            app.logger.info('AI explain success - type: %s, severity: %s', explain_type, severity)
+
             return jsonify({
                 'explanationHtml': explanation_html,
                 'severity': severity,
@@ -1379,8 +1426,12 @@ def api_ai_explain():
             err = e.read().decode('utf-8')
         except Exception:
             err = str(e)
+        # Log HTTP errors for troubleshooting
+        app.logger.error('OpenAI API HTTP error for type %s: %s', explain_type, err)
         return jsonify({'error': f'OpenAI API error: {err}'}), 502
     except Exception as ex:
+        # Log general exceptions for troubleshooting
+        app.logger.error('AI explain exception for type %s: %s', explain_type, str(ex))
         return jsonify({'error': f'AI explanation failed: {ex}'}), 502
 
 
