@@ -15,6 +15,13 @@
                 <option value="Warning">Warning</option>
                 <option value="Information">Information</option>
             </select>
+            <button class="btn-analyze-trends" id="analyzeTrendsBtn">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                    <path d="M10 8v4l3 3"/>
+                </svg>
+                Analyze Trends
+            </button>
             <button class="btn-refresh" id="refreshBtn">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <polyline points="23 4 23 10 17 10"/>
@@ -126,6 +133,19 @@
             </table>
         </div>
     </section>
+
+    <!-- AI Modal for Trend Analysis -->
+    <div id="ai-modal" class="modal hidden">
+        <div class="modal-content">
+            <header class="modal-header">
+                <h3>AI Trend Analysis</h3>
+                <button class="modal-close" onclick="closeAIModal()">&times;</button>
+            </header>
+            <div id="ai-modal-body" class="modal-body">
+                <p class="loading">Analyzing...</p>
+            </div>
+        </div>
+    </div>
 </section>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" crossorigin="anonymous"></script>
@@ -347,6 +367,111 @@ function updatePageIndicator() {
     if (el) el.textContent = `Page ${currentPage}`;
 }
 
+// Helper function to escape HTML entities
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// Analyze Trends functionality for events
+async function analyzeTrends() {
+    // Show modal
+    const modal = document.getElementById('ai-modal');
+    const modalBody = document.getElementById('ai-modal-body');
+    modal.classList.remove('hidden');
+    modalBody.innerHTML = '<p class="loading">🔄 Analyzing last 100 events for trends...</p>';
+    
+    try {
+        // Fetch the last 100 events
+        const response = await fetch('/api/events?max=100&since_hours=' + rangeHours);
+        const data = await response.json();
+        const events = data.events || [];
+        
+        if (events.length === 0) {
+            modalBody.innerHTML = '<p class="error">⚠️ No events available to analyze.</p>';
+            return;
+        }
+        
+        // Prepare context for AI analysis
+        const eventsContext = events.map(event => ({
+            time: event.time || '',
+            level: event.level || '',
+            source: event.source || '',
+            message: event.message || ''
+        }));
+        
+        // Send to AI for trend analysis
+        const aiResponse = await fetch('/api/ai/explain', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                type: 'windows_event',
+                context: {
+                    analysis_type: 'trends',
+                    event_count: events.length,
+                    events: eventsContext
+                },
+                userQuestion: 'Analyze these Windows events for trends, recurring issues, or anything that needs immediate attention. Focus on identifying patterns that could indicate problems.'
+            })
+        });
+        
+        const result = await aiResponse.json();
+        
+        if (result.error) {
+            modalBody.innerHTML = `<p class="error">⚠️ ${escapeHtml(result.error)}</p>`;
+        } else {
+            let severityBadge = '';
+            if (result.severity === 'critical') {
+                severityBadge = '<span class="badge badge-error">Critical</span>';
+            } else if (result.severity === 'warning') {
+                severityBadge = '<span class="badge badge-warning">Warning</span>';
+            } else {
+                severityBadge = '<span class="badge badge-info">Info</span>';
+            }
+            
+            modalBody.innerHTML = `
+                <div class="ai-response">
+                    <div class="ai-severity">${severityBadge}</div>
+                    <h4>Trend Analysis (${events.length} events analyzed)</h4>
+                    <div class="ai-explanation">${result.explanationHtml}</div>
+                    ${result.recommendedActions && result.recommendedActions.length > 0 ? `
+                        <div class="ai-actions">
+                            <h4>Recommended Actions:</h4>
+                            <ul>
+                                ${result.recommendedActions.map(a => `<li>${a}</li>`).join('')}
+                            </ul>
+                        </div>
+                    ` : ''}
+                </div>
+            `;
+        }
+    } catch (error) {
+        modalBody.innerHTML = `<p class="error">⚠️ Failed to analyze trends: ${error.message}</p>`;
+    }
+}
+
+function closeAIModal() {
+    const modal = document.getElementById('ai-modal');
+    modal.classList.add('hidden');
+}
+
+// Close modal on clicking outside
+document.addEventListener('click', (e) => {
+    const modal = document.getElementById('ai-modal');
+    if (e.target === modal) {
+        closeAIModal();
+    }
+});
+
+// Close modal on Escape key
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        closeAIModal();
+    }
+});
+
+document.getElementById('analyzeTrendsBtn').addEventListener('click', analyzeTrends);
 document.getElementById('refreshBtn').addEventListener('click', refreshEvents);
 document.getElementById('searchInput').addEventListener('input', renderTable);
 document.getElementById('levelFilter').addEventListener('change', renderTable);
@@ -364,6 +489,166 @@ document.addEventListener('DOMContentLoaded', refreshEvents);
 .page-container {
     max-width: 1600px;
     margin: 0 auto;
+}
+
+.btn-analyze-trends {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.6rem 1rem;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #fff;
+    background: linear-gradient(135deg, #10b981, #059669);
+    border: 1px solid #10b981;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    box-shadow: 0 2px 4px rgba(16, 185, 129, 0.2);
+}
+
+.btn-analyze-trends:hover {
+    background: linear-gradient(135deg, #059669, #047857);
+    border-color: #34d399;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
+}
+
+.btn-analyze-trends svg {
+    flex-shrink: 0;
+}
+
+/* Modal Styles */
+.modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    padding: 1rem;
+}
+
+.modal.hidden {
+    display: none;
+}
+
+.modal-content {
+    background: #12182a;
+    border: 1px solid #2a3553;
+    border-radius: 12px;
+    max-width: 700px;
+    width: 100%;
+    max-height: 80vh;
+    overflow: hidden;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem 1.25rem;
+    background: #182038;
+    border-bottom: 1px solid #2a3553;
+}
+
+.modal-header h3 {
+    margin: 0;
+    font-size: 1.1rem;
+    color: #e5e7eb;
+}
+
+.modal-close {
+    background: none;
+    border: none;
+    color: #94a3b8;
+    font-size: 1.5rem;
+    cursor: pointer;
+    padding: 0;
+    line-height: 1;
+}
+
+.modal-close:hover {
+    color: #e5e7eb;
+}
+
+.modal-body {
+    padding: 1.25rem;
+    overflow-y: auto;
+    max-height: calc(80vh - 60px);
+}
+
+.ai-response {
+    color: #e5e7eb;
+}
+
+.ai-severity {
+    margin-bottom: 1rem;
+}
+
+.ai-explanation {
+    line-height: 1.6;
+}
+
+.ai-explanation p {
+    margin: 0.75rem 0;
+}
+
+.ai-explanation h4 {
+    margin: 1rem 0 0.5rem;
+    font-size: 0.95rem;
+    color: #c7d2fe;
+}
+
+.ai-actions {
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid #2a3553;
+}
+
+.ai-actions h4 {
+    margin: 0 0 0.5rem;
+    font-size: 0.9rem;
+    color: #94a3b8;
+}
+
+.ai-actions ul {
+    margin: 0;
+    padding-left: 1.25rem;
+}
+
+.ai-actions li {
+    margin: 0.25rem 0;
+}
+
+.loading {
+    color: #94a3b8;
+    font-style: italic;
+}
+
+.error {
+    color: #fca5a5;
+}
+
+/* Badge styles */
+.badge-error {
+    background: #dc2626;
+    color: #fee;
+}
+
+.badge-warning {
+    background: #f59e0b;
+    color: #fef3c7;
+}
+
+.badge-info {
+    background: #1e3a8a;
+    color: #c7d2fe;
 }
 
 .chart-header {

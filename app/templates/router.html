@@ -7,13 +7,22 @@
             <h1>Router Logs</h1>
             <p class="subtitle">Network device syslog monitoring</p>
         </div>
-        <button class="btn-refresh" onclick="refreshRouter()">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="23 4 23 10 17 10"/>
-                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
-            </svg>
-            Refresh
-        </button>
+        <div class="header-actions">
+            <button class="btn-analyze-trends" onclick="analyzeTrends()">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                    <path d="M10 8v4l3 3"/>
+                </svg>
+                Analyze Trends
+            </button>
+            <button class="btn-refresh" onclick="refreshRouter()">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="23 4 23 10 17 10"/>
+                    <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+                </svg>
+                Refresh
+            </button>
+        </div>
     </header>
 
     <div id="data-source" class="info-banner hidden"></div>
@@ -432,6 +441,83 @@ function updateSourceBanner(source) {
     }
 }
 
+// Analyze Trends functionality for router logs
+async function analyzeTrends() {
+    // Show modal
+    const modal = document.getElementById('ai-modal');
+    const modalBody = document.getElementById('ai-modal-body');
+    modal.classList.remove('hidden');
+    modalBody.innerHTML = '<p class="loading">🔄 Analyzing last 100 log entries for trends...</p>';
+    
+    try {
+        // Fetch the last 100 logs
+        const response = await fetch('/api/router/logs?limit=100&sort=time&order=desc');
+        const data = await response.json();
+        const logs = data.logs || [];
+        
+        if (logs.length === 0) {
+            modalBody.innerHTML = '<p class="error">⚠️ No logs available to analyze.</p>';
+            return;
+        }
+        
+        // Prepare context for AI analysis
+        const logsContext = logs.map(log => ({
+            time: log.time || '',
+            level: log.level || '',
+            message: log.message || '',
+            host: log.host || ''
+        }));
+        
+        // Send to AI for trend analysis
+        const aiResponse = await fetch('/api/ai/explain', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                type: 'router_log',
+                context: {
+                    analysis_type: 'trends',
+                    log_count: logs.length,
+                    logs: logsContext
+                },
+                userQuestion: 'Analyze these router logs for trends, recurring issues, or anything that needs immediate attention. Focus on identifying patterns that could indicate problems.'
+            })
+        });
+        
+        const result = await aiResponse.json();
+        
+        if (result.error) {
+            modalBody.innerHTML = `<p class="error">⚠️ ${escapeHtml(result.error)}</p>`;
+        } else {
+            let severityBadge = '';
+            if (result.severity === 'critical') {
+                severityBadge = '<span class="badge badge-error">Critical</span>';
+            } else if (result.severity === 'warning') {
+                severityBadge = '<span class="badge badge-warning">Warning</span>';
+            } else {
+                severityBadge = '<span class="badge badge-info">Info</span>';
+            }
+            
+            modalBody.innerHTML = `
+                <div class="ai-response">
+                    <div class="ai-severity">${severityBadge}</div>
+                    <h4>Trend Analysis (${logs.length} logs analyzed)</h4>
+                    <div class="ai-explanation">${result.explanationHtml}</div>
+                    ${result.recommendedActions && result.recommendedActions.length > 0 ? `
+                        <div class="ai-actions">
+                            <h4>Recommended Actions:</h4>
+                            <ul>
+                                ${result.recommendedActions.map(a => `<li>${a}</li>`).join('')}
+                            </ul>
+                        </div>
+                    ` : ''}
+                </div>
+            `;
+        }
+    } catch (error) {
+        modalBody.innerHTML = `<p class="error">⚠️ Failed to analyze trends: ${error.message}</p>`;
+    }
+}
+
 // Ask AI functionality for router logs
 async function askAI(rowIndex) {
     // Get log data from the stored logs array (safer than DOM attributes)
@@ -530,6 +616,39 @@ document.addEventListener('DOMContentLoaded', () => {
 .page-container {
     max-width: 1600px;
     margin: 0 auto;
+}
+
+.header-actions {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+}
+
+.btn-analyze-trends {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.6rem 1rem;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #fff;
+    background: linear-gradient(135deg, #10b981, #059669);
+    border: 1px solid #10b981;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    box-shadow: 0 2px 4px rgba(16, 185, 129, 0.2);
+}
+
+.btn-analyze-trends:hover {
+    background: linear-gradient(135deg, #059669, #047857);
+    border-color: #34d399;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
+}
+
+.btn-analyze-trends svg {
+    flex-shrink: 0;
 }
 
 .chart-container {
