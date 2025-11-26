@@ -395,6 +395,115 @@ class TestAPIEndpoints:
             assert value >= 0
 
 
+class TestLANDeviceTagging:
+    """Test LAN device tagging functionality."""
+    
+    def test_lan_devices_endpoint(self, client):
+        """Test LAN devices endpoint returns successfully."""
+        response = client.get('/api/lan/devices')
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert 'devices' in data
+    
+    def test_lan_devices_with_tag_filter(self, client):
+        """Test LAN devices endpoint with tag filtering."""
+        response = client.get('/api/lan/devices?tag=iot')
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert 'devices' in data
+    
+    def test_lan_device_update_with_tags(self, client):
+        """Test updating device with tags."""
+        # Mock database connection to return unavailable
+        with patch('app.get_db_connection', return_value=None):
+            response = client.post('/api/lan/device/1/update',
+                                  json={'tags': 'iot,critical'},
+                                  content_type='application/json')
+            assert response.status_code == 503
+    
+    def test_lan_device_update_invalid_tags(self, client):
+        """Test device update with invalid tags type."""
+        with patch('app.get_db_connection', return_value=None):
+            response = client.post('/api/lan/device/1/update',
+                                  json={'tags': 123},
+                                  content_type='application/json')
+            assert response.status_code == 400
+            data = json.loads(response.data)
+            assert 'error' in data
+            assert 'tags' in data['error'].lower()
+
+
+class TestLANAlerting:
+    """Test LAN alerting functionality."""
+    
+    def test_api_lan_alerts_endpoint(self, client):
+        """Test alerts endpoint returns successfully."""
+        response = client.get('/api/lan/alerts')
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert 'alerts' in data
+        assert 'total' in data
+    
+    def test_api_lan_alerts_with_severity_filter(self, client):
+        """Test alerts endpoint with severity filtering."""
+        response = client.get('/api/lan/alerts?severity=critical')
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert 'alerts' in data
+    
+    def test_api_lan_alerts_with_type_filter(self, client):
+        """Test alerts endpoint with type filtering."""
+        response = client.get('/api/lan/alerts?type=weak_signal')
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert 'alerts' in data
+    
+    def test_api_lan_alert_acknowledge(self, client):
+        """Test acknowledging an alert."""
+        with patch('app.get_db_connection', return_value=None):
+            response = client.post('/api/lan/alerts/1/acknowledge',
+                                  json={'acknowledged_by': 'test_user'},
+                                  content_type='application/json')
+            assert response.status_code == 503
+    
+    def test_api_lan_alert_resolve(self, client):
+        """Test resolving an alert."""
+        with patch('app.get_db_connection', return_value=None):
+            response = client.post('/api/lan/alerts/1/resolve')
+            assert response.status_code == 503
+    
+    def test_api_lan_alerts_stats(self, client):
+        """Test alert statistics endpoint."""
+        response = client.get('/api/lan/alerts/stats')
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        # Should have stats even with mock data
+        assert 'total_active' in data
+
+
+class TestMACVendorLookup:
+    """Test MAC vendor lookup functionality."""
+    
+    def test_lookup_mac_vendor_function(self):
+        """Test the MAC vendor lookup helper function."""
+        # Test with known MAC prefix
+        vendor = flask_app.lookup_mac_vendor('00:11:22:33:44:55')
+        # Should return a vendor or None if lookup fails
+        assert vendor is None or isinstance(vendor, str)
+    
+    def test_api_lan_device_lookup_vendor(self, client):
+        """Test device vendor lookup endpoint."""
+        with patch('app.get_db_connection', return_value=None):
+            response = client.post('/api/lan/device/1/lookup-vendor')
+            assert response.status_code == 503
+    
+    def test_api_lan_devices_enrich_vendors(self, client):
+        """Test bulk vendor enrichment endpoint."""
+        with patch('app.get_db_connection', return_value=None):
+            response = client.post('/api/lan/devices/enrich-vendors')
+            assert response.status_code == 503
+
+
 class TestConfigurationValidation:
     """Test configuration and environment variable handling."""
     
