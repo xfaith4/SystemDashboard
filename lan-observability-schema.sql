@@ -250,6 +250,9 @@ COMMENT ON TABLE telemetry.lan_settings IS 'Configuration settings for LAN obser
 ALTER TABLE telemetry.devices
     ADD COLUMN IF NOT EXISTS location TEXT;
 
+ALTER TABLE telemetry.devices
+    ADD COLUMN IF NOT EXISTS network_type TEXT DEFAULT 'main'; -- 'main', 'guest', 'iot', 'unknown'
+
 -- Device alerts table for tracking network issues and events
 CREATE TABLE IF NOT EXISTS telemetry.device_alerts (
     alert_id            BIGSERIAL PRIMARY KEY,

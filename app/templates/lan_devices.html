@@ -42,6 +42,16 @@
                 </select>
             </label>
             <label>
+                <span>Network Type</span>
+                <select id="filter-network-type" onchange="applyFilters()">
+                    <option value="">All Networks</option>
+                    <option value="main">Main Network</option>
+                    <option value="guest">Guest Network</option>
+                    <option value="iot">IoT Network</option>
+                    <option value="unknown">Unknown</option>
+                </select>
+            </label>
+            <label>
                 <span>Search</span>
                 <input type="text" id="search-text" placeholder="Hostname, IP, or MAC" onkeyup="applySearch()" />
             </label>
@@ -86,6 +96,7 @@ let currentFilters = {
     state: 'active',
     interface: '',
     tag: '',
+    network_type: '',
     search: ''
 };
 
@@ -100,11 +111,13 @@ async function loadDevices() {
         const state = currentFilters.state;
         const iface = currentFilters.interface;
         const tag = currentFilters.tag;
+        const networkType = currentFilters.network_type;
         
         let url = '/api/lan/devices?limit=500';
         if (state) url += `&state=${state}`;
         if (iface) url += `&interface=${iface}`;
         if (tag) url += `&tag=${tag}`;
+        if (networkType) url += `&network_type=${networkType}`;
         
         const response = await fetch(url);
         const data = await response.json();
@@ -171,6 +184,7 @@ function applyFilters() {
     currentFilters.state = document.getElementById('filter-state').value;
     currentFilters.interface = document.getElementById('filter-interface').value;
     currentFilters.tag = document.getElementById('filter-tag').value;
+    currentFilters.network_type = document.getElementById('filter-network-type').value;
     loadDevices();
 }
 
