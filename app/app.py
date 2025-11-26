@@ -610,8 +610,8 @@ def _mock_dashboard_summary():
             {'time': (now - datetime.timedelta(minutes=6)).isoformat(), 'source': 'System', 'id': 7031, 'level': 'Critical', 'message': 'Mock service terminated unexpectedly.'}
         ],
         'router': [
-            {'time': (now - datetime.timedelta(minutes=3)).isoformat(), 'severity': 'Error', 'message': 'WAN connection lost - retrying.'},
-            {'time': (now - datetime.timedelta(minutes=9)).isoformat(), 'severity': 'Warning', 'message': 'Multiple failed admin logins from 203.0.113.10.'}
+            {'time': (now - datetime.timedelta(minutes=3)).isoformat(), 'severity': 'Error', 'message': 'WAN connection lost - retrying.', 'host': 'router.local'},
+            {'time': (now - datetime.timedelta(minutes=9)).isoformat(), 'severity': 'Warning', 'message': 'Multiple failed admin logins from 203.0.113.10.', 'host': 'router.local'}
         ],
         'syslog': [
             {'time': (now - datetime.timedelta(minutes=1)).isoformat(), 'source': 'syslog', 'severity': 'Error', 'message': 'Mock IIS 500 spike detected on WEB01.'},
@@ -800,7 +800,14 @@ def get_dashboard_summary():
 @app.route('/')
 def dashboard():
     """Render the primary dashboard."""
-    return render_template('dashboard.html', summary=get_dashboard_summary(), auth_threshold=AUTH_FAILURE_THRESHOLD)
+    return render_template('dashboard.html', auth_threshold=AUTH_FAILURE_THRESHOLD)
+
+
+@app.route('/api/dashboard/summary')
+def api_dashboard_summary():
+    """API endpoint to get dashboard summary data."""
+    return jsonify(get_dashboard_summary())
+
 
 @app.route('/events')
 def events():
