@@ -8,6 +8,7 @@ import urllib.request
 import socket
 import datetime
 from decimal import Decimal
+import zoneinfo
 
 try:
     import psycopg2  # type: ignore
@@ -87,9 +88,27 @@ def get_db_connection():
         return None
 
 
-def _isoformat(value):
+def _to_est_string(value):
+    """Convert datetime to EST timezone and return formatted string.
+    
+    Uses America/New_York timezone which automatically handles DST transitions
+    between EST (UTC-5) and EDT (UTC-4).
+    
+    Note: If zoneinfo is not available (Python < 3.9), falls back to fixed UTC-5 offset
+    which won't handle DST correctly.
+    """
     if value is None:
         return ''
+    
+    # Define EST/EDT timezone with DST support
+    try:
+        est_tz = zoneinfo.ZoneInfo('America/New_York')
+    except Exception:
+        # Fallback if zoneinfo is not available (shouldn't happen in Python 3.9+)
+        # Note: This fallback uses fixed UTC-5 and won't handle DST transitions
+        import datetime as dt
+        est_tz = dt.timezone(dt.timedelta(hours=-5))
+    
     if isinstance(value, str):
         # Handle serialized /Date(1764037519528)/ from Windows EventLog JSON
         if value.startswith('/Date(') and value.endswith(')/'):
@@ -98,17 +117,42 @@ def _isoformat(value):
                 match = re.search(r'/Date\((\-?\d+)\)/', value)
                 if match:
                     ms = int(match.group(1))
-                    dt = datetime.datetime.utcfromtimestamp(ms / 1000.0)
-                    return dt.isoformat() + 'Z'
+                    dt = datetime.datetime.fromtimestamp(ms / 1000.0, tz=datetime.UTC)
+                    dt_est = dt.astimezone(est_tz)
+                    return dt_est.isoformat()
             except Exception:
                 pass
-        return value
+        # Try to parse ISO format string and convert to EST
+        try:
+            # Parse the string as UTC
+            if value.endswith('Z'):
+                dt = datetime.datetime.fromisoformat(value.replace('Z', '+00:00'))
+            elif '+' in value or value.count('-') > 2:
+                dt = datetime.datetime.fromisoformat(value)
+            else:
+                # Assume UTC if no timezone info
+                dt = datetime.datetime.fromisoformat(value).replace(tzinfo=datetime.UTC)
+            dt_est = dt.astimezone(est_tz)
+            return dt_est.isoformat()
+        except Exception:
+            return value
+    
     if isinstance(value, datetime.datetime):
-        return value.isoformat()
+        # Ensure datetime is timezone-aware
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=datetime.UTC)
+        dt_est = value.astimezone(est_tz)
+        return dt_est.isoformat()
+    
     try:
         return str(value)
     except Exception:
         return ''
+
+
+def _isoformat(value):
+    """Convert datetime to EST timezone string for API responses."""
+    return _to_est_string(value)
 
 
 def _safe_float(value):
@@ -156,38 +200,38 @@ def get_windows_events(level: str = None, max_events: int = 50, with_source: boo
     """
     if not _is_windows():
         # Return mock events for demonstration purposes on non-Windows platforms
-        import datetime
+        now = datetime.datetime.now(datetime.UTC)
         mock_events = [
             {
-                'time': (datetime.datetime.now() - datetime.timedelta(minutes=30)).isoformat(),
+                'time': _to_est_string(now - datetime.timedelta(minutes=30)),
                 'source': 'Application Error',
                 'id': 1001,
                 'level': 'Warning',
                 'message': 'Mock application warning - database connection timeout occurred during operation'
             },
             {
-                'time': (datetime.datetime.now() - datetime.timedelta(hours=1)).isoformat(),
+                'time': _to_est_string(now - datetime.timedelta(hours=1)),
                 'source': 'Service Control Manager',
                 'id': 2001,
                 'level': 'Error',
                 'message': 'Mock system error - service failed to start due to configuration issue'
             },
             {
-                'time': (datetime.datetime.now() - datetime.timedelta(hours=2)).isoformat(),
+                'time': _to_est_string(now - datetime.timedelta(hours=2)),
                 'source': 'DNS Client',
                 'id': 1002,
                 'level': 'Information',
                 'message': 'Mock information event - DNS resolution completed successfully for domain'
             },
             {
-                'time': (datetime.datetime.now() - datetime.timedelta(minutes=45)).isoformat(),
+                'time': _to_est_string(now - datetime.timedelta(minutes=45)),
                 'source': 'Application Error',
                 'id': 1003,
                 'level': 'Error',
                 'message': 'Mock critical error - application crashed due to memory access violation'
             },
             {
-                'time': (datetime.datetime.now() - datetime.timedelta(minutes=15)).isoformat(),
+                'time': _to_est_string(now - datetime.timedelta(minutes=15)),
                 'source': 'System',
                 'id': 3001,
                 'level': 'Warning',
@@ -602,20 +646,20 @@ def _mock_dashboard_summary():
             'spike': True
         },
         'auth': [
-            {'client_ip': '192.168.1.50', 'count': 18, 'window_minutes': 15, 'last_seen': (now - datetime.timedelta(minutes=1)).isoformat()},
-            {'client_ip': '203.0.113.44', 'count': 11, 'window_minutes': 15, 'last_seen': (now - datetime.timedelta(minutes=4)).isoformat()}
+            {'client_ip': '192.168.1.50', 'count': 18, 'window_minutes': 15, 'last_seen': _to_est_string(now - datetime.timedelta(minutes=1))},
+            {'client_ip': '203.0.113.44', 'count': 11, 'window_minutes': 15, 'last_seen': _to_est_string(now - datetime.timedelta(minutes=4))}
         ],
         'windows': [
-            {'time': (now - datetime.timedelta(minutes=2)).isoformat(), 'source': 'Application Error', 'id': 1000, 'level': 'Error', 'message': 'Mock service failure detected on APP01.'},
-            {'time': (now - datetime.timedelta(minutes=6)).isoformat(), 'source': 'System', 'id': 7031, 'level': 'Critical', 'message': 'Mock service terminated unexpectedly.'}
+            {'time': _to_est_string(now - datetime.timedelta(minutes=2)), 'source': 'Application Error', 'id': 1000, 'level': 'Error', 'message': 'Mock service failure detected on APP01.'},
+            {'time': _to_est_string(now - datetime.timedelta(minutes=6)), 'source': 'System', 'id': 7031, 'level': 'Critical', 'message': 'Mock service terminated unexpectedly.'}
         ],
         'router': [
-            {'time': (now - datetime.timedelta(minutes=3)).isoformat(), 'severity': 'Error', 'message': 'WAN connection lost - retrying.', 'host': 'router.local'},
-            {'time': (now - datetime.timedelta(minutes=9)).isoformat(), 'severity': 'Warning', 'message': 'Multiple failed admin logins from 203.0.113.10.', 'host': 'router.local'}
+            {'time': _to_est_string(now - datetime.timedelta(minutes=3)), 'severity': 'Error', 'message': 'WAN connection lost - retrying.', 'host': 'router.local'},
+            {'time': _to_est_string(now - datetime.timedelta(minutes=9)), 'severity': 'Warning', 'message': 'Multiple failed admin logins from 203.0.113.10.', 'host': 'router.local'}
         ],
         'syslog': [
-            {'time': (now - datetime.timedelta(minutes=1)).isoformat(), 'source': 'syslog', 'severity': 'Error', 'message': 'Mock IIS 500 spike detected on WEB01.'},
-            {'time': (now - datetime.timedelta(minutes=5)).isoformat(), 'source': 'asus', 'severity': 'Warning', 'message': 'High bandwidth usage detected from 192.168.1.101.'}
+            {'time': _to_est_string(now - datetime.timedelta(minutes=1)), 'source': 'syslog', 'severity': 'Error', 'message': 'Mock IIS 500 spike detected on WEB01.'},
+            {'time': _to_est_string(now - datetime.timedelta(minutes=5)), 'source': 'asus', 'severity': 'Warning', 'message': 'High bandwidth usage detected from 192.168.1.101.'}
         ]
     }
 
@@ -1322,8 +1366,8 @@ def _mock_lan_devices():
             'primary_ip_address': '192.168.50.10',
             'hostname': 'laptop-work',
             'vendor': 'Dell Inc.',
-            'first_seen_utc': (now - datetime.timedelta(days=30)).isoformat(),
-            'last_seen_utc': (now - datetime.timedelta(minutes=2)).isoformat(),
+            'first_seen_utc': _to_est_string(now - datetime.timedelta(days=30)),
+            'last_seen_utc': _to_est_string(now - datetime.timedelta(minutes=2)),
             'is_active': True
         },
         {
@@ -1332,8 +1376,8 @@ def _mock_lan_devices():
             'primary_ip_address': '192.168.50.25',
             'hostname': 'phone-android',
             'vendor': 'Samsung',
-            'first_seen_utc': (now - datetime.timedelta(days=60)).isoformat(),
-            'last_seen_utc': (now - datetime.timedelta(minutes=5)).isoformat(),
+            'first_seen_utc': _to_est_string(now - datetime.timedelta(days=60)),
+            'last_seen_utc': _to_est_string(now - datetime.timedelta(minutes=5)),
             'is_active': True
         },
         {
@@ -1342,8 +1386,8 @@ def _mock_lan_devices():
             'primary_ip_address': '192.168.50.50',
             'hostname': 'iot-camera',
             'vendor': 'Hikvision',
-            'first_seen_utc': (now - datetime.timedelta(days=90)).isoformat(),
-            'last_seen_utc': (now - datetime.timedelta(hours=2)).isoformat(),
+            'first_seen_utc': _to_est_string(now - datetime.timedelta(days=90)),
+            'last_seen_utc': _to_est_string(now - datetime.timedelta(hours=2)),
             'is_active': False
         }
     ]
@@ -1638,7 +1682,7 @@ def api_lan_device_timeline(device_id):
         timeline = []
         for i in range(20):
             timeline.append({
-                'sample_time_utc': (now - datetime.timedelta(hours=hours * i / 20)).isoformat(),
+                'sample_time_utc': _to_est_string(now - datetime.timedelta(hours=hours * i / 20)),
                 'rssi': random.randint(-70, -30),
                 'tx_rate_mbps': random.uniform(50, 150),
                 'rx_rate_mbps': random.uniform(50, 150),
@@ -1689,13 +1733,13 @@ def api_lan_device_events(device_id):
         now = datetime.datetime.now(datetime.UTC)
         events = [
             {
-                'timestamp': (now - datetime.timedelta(hours=1)).isoformat(),
+                'timestamp': _to_est_string(now - datetime.timedelta(hours=1)),
                 'severity': 'Notice',
                 'message': 'Device connected to network',
                 'match_type': 'mac'
             },
             {
-                'timestamp': (now - datetime.timedelta(hours=3)).isoformat(),
+                'timestamp': _to_est_string(now - datetime.timedelta(hours=3)),
                 'severity': 'Info',
                 'message': 'DHCP lease renewed',
                 'match_type': 'ip'
@@ -1749,19 +1793,19 @@ def api_lan_device_connection_events(device_id):
             {
                 'event_id': 1,
                 'event_type': 'connected',
-                'event_time': (now - datetime.timedelta(hours=2)).isoformat(),
+                'event_time': _to_est_string(now - datetime.timedelta(hours=2)),
                 'details': 'Device connected to network'
             },
             {
                 'event_id': 2,
                 'event_type': 'disconnected',
-                'event_time': (now - datetime.timedelta(hours=5)).isoformat(),
+                'event_time': _to_est_string(now - datetime.timedelta(hours=5)),
                 'details': 'Device went offline'
             },
             {
                 'event_id': 3,
                 'event_type': 'connected',
-                'event_time': (now - datetime.timedelta(days=1)).isoformat(),
+                'event_time': _to_est_string(now - datetime.timedelta(days=1)),
                 'details': 'Device connected to network'
             }
         ]
@@ -1837,7 +1881,7 @@ def api_lan_alerts():
                 'title': 'Weak Wi-Fi Signal',
                 'message': 'Device signal strength is -78 dBm',
                 'hostname': 'laptop-work',
-                'created_at': (now - datetime.timedelta(hours=1)).isoformat(),
+                'created_at': _to_est_string(now - datetime.timedelta(hours=1)),
                 'is_acknowledged': False
             },
             {
@@ -1848,7 +1892,7 @@ def api_lan_alerts():
                 'title': 'New Device Detected',
                 'message': 'Unknown device joined the network',
                 'hostname': 'unknown',
-                'created_at': (now - datetime.timedelta(hours=3)).isoformat(),
+                'created_at': _to_est_string(now - datetime.timedelta(hours=3)),
                 'is_acknowledged': False
             }
         ]

@@ -184,7 +184,8 @@ const chartOptions = {
 function formatTime(value) {
     if (!value) return '--';
     const dt = new Date(value);
-    return dt.toLocaleString();
+    // Format in EST timezone
+    return dt.toLocaleString('en-US', { timeZone: 'America/New_York', hour12: false });
 }
 
 async function loadSummary() {
@@ -215,7 +216,7 @@ async function loadSummary() {
     renderBar('keywords', kwLabels, kwValues, 'Hits');
 
     const trend = data.severity_timeline || [];
-    const labels = trend.map(p => p.bucket ? new Date(p.bucket).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '');
+    const labels = trend.map(p => p.bucket ? new Date(p.bucket).toLocaleTimeString('en-US', {timeZone: 'America/New_York', hour: '2-digit', minute:'2-digit', hour12: false}) : '');
     const err = trend.map(p => p.error || 0);
     const warn = trend.map(p => p.warning || 0);
     const info = trend.map(p => p.information || 0);

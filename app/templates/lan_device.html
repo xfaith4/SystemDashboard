@@ -216,13 +216,13 @@ const chartOptions = {
 function formatTimestamp(isoString) {
     if (!isoString) return '--';
     const date = new Date(isoString);
-    return date.toLocaleString();
+    return date.toLocaleString('en-US', { timeZone: 'America/New_York', hour12: false });
 }
 
 function formatShortTime(isoString) {
     if (!isoString) return '--';
     const date = new Date(isoString);
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    return date.toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit', hour12: false });
 }
 
 async function loadDeviceInfo() {
