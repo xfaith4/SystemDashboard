@@ -153,6 +153,36 @@
         </div>
     </section>
 
+    <!-- AI Feedback History Section -->
+    <section class="panel ai-feedback-panel">
+        <header class="panel-header">
+            <div>
+                <h2>AI Feedback History</h2>
+                <p class="muted">Previously analyzed events with AI-generated explanations</p>
+            </div>
+            <div class="feedback-filters">
+                <label>Status:
+                    <select id="feedbackStatusFilter">
+                        <option value="">All</option>
+                        <option value="Pending">Pending</option>
+                        <option value="Viewed" selected>Viewed</option>
+                        <option value="Resolved">Resolved</option>
+                    </select>
+                </label>
+                <button class="btn-secondary" onclick="refreshFeedback()">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="23 4 23 10 17 10"/>
+                        <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+                    </svg>
+                    Refresh
+                </button>
+            </div>
+        </header>
+        <div id="feedbackList" class="feedback-list">
+            <p class="loading">Loading AI feedback history...</p>
+        </div>
+    </section>
+
     <!-- AI Modal for Trend Analysis -->
     <div id="ai-modal" class="modal hidden">
         <div class="modal-content">
@@ -542,6 +572,10 @@ async function askAI(eventIndex) {
                     ` : ''}
                 </div>
             `;
+            
+            // Save AI feedback to backend for persistent storage
+            // Default status is 'Viewed' as user has seen this explanation
+            saveFeedbackToBackend(eventData, result.explanationHtml);
         }
     } catch (error) {
         // Log and display error if request fails
@@ -714,6 +748,174 @@ document.addEventListener('keydown', (e) => {
     }
 });
 
+// AI Feedback Management Functions
+
+/**
+ * Save AI feedback to backend for persistent storage
+ * Called after AI generates an explanation for an event
+ */
+async function saveFeedbackToBackend(eventData, aiResponse) {
+    try {
+        console.log('[Save Feedback] Saving to backend:', {
+            event_id: eventData.id,
+            log_type: eventData.log_type,
+            source: eventData.source
+        });
+        
+        const response = await fetch('/api/ai/feedback', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                event_id: eventData.id || null,
+                event_source: eventData.source || '',
+                event_message: eventData.message || '',
+                event_log_type: eventData.log_type || '',
+                event_level: eventData.level || '',
+                event_time: eventData.time || null,
+                ai_response: aiResponse,
+                review_status: 'Viewed'  // Default status when user sees AI explanation
+            })
+        });
+        
+        if (!response.ok) {
+            const error = await response.json();
+            console.error('[Save Feedback] Failed:', error);
+            return;
+        }
+        
+        const result = await response.json();
+        console.log('[Save Feedback] Saved successfully:', result.id);
+        
+        // Refresh the feedback list to show the new entry
+        loadFeedbackHistory();
+    } catch (error) {
+        console.error('[Save Feedback] Error:', error);
+        // Don't show error to user - feedback is supplementary feature
+    }
+}
+
+/**
+ * Load AI feedback history from backend
+ * Displays historical AI-generated explanations with review status controls
+ */
+async function loadFeedbackHistory() {
+    const feedbackList = document.getElementById('feedbackList');
+    const statusFilter = document.getElementById('feedbackStatusFilter')?.value || '';
+    
+    try {
+        // Build query parameters
+        let url = '/api/ai/feedback?limit=20&since_days=30';
+        if (statusFilter) {
+            url += `&status=${statusFilter}`;
+        }
+        
+        const response = await fetch(url);
+        const data = await response.json();
+        
+        console.log('[Load Feedback] Retrieved:', data.total, 'entries');
+        
+        if (data.error) {
+            feedbackList.innerHTML = `<p class="error">⚠️ ${escapeHtml(data.error)}</p>`;
+            return;
+        }
+        
+        if (!data.feedback || data.feedback.length === 0) {
+            feedbackList.innerHTML = '<p class="empty-state">No AI feedback history available. Use "Ask AI" to analyze events.</p>';
+            return;
+        }
+        
+        // Render feedback entries
+        const html = data.feedback.map(entry => {
+            const statusClass = entry.review_status.toLowerCase();
+            const levelClass = (entry.event_level || 'info').toLowerCase();
+            
+            return `
+                <article class="feedback-entry">
+                    <header class="feedback-header">
+                        <div class="feedback-event-info">
+                            <strong>${escapeHtml(entry.event_source || 'Unknown Source')}</strong>
+                            ${entry.event_id ? `<span class="event-id">(Event ID: ${entry.event_id})</span>` : ''}
+                            <span class="badge badge-${levelClass}">${escapeHtml(entry.event_level || 'Info')}</span>
+                            ${entry.event_log_type ? `<span class="badge badge-log-type">${escapeHtml(entry.event_log_type)}</span>` : ''}
+                        </div>
+                        <div class="feedback-meta">
+                            <span class="feedback-date">${formatTime(entry.created_at)}</span>
+                            <select class="status-selector status-${statusClass}" 
+                                    data-feedback-id="${entry.id}"
+                                    onchange="updateFeedbackStatus(${entry.id}, this.value)">
+                                <option value="Pending" ${entry.review_status === 'Pending' ? 'selected' : ''}>⏳ Pending</option>
+                                <option value="Viewed" ${entry.review_status === 'Viewed' ? 'selected' : ''}>👁️ Viewed</option>
+                                <option value="Resolved" ${entry.review_status === 'Resolved' ? 'selected' : ''}>✅ Resolved</option>
+                            </select>
+                        </div>
+                    </header>
+                    <div class="feedback-event-message">
+                        <strong>Event:</strong> ${escapeHtml(entry.event_message?.substring(0, 200) || '')}${entry.event_message?.length > 200 ? '...' : ''}
+                    </div>
+                    <div class="feedback-ai-response">
+                        <strong>AI Analysis:</strong>
+                        <div class="ai-explanation-text">${entry.ai_response}</div>
+                    </div>
+                </article>
+            `;
+        }).join('');
+        
+        feedbackList.innerHTML = html;
+        
+    } catch (error) {
+        console.error('[Load Feedback] Error:', error);
+        feedbackList.innerHTML = `<p class="error">⚠️ Failed to load feedback history: ${error.message}</p>`;
+    }
+}
+
+/**
+ * Update the review status of an AI feedback entry
+ * Called when user changes status dropdown
+ */
+async function updateFeedbackStatus(feedbackId, newStatus) {
+    try {
+        console.log('[Update Status] Updating feedback', feedbackId, 'to', newStatus);
+        
+        const response = await fetch(`/api/ai/feedback/${feedbackId}/status`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                status: newStatus
+            })
+        });
+        
+        if (!response.ok) {
+            const error = await response.json();
+            console.error('[Update Status] Failed:', error);
+            alert('Failed to update status: ' + (error.error || 'Unknown error'));
+            // Reload to reset the dropdown
+            loadFeedbackHistory();
+            return;
+        }
+        
+        const result = await response.json();
+        console.log('[Update Status] Updated successfully:', result);
+        
+        // Update the dropdown styling to reflect new status
+        const selector = document.querySelector(`select[data-feedback-id="${feedbackId}"]`);
+        if (selector) {
+            selector.className = `status-selector status-${newStatus.toLowerCase()}`;
+        }
+        
+    } catch (error) {
+        console.error('[Update Status] Error:', error);
+        alert('Failed to update status: ' + error.message);
+        loadFeedbackHistory();
+    }
+}
+
+/**
+ * Refresh the feedback history list
+ */
+function refreshFeedback() {
+    loadFeedbackHistory();
+}
+
 document.getElementById('analyzeTrendsBtn').addEventListener('click', analyzeTrends);
 document.getElementById('refreshBtn').addEventListener('click', refreshEvents);
 document.getElementById('searchInput').addEventListener('input', renderTable);
@@ -740,7 +942,16 @@ document.getElementById('logTypeSystem').addEventListener('change', () => {
     refreshEvents();
 });
 
-document.addEventListener('DOMContentLoaded', refreshEvents);
+// Add event listener for feedback status filter
+document.getElementById('feedbackStatusFilter')?.addEventListener('change', () => {
+    loadFeedbackHistory();
+});
+
+// Load both events and feedback history on page load
+document.addEventListener('DOMContentLoaded', () => {
+    refreshEvents();
+    loadFeedbackHistory();
+});
 </script>
 
 <style>
@@ -1096,6 +1307,165 @@ document.addEventListener('DOMContentLoaded', refreshEvents);
 
 .table-container {
     overflow-x: auto;
+}
+
+/* AI Feedback History Styles */
+.ai-feedback-panel {
+    margin-top: 2rem;
+}
+
+.feedback-filters {
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+}
+
+.feedback-filters label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+}
+
+.feedback-filters select {
+    padding: 0.5rem;
+    border: 1px solid var(--border-default);
+    border-radius: 6px;
+    background: var(--bg-elevated);
+    color: var(--text-primary);
+}
+
+.feedback-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.feedback-entry {
+    background: var(--bg-elevated, #182038);
+    border: 1px solid var(--border-default, #2a3553);
+    border-radius: 8px;
+    padding: 1rem;
+    transition: all 0.2s ease;
+}
+
+.feedback-entry:hover {
+    border-color: #3b4a6b;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.feedback-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 0.75rem;
+    gap: 1rem;
+}
+
+.feedback-event-info {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    flex: 1;
+}
+
+.feedback-event-info strong {
+    color: var(--text-primary, #e5e7eb);
+    font-size: 0.95rem;
+}
+
+.feedback-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-shrink: 0;
+}
+
+.feedback-date {
+    color: var(--text-secondary, #94a3b8);
+    font-size: 0.85rem;
+    white-space: nowrap;
+}
+
+.status-selector {
+    padding: 0.4rem 0.75rem;
+    border-radius: 6px;
+    border: 1px solid;
+    font-size: 0.85rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    min-width: 120px;
+}
+
+.status-selector:hover {
+    transform: translateY(-1px);
+}
+
+.status-pending {
+    background: rgba(251, 191, 36, 0.1);
+    border-color: #fbbf24;
+    color: #fef3c7;
+}
+
+.status-viewed {
+    background: rgba(59, 130, 246, 0.1);
+    border-color: #3b82f6;
+    color: #bfdbfe;
+}
+
+.status-resolved {
+    background: rgba(16, 185, 129, 0.1);
+    border-color: #10b981;
+    color: #d1fae5;
+}
+
+.feedback-event-message {
+    margin-bottom: 0.75rem;
+    padding: 0.75rem;
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 6px;
+    color: var(--text-secondary, #94a3b8);
+    font-size: 0.9rem;
+    line-height: 1.5;
+}
+
+.feedback-event-message strong {
+    color: var(--text-primary, #e5e7eb);
+    margin-right: 0.5rem;
+}
+
+.feedback-ai-response {
+    padding: 0.75rem;
+    background: rgba(139, 92, 246, 0.05);
+    border-left: 3px solid #8b5cf6;
+    border-radius: 4px;
+}
+
+.feedback-ai-response strong {
+    display: block;
+    color: #c7d2fe;
+    margin-bottom: 0.5rem;
+    font-size: 0.9rem;
+}
+
+.ai-explanation-text {
+    color: var(--text-secondary, #94a3b8);
+    font-size: 0.9rem;
+    line-height: 1.6;
+}
+
+.ai-explanation-text p {
+    margin: 0.5rem 0;
+}
+
+.empty-state {
+    text-align: center;
+    padding: 2rem;
+    color: var(--text-secondary, #94a3b8);
+    font-style: italic;
 }
 </style>
 {% endblock %}
