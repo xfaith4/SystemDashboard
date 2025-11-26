@@ -249,3 +249,90 @@ COMMENT ON TABLE telemetry.lan_settings IS 'Configuration settings for LAN obser
 -- Ensure new columns exist when updating existing deployments
 ALTER TABLE telemetry.devices
     ADD COLUMN IF NOT EXISTS location TEXT;
+
+ALTER TABLE telemetry.devices
+    ADD COLUMN IF NOT EXISTS network_type TEXT DEFAULT 'main'; -- 'main', 'guest', 'iot', 'unknown'
+
+-- Device events table for tracking connect/disconnect and other events
+CREATE TABLE IF NOT EXISTS telemetry.device_events (
+    event_id            BIGSERIAL PRIMARY KEY,
+    device_id           INTEGER NOT NULL REFERENCES telemetry.devices(device_id) ON DELETE CASCADE,
+    event_type          TEXT NOT NULL, -- 'connected', 'disconnected', 'reconnected', 'ip_change', 'interface_change'
+    event_time          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    previous_state      JSONB,
+    new_state           JSONB,
+    details             TEXT,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_device_events_device ON telemetry.device_events (device_id, event_time DESC);
+CREATE INDEX IF NOT EXISTS idx_device_events_type ON telemetry.device_events (event_type, event_time DESC);
+CREATE INDEX IF NOT EXISTS idx_device_events_time ON telemetry.device_events (event_time DESC);
+
+-- Event settings
+INSERT INTO telemetry.lan_settings (setting_key, setting_value, description)
+VALUES 
+    ('track_device_events', 'true', 'Track device connect/disconnect events'),
+    ('event_retention_days', '90', 'Days to keep device event history')
+ON CONFLICT (setting_key) DO NOTHING;
+
+GRANT SELECT, INSERT ON telemetry.device_events TO sysdash_ingest;
+GRANT SELECT ON telemetry.device_events TO sysdash_reader;
+
+COMMENT ON TABLE telemetry.device_events IS 'Timeline of device connection events (connect/disconnect/changes)';
+
+-- Device alerts table for tracking network issues and events
+CREATE TABLE IF NOT EXISTS telemetry.device_alerts (
+    alert_id            BIGSERIAL PRIMARY KEY,
+    device_id           INTEGER REFERENCES telemetry.devices(device_id) ON DELETE CASCADE,
+    alert_type          TEXT NOT NULL, -- 'new_device', 'offline', 'weak_signal', 'reconnected', 'bandwidth_spike'
+    severity            TEXT NOT NULL DEFAULT 'info', -- 'critical', 'warning', 'info'
+    title               TEXT NOT NULL,
+    message             TEXT,
+    metadata            JSONB,
+    is_acknowledged     BOOLEAN DEFAULT false,
+    acknowledged_at     TIMESTAMPTZ,
+    acknowledged_by     TEXT,
+    is_resolved         BOOLEAN DEFAULT false,
+    resolved_at         TIMESTAMPTZ,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_device_alerts_device ON telemetry.device_alerts (device_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_device_alerts_type ON telemetry.device_alerts (alert_type, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_device_alerts_severity ON telemetry.device_alerts (severity, is_resolved, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_device_alerts_unresolved ON telemetry.device_alerts (is_resolved, created_at DESC) WHERE is_resolved = false;
+
+-- Alert settings
+INSERT INTO telemetry.lan_settings (setting_key, setting_value, description)
+VALUES 
+    ('alert_new_device_enabled', 'true', 'Alert on new devices joining the network'),
+    ('alert_offline_enabled', 'true', 'Alert on devices going offline'),
+    ('alert_weak_signal_enabled', 'true', 'Alert on weak signal strength'),
+    ('alert_weak_signal_threshold', '-75', 'RSSI threshold for weak signal alerts (dBm)'),
+    ('alert_retention_days', '30', 'Days to keep resolved alerts')
+ON CONFLICT (setting_key) DO NOTHING;
+
+GRANT SELECT, INSERT, UPDATE ON telemetry.device_alerts TO sysdash_ingest;
+GRANT SELECT ON telemetry.device_alerts TO sysdash_reader;
+
+-- View for recent unresolved alerts
+CREATE OR REPLACE VIEW telemetry.device_alerts_active AS
+SELECT 
+    a.*,
+    d.mac_address,
+    d.hostname,
+    d.nickname,
+    d.primary_ip_address,
+    d.tags,
+    d.is_active AS device_is_active
+FROM telemetry.device_alerts a
+INNER JOIN telemetry.devices d ON a.device_id = d.device_id
+WHERE a.is_resolved = false
+ORDER BY a.created_at DESC;
+
+GRANT SELECT ON telemetry.device_alerts_active TO sysdash_reader;
+
+COMMENT ON TABLE telemetry.device_alerts IS 'Alerts for network device events and issues';
+COMMENT ON VIEW telemetry.device_alerts_active IS 'Active (unresolved) alerts with device information';

@@ -81,6 +81,26 @@
         </div>
     </section>
 
+    <!-- Active Alerts -->
+    <section class="panel">
+        <header class="panel-header">
+            <div>
+                <h2>Active Alerts</h2>
+                <p class="muted">Network issues and device notifications</p>
+            </div>
+            <button onclick="refreshAlerts()" class="btn-refresh">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="23 4 23 10 17 10"/>
+                    <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+                </svg>
+                Refresh
+            </button>
+        </header>
+        <div id="alerts-container">
+            <p class="muted">Loading alerts...</p>
+        </div>
+    </section>
+
     <!-- Potential Issues Widget -->
     <section class="panel">
         <header class="panel-header">
@@ -209,13 +229,94 @@ function checkForIssues(devices) {
     }
 }
 
+async function loadAlerts() {
+    const alertsContainer = document.getElementById('alerts-container');
+    
+    try {
+        const response = await fetch('/api/lan/alerts?limit=10');
+        const data = await response.json();
+        const alerts = data.alerts || [];
+        
+        if (alerts.length === 0) {
+            alertsContainer.innerHTML = '<div class="success-message"><span class="status-indicator"></span> No active alerts</div>';
+            return;
+        }
+        
+        alertsContainer.innerHTML = '<ul class="alerts-list">' + 
+            alerts.map(alert => {
+                const severityClass = alert.severity === 'critical' ? 'alert-critical' : 
+                                     alert.severity === 'warning' ? 'alert-warning' : 'alert-info';
+                const deviceName = alert.nickname || alert.hostname || alert.mac_address;
+                const timeAgo = formatTimestamp(alert.created_at);
+                
+                return `
+                    <li class="alert-item ${severityClass}">
+                        <div class="alert-header">
+                            <strong>${alert.title}</strong>
+                            <span class="alert-time">${timeAgo}</span>
+                        </div>
+                        <div class="alert-body">
+                            <span class="alert-device">${deviceName}</span>: ${alert.message || ''}
+                        </div>
+                        <div class="alert-actions">
+                            <button class="btn-small" onclick="acknowledgeAlert(${alert.alert_id})">Acknowledge</button>
+                            <button class="btn-small" onclick="resolveAlert(${alert.alert_id})">Resolve</button>
+                            <a href="/lan/device/${alert.device_id}" class="btn-link">View Device →</a>
+                        </div>
+                    </li>
+                `;
+            }).join('') + 
+            '</ul>';
+    } catch (error) {
+        console.error('Failed to load alerts:', error);
+        alertsContainer.innerHTML = '<p class="error">Error loading alerts</p>';
+    }
+}
+
+async function acknowledgeAlert(alertId) {
+    try {
+        const response = await fetch(`/api/lan/alerts/${alertId}/acknowledge`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ acknowledged_by: 'web_user' })
+        });
+        
+        if (response.ok) {
+            loadAlerts();
+        }
+    } catch (error) {
+        console.error('Failed to acknowledge alert:', error);
+    }
+}
+
+async function resolveAlert(alertId) {
+    try {
+        const response = await fetch(`/api/lan/alerts/${alertId}/resolve`, {
+            method: 'POST'
+        });
+        
+        if (response.ok) {
+            loadAlerts();
+        }
+    } catch (error) {
+        console.error('Failed to resolve alert:', error);
+    }
+}
+
+function refreshAlerts() {
+    loadAlerts();
+}
+
 function refreshOnlineDevices() {
     loadOnlineDevices();
     loadStats();
 }
 
 function startAutoRefresh() {
-    refreshTimer = setInterval(refreshOnlineDevices, 30000);
+    refreshTimer = setInterval(() => {
+        refreshOnlineDevices();
+        loadAlerts();
+    }, 30000);
 }
 
 function stopAutoRefresh() {
@@ -227,6 +328,7 @@ function stopAutoRefresh() {
 document.addEventListener('DOMContentLoaded', () => {
     loadStats();
     loadOnlineDevices();
+    loadAlerts();
     startAutoRefresh();
 });
 
@@ -314,6 +416,76 @@ window.addEventListener('beforeunload', stopAutoRefresh);
     background: var(--status-critical-bg);
     border-color: var(--status-critical);
     color: var(--status-critical);
+}
+
+.alerts-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.alert-item {
+    padding: var(--space-md);
+    margin: var(--space-sm) 0;
+    border-radius: var(--radius-md);
+    border-left: 4px solid;
+    background: var(--bg-elevated);
+}
+
+.alert-critical {
+    border-color: var(--status-critical);
+    background: var(--status-critical-bg);
+}
+
+.alert-warning {
+    border-color: var(--status-warning);
+    background: var(--status-warning-bg);
+}
+
+.alert-info {
+    border-color: var(--accent-primary);
+}
+
+.alert-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--space-sm);
+}
+
+.alert-time {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+
+.alert-body {
+    margin-bottom: var(--space-sm);
+    color: var(--text-secondary);
+}
+
+.alert-device {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.alert-actions {
+    display: flex;
+    gap: var(--space-sm);
+    margin-top: var(--space-sm);
+}
+
+.btn-small {
+    padding: 0.25rem 0.75rem;
+    font-size: 0.85rem;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-md);
+    color: var(--text-primary);
+    cursor: pointer;
+}
+
+.btn-small:hover {
+    background: var(--bg-card);
 }
 </style>
 {% endblock %}
