@@ -89,17 +89,25 @@ def get_db_connection():
 
 
 def _to_est_string(value):
-    """Convert datetime to EST timezone and return formatted string."""
+    """Convert datetime to EST timezone and return formatted string.
+    
+    Uses America/New_York timezone which automatically handles DST transitions
+    between EST (UTC-5) and EDT (UTC-4).
+    
+    Note: If zoneinfo is not available (Python < 3.9), falls back to fixed UTC-5 offset
+    which won't handle DST correctly.
+    """
     if value is None:
         return ''
     
-    # Define EST timezone
+    # Define EST/EDT timezone with DST support
     try:
         est_tz = zoneinfo.ZoneInfo('America/New_York')
     except Exception:
-        # Fallback if zoneinfo is not available
+        # Fallback if zoneinfo is not available (shouldn't happen in Python 3.9+)
+        # Note: This fallback uses fixed UTC-5 and won't handle DST transitions
         import datetime as dt
-        est_tz = dt.timezone(dt.timedelta(hours=-5))  # EST offset
+        est_tz = dt.timezone(dt.timedelta(hours=-5))
     
     if isinstance(value, str):
         # Handle serialized /Date(1764037519528)/ from Windows EventLog JSON
