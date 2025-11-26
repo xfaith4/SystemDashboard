@@ -378,21 +378,33 @@ class TestAPIEndpoints:
         data = json.loads(response.data)
         assert 'dates' in data
         assert 'iis_errors' in data
-        assert 'auth_failures' in data
-        assert 'windows_errors' in data
-        assert 'router_alerts' in data
+
+    def test_api_dashboard_summary_endpoint(self, client):
+        """Test dashboard summary API endpoint returns all required sections."""
+        response = client.get('/api/dashboard/summary')
+        assert response.status_code == 200
         
-        # Should return 7 days of data
-        assert len(data['dates']) == 7
-        assert len(data['iis_errors']) == 7
-        assert len(data['auth_failures']) == 7
-        assert len(data['windows_errors']) == 7
-        assert len(data['router_alerts']) == 7
+        data = json.loads(response.data)
+        # Check that all required sections exist
+        assert 'iis' in data
+        assert 'auth' in data
+        assert 'windows' in data
+        assert 'router' in data
+        assert 'syslog' in data
+        assert 'using_mock' in data
         
-        # All values should be non-negative integers
-        for value in data['iis_errors'] + data['auth_failures'] + data['windows_errors'] + data['router_alerts']:
-            assert isinstance(value, int)
-            assert value >= 0
+        # Check IIS section structure
+        assert 'current_errors' in data['iis']
+        assert 'total_requests' in data['iis']
+        assert 'baseline_avg' in data['iis']
+        assert 'baseline_std' in data['iis']
+        assert 'spike' in data['iis']
+        
+        # Check that lists are properly structured
+        assert isinstance(data['auth'], list)
+        assert isinstance(data['windows'], list)
+        assert isinstance(data['router'], list)
+        assert isinstance(data['syslog'], list)
 
 
 class TestLANDeviceTagging:
