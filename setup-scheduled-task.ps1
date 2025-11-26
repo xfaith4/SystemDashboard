@@ -48,7 +48,7 @@ $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoi
 $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount
 
 # Register the task
-$task = Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Description "System Dashboard Telemetry Collection Service"
+Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Description "System Dashboard Telemetry Collection Service" | Out-Null
 
 Write-Host "✅ Scheduled task '$taskName' created successfully!" -ForegroundColor Green
 
