@@ -293,6 +293,7 @@ function Disable-WiFiMonitoring {
         Write-Host "❌ Failed to disable WiFi monitoring: $($_.Exception.Message)" -ForegroundColor Red
     }
 }
+
     Clear-Host
     Write-Host "🔄 Continuous Windows Event Collection" -ForegroundColor Cyan
     Write-Host "=" * 40
@@ -322,7 +323,7 @@ function Disable-WiFiMonitoring {
 
     Read-Host "`nPress Enter to return to menu"
     Show-DashboardMenu
-}
+
 
 function Show-DataSourceManager {
     Clear-Host

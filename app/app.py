@@ -238,7 +238,7 @@ def get_router_logs(max_lines: int = 100, with_source: bool = False, offset: int
     try:
         with open(log_path, 'r', encoding='utf-8', errors='ignore') as f:
             all_lines = f.readlines()
-        
+
         logs = []
         for line in all_lines:
             parts = line.strip().split(maxsplit=3)
@@ -250,7 +250,7 @@ def get_router_logs(max_lines: int = 100, with_source: bool = False, offset: int
                 time = ''
                 level = ''
                 message = line.strip()
-            
+
             # Apply filters for file-based logs
             if level_filter and level.lower() != level_filter.lower():
                 continue
@@ -259,9 +259,9 @@ def get_router_logs(max_lines: int = 100, with_source: bool = False, offset: int
                 continue
             if search_query and search_query.lower() not in message.lower():
                 continue
-            
+
             logs.append({'time': time, 'level': level, 'message': message, 'host': ''})
-        
+
         # Sort logs for file-based source
         if sort_field in ['time', 'received_utc']:
             logs.sort(key=lambda x: x['time'], reverse=(sort_dir.lower() == 'desc'))
@@ -269,7 +269,7 @@ def get_router_logs(max_lines: int = 100, with_source: bool = False, offset: int
             logs.sort(key=lambda x: x['level'], reverse=(sort_dir.lower() == 'desc'))
         elif sort_field == 'message':
             logs.sort(key=lambda x: x['message'], reverse=(sort_dir.lower() == 'desc'))
-        
+
         total = len(logs)
         # Apply pagination
         logs = logs[offset:offset + max_lines]
@@ -279,7 +279,7 @@ def get_router_logs(max_lines: int = 100, with_source: bool = False, offset: int
         return ([], source, 0) if with_source else []
 
 
-def get_router_logs_from_db(limit: int = 100, offset: int = 0, sort_field: str = 'received_utc', 
+def get_router_logs_from_db(limit: int = 100, offset: int = 0, sort_field: str = 'received_utc',
                             sort_dir: str = 'desc', level_filter: str = None, host_filter: str = None,
                             search_query: str = None):
     """Fetch router logs from PostgreSQL with pagination, sorting and filtering support."""
@@ -291,7 +291,7 @@ def get_router_logs_from_db(limit: int = 100, offset: int = 0, sort_field: str =
             # Build WHERE clause conditions
             conditions = ["source IN ('asus', 'router', 'syslog')"]
             params = []
-            
+
             if level_filter:
                 # Map text level to severity number
                 level_map = {
@@ -302,30 +302,30 @@ def get_router_logs_from_db(limit: int = 100, offset: int = 0, sort_field: str =
                 if sev is not None:
                     conditions.append("severity = %s")
                     params.append(sev)
-            
+
             if host_filter:
                 conditions.append("source_host ILIKE %s")
                 params.append(f'%{host_filter}%')
-            
+
             if search_query:
                 conditions.append("message ILIKE %s")
                 params.append(f'%{search_query}%')
-            
+
             where_clause = ' AND '.join(conditions)
-            
+
             # Validate sort field to prevent SQL injection
-            valid_sort_fields = {'received_utc': 'received_utc', 'time': 'COALESCE(event_utc, received_utc)', 
-                                'severity': 'severity', 'level': 'severity', 
+            valid_sort_fields = {'received_utc': 'received_utc', 'time': 'COALESCE(event_utc, received_utc)',
+                                'severity': 'severity', 'level': 'severity',
                                 'source_host': 'source_host', 'host': 'source_host',
                                 'message': 'message'}
             sort_column = valid_sort_fields.get(sort_field.lower(), 'received_utc')
             sort_direction = 'ASC' if sort_dir.lower() == 'asc' else 'DESC'
-            
+
             # Get total count for pagination
             count_query = f"SELECT COUNT(*) FROM telemetry.syslog_recent WHERE {where_clause}"
             cur.execute(count_query, params)
             total_count = cur.fetchone()['count']
-            
+
             # Get paginated results
             query = f"""
                 SELECT COALESCE(event_utc, received_utc) AS time,
@@ -339,7 +339,7 @@ def get_router_logs_from_db(limit: int = 100, offset: int = 0, sort_field: str =
             """
             cur.execute(query, params + [limit, offset])
             rows = cur.fetchall()
-            
+
         logs = []
         for row in rows:
             logs.append({
@@ -788,7 +788,7 @@ def router():
 @app.route('/api/router/logs')
 def api_router_logs():
     """Return recent router/syslog entries with pagination, sorting, and filtering support.
-    
+
     Query parameters:
     - limit: Number of entries per page (default: 50, max: 500)
     - page: Page number (1-based, default: 1)
@@ -802,27 +802,27 @@ def api_router_logs():
     limit = min(int(request.args.get('limit', '50')), 500)
     page = int(request.args.get('page', '1'))
     offset = int(request.args.get('offset', '0'))
-    
+
     # Calculate offset from page if page is provided and offset is not
     if page > 1 and offset == 0:
         offset = (page - 1) * limit
-    
+
     sort_field = request.args.get('sort', 'time')
     sort_dir = request.args.get('order', 'desc')
     level_filter = request.args.get('level')
     host_filter = request.args.get('host')
     search_query = request.args.get('search')
-    
+
     logs, source, total = get_router_logs(
         max_lines=limit, with_source=True, offset=offset,
         sort_field=sort_field, sort_dir=sort_dir,
         level_filter=level_filter, host_filter=host_filter, search_query=search_query
     )
-    
+
     # Calculate pagination metadata
     total_pages = (total + limit - 1) // limit if total > 0 else 1
     current_page = (offset // limit) + 1
-    
+
     return jsonify({
         'logs': logs,
         'source': source,
@@ -854,7 +854,7 @@ def wifi():
 @app.route('/api/events/logs')
 def api_events():
     """Return recent Windows event log entries.
-    
+
     Supports both /api/events and /api/events/logs routes for convention consistency.
     When connected to Postgres, queries the eventlog_windows_recent view.
     Falls back to PowerShell Get-WinEvent on Windows or mock data elsewhere.
@@ -888,7 +888,7 @@ def _mock_trend_data():
     import datetime
     now = datetime.datetime.now(datetime.UTC)
     dates = [(now - datetime.timedelta(days=i)).strftime('%Y-%m-%d') for i in range(6, -1, -1)]
-    
+
     return {
         'dates': dates,
         'iis_errors': [random.randint(5, 50) for _ in range(7)],
@@ -903,10 +903,10 @@ def get_trend_data():
     conn = get_db_connection()
     if conn is None:
         return _mock_trend_data()
-    
+
     # Define trend metric keys
     TREND_KEYS = ['iis_errors', 'auth_failures', 'windows_errors', 'router_alerts']
-    
+
     trends = {
         'dates': [],
         'iis_errors': [],
@@ -914,14 +914,14 @@ def get_trend_data():
         'windows_errors': [],
         'router_alerts': []
     }
-    
+
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             # Generate dates for last 7 days
             now = datetime.datetime.now(datetime.UTC)
             dates = [(now - datetime.timedelta(days=i)).strftime('%Y-%m-%d') for i in range(6, -1, -1)]
             trends['dates'] = dates
-            
+
             # IIS 5xx errors by day
             try:
                 cur.execute(
@@ -940,7 +940,7 @@ def get_trend_data():
             except Exception as exc:
                 app.logger.debug('IIS trend query failed: %s', exc)
                 trends['iis_errors'] = [0] * 7
-            
+
             # Auth failures by day
             try:
                 cur.execute(
@@ -960,7 +960,7 @@ def get_trend_data():
             except Exception as exc:
                 app.logger.debug('Auth trend query failed: %s', exc)
                 trends['auth_failures'] = [0] * 7
-            
+
             # Windows errors by day
             try:
                 cur.execute(
@@ -980,7 +980,7 @@ def get_trend_data():
             except Exception as exc:
                 app.logger.debug('Windows trend query failed: %s', exc)
                 trends['windows_errors'] = [0] * 7
-            
+
             # Router alerts by day
             try:
                 cur.execute(
@@ -1005,14 +1005,14 @@ def get_trend_data():
             except Exception as exc:
                 app.logger.debug('Router trend query failed: %s', exc)
                 trends['router_alerts'] = [0] * 7
-    
+
     finally:
         conn.close()
-    
+
     # If all trends are empty, use mock data
     if all(sum(trends[k]) == 0 for k in TREND_KEYS):
         return _mock_trend_data()
-    
+
     return trends
 
 
@@ -1087,12 +1087,12 @@ def api_ai_suggest():
 def api_ai_explain():
     """
     AI explanation endpoint for logs, events, and charts.
-    
+
     Request body:
       - type: 'router_log' | 'windows_event' | 'chart_summary' | 'dashboard_summary'
       - context: JSON object with the relevant record(s) or aggregated stats
       - userQuestion (optional): free-text question from the user
-    
+
     Response:
       - explanationHtml: HTML-safe explanation text
       - severity: optional severity assessment
@@ -1102,15 +1102,15 @@ def api_ai_explain():
     explain_type = data.get('type', '')
     context = data.get('context', {})
     user_question = (data.get('userQuestion') or '')[:1000]
-    
+
     # Validate type
     valid_types = ['router_log', 'windows_event', 'chart_summary', 'dashboard_summary']
     if explain_type not in valid_types:
         return jsonify({'error': f'Invalid type. Must be one of: {", ".join(valid_types)}'}), 400
-    
+
     if not context:
         return jsonify({'error': 'Missing context'}), 400
-    
+
     # Truncate context to avoid excessive API costs
     # Serialize to JSON first, then truncate while keeping it valid
     MAX_CONTEXT_CHARS = 6000
@@ -1118,7 +1118,7 @@ def api_ai_explain():
     if len(context_str) > MAX_CONTEXT_CHARS:
         # Truncate and add indication that content was trimmed
         context_str = context_str[:MAX_CONTEXT_CHARS] + '... [truncated]'
-    
+
     # Build system prompt based on type
     system_prompts = {
         'router_log': 'You are a network engineer assistant helping analyze router syslog entries for a home system dashboard. Provide clear explanations and actionable advice.',
@@ -1126,34 +1126,34 @@ def api_ai_explain():
         'chart_summary': 'You are a system monitoring analyst for a home dashboard. Analyze chart data and explain patterns, anomalies, and what actions the user should consider.',
         'dashboard_summary': 'You are a home system health advisor. Summarize the overall state and highlight any issues that need attention.'
     }
-    
+
     # Build user prompt based on type
     if explain_type == 'router_log':
         user_prompt = f"Router/syslog entry:\n{context_str}\n\n"
         if user_question:
             user_prompt += f"User question: {user_question}\n\n"
         user_prompt += "Please explain what this log entry means, whether it indicates a problem, and what action (if any) the user should take."
-    
+
     elif explain_type == 'windows_event':
         user_prompt = f"Windows Event Log entry:\n{context_str}\n\n"
         if user_question:
             user_prompt += f"User question: {user_question}\n\n"
         user_prompt += "Please explain the probable cause and provide concrete steps to resolve any issues."
-    
+
     elif explain_type == 'chart_summary':
         user_prompt = f"Chart/aggregated statistics:\n{context_str}\n\n"
         if user_question:
             user_prompt += f"User question: {user_question}\n\n"
         user_prompt += "Please analyze these statistics, identify any concerning patterns or anomalies, and suggest what the user should investigate or do."
-    
+
     elif explain_type == 'dashboard_summary':
         user_prompt = f"Dashboard health summary:\n{context_str}\n\n"
         if user_question:
             user_prompt += f"User question: {user_question}\n\n"
         user_prompt += "Please summarize the overall system health, highlight any problems, and recommend priorities for the user."
-    
+
     # Call OpenAI with customized system prompt
-    api_key = os.environ.get('OPENAI_API_KEY')
+    api_key = os.environ.get("OPENAI_API_KEY", "")
     if not api_key:
         # Return a helpful fallback message when API key is not configured
         fallback_messages = {
@@ -1167,11 +1167,11 @@ def api_ai_explain():
             'severity': 'info',
             'recommendedActions': ['Configure OPENAI_API_KEY for AI-powered explanations']
         })
-    
+
     import urllib.request
     import urllib.error
     import ssl
-    
+
     body = {
         'model': os.environ.get('OPENAI_MODEL', 'gpt-4o-mini'),
         'messages': [
@@ -1181,25 +1181,25 @@ def api_ai_explain():
         'temperature': 0.3,
         'max_tokens': 500,
     }
-    
+
     req = urllib.request.Request(
         os.environ.get('OPENAI_API_BASE', 'https://api.openai.com') + '/v1/chat/completions',
         data=json.dumps(body).encode('utf-8'),
         headers={'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'}
     )
-    
+
     try:
         with urllib.request.urlopen(req, timeout=25, context=ssl.create_default_context()) as resp:
             resp_body = json.loads(resp.read().decode('utf-8'))
             content = resp_body.get('choices', [{}])[0].get('message', {}).get('content')
             if not content:
                 return jsonify({'error': 'No explanation received from AI.'}), 502
-            
+
             # Convert content to basic HTML safely
             # First escape HTML entities, then handle formatting
             explanation_text = content.strip()
             explanation_html = html.escape(explanation_text)
-            
+
             # Split into paragraphs on double newlines, filter empty ones
             paragraphs = [p.strip() for p in explanation_html.split('\n\n') if p.strip()]
             if paragraphs:
@@ -1209,7 +1209,7 @@ def api_ai_explain():
             else:
                 # Fallback: wrap entire content in single paragraph
                 explanation_html = f'<p>{explanation_html.replace(chr(10), "<br>")}</p>'
-            
+
             # Determine severity based on content keywords
             content_lower = content.lower()
             if any(word in content_lower for word in ['critical', 'immediate', 'urgent', 'severe']):
@@ -1218,13 +1218,13 @@ def api_ai_explain():
                 severity = 'warning'
             else:
                 severity = 'info'
-            
+
             return jsonify({
                 'explanationHtml': explanation_html,
                 'severity': severity,
                 'recommendedActions': []
             })
-    
+
     except urllib.error.HTTPError as e:
         try:
             err = e.read().decode('utf-8')
@@ -1279,7 +1279,7 @@ def _mock_lan_devices():
     """Generate mock device list for development."""
     import random
     now = datetime.datetime.now(datetime.UTC)
-    
+
     devices = [
         {
             'device_id': 1,
@@ -1312,7 +1312,7 @@ def _mock_lan_devices():
             'is_active': False
         }
     ]
-    
+
     return devices
 
 
@@ -1322,12 +1322,12 @@ def api_lan_stats():
     conn = get_db_connection()
     if conn is None:
         return jsonify(_mock_lan_stats())
-    
+
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute("SELECT * FROM telemetry.lan_summary_stats")
             row = cur.fetchone()
-            
+
             if row:
                 stats = dict(row)
             else:
@@ -1337,7 +1337,7 @@ def api_lan_stats():
         stats = _mock_lan_stats()
     finally:
         conn.close()
-    
+
     return jsonify(stats)
 
 
@@ -1347,7 +1347,7 @@ def api_lan_devices():
     state = request.args.get('state')  # 'active', 'inactive', or None for all
     interface = request.args.get('interface')  # filter by interface type
     limit = int(request.args.get('limit', '100'))
-    
+
     conn = get_db_connection()
     if conn is None:
         devices = _mock_lan_devices()
@@ -1356,11 +1356,11 @@ def api_lan_devices():
         elif state == 'inactive':
             devices = [d for d in devices if not d['is_active']]
         return jsonify({'devices': devices})
-    
+
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             query = """
-                SELECT 
+                SELECT
                     d.device_id,
                     d.mac_address,
                     d.primary_ip_address,
@@ -1380,8 +1380,8 @@ def api_lan_devices():
                     ds.lease_type AS lease_type
                 FROM telemetry.devices d
                 LEFT JOIN LATERAL (
-                    SELECT 
-                        interface, 
+                    SELECT
+                        interface,
                         rssi,
                         tx_rate_mbps,
                         rx_rate_mbps,
@@ -1393,23 +1393,23 @@ def api_lan_devices():
                 ) ds ON true
                 WHERE 1=1
             """
-            
+
             params = []
             if state == 'active':
                 query += " AND d.is_active = true"
             elif state == 'inactive':
                 query += " AND d.is_active = false"
-            
+
             if interface:
                 query += " AND ds.interface ILIKE %s"
                 params.append(f'%{interface}%')
-            
+
             query += " ORDER BY d.last_seen_utc DESC LIMIT %s"
             params.append(limit)
-            
+
             cur.execute(query, params)
             rows = cur.fetchall()
-            
+
             devices = []
             for row in rows:
                 device = dict(row)
@@ -1423,7 +1423,7 @@ def api_lan_devices():
         devices = _mock_lan_devices()
     finally:
         conn.close()
-    
+
     return jsonify({'devices': devices})
 
 
@@ -1434,11 +1434,11 @@ def api_lan_devices_online():
     if conn is None:
         devices = [d for d in _mock_lan_devices() if d['is_active']]
         return jsonify({'devices': devices})
-    
+
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute("""
-                SELECT 
+                SELECT
                     device_id,
                     mac_address,
                     primary_ip_address,
@@ -1453,7 +1453,7 @@ def api_lan_devices_online():
                 ORDER BY last_seen_utc DESC
             """)
             rows = cur.fetchall()
-            
+
             devices = []
             for row in rows:
                 device = dict(row)
@@ -1465,7 +1465,7 @@ def api_lan_devices_online():
         devices = [d for d in _mock_lan_devices() if d['is_active']]
     finally:
         conn.close()
-    
+
     return jsonify({'devices': devices})
 
 
@@ -1480,11 +1480,11 @@ def api_lan_device_detail(device_id):
         if device:
             return jsonify(device)
         return jsonify({'error': 'Device not found'}), 404
-    
+
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute("""
-                SELECT 
+                SELECT
                     d.*,
                     (SELECT COUNT(*) FROM telemetry.device_snapshots_template WHERE device_id = d.device_id) AS total_snapshots,
                     last.interface AS last_interface,
@@ -1495,7 +1495,7 @@ def api_lan_device_detail(device_id):
                     last.sample_time_utc AS last_snapshot_time
                 FROM telemetry.devices d
                 LEFT JOIN LATERAL (
-                    SELECT 
+                    SELECT
                         interface,
                         rssi,
                         tx_rate_mbps,
@@ -1510,10 +1510,10 @@ def api_lan_device_detail(device_id):
                 WHERE d.device_id = %s
             """, (device_id,))
             row = cur.fetchone()
-            
+
             if not row:
                 return jsonify({'error': 'Device not found'}), 404
-            
+
             device = dict(row)
             device['first_seen_utc'] = _isoformat(device.get('first_seen_utc'))
             device['last_seen_utc'] = _isoformat(device.get('last_seen_utc'))
@@ -1527,7 +1527,7 @@ def api_lan_device_detail(device_id):
         return jsonify({'error': 'Database error'}), 500
     finally:
         conn.close()
-    
+
     return jsonify(device)
 
 
@@ -1575,7 +1575,7 @@ def api_lan_device_update(device_id):
 def api_lan_device_timeline(device_id):
     """Get time-series data for a device."""
     hours = int(request.args.get('hours', '24'))
-    
+
     conn = get_db_connection()
     if conn is None:
         # Return mock timeline data
@@ -1591,11 +1591,11 @@ def api_lan_device_timeline(device_id):
                 'is_online': random.choice([True, True, True, False])
             })
         return jsonify({'timeline': timeline})
-    
+
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute("""
-                SELECT 
+                SELECT
                     sample_time_utc,
                     ip_address,
                     interface,
@@ -1609,7 +1609,7 @@ def api_lan_device_timeline(device_id):
                 ORDER BY sample_time_utc ASC
             """, (device_id, hours))
             rows = cur.fetchall()
-            
+
             timeline = []
             for row in rows:
                 point = dict(row)
@@ -1620,7 +1620,7 @@ def api_lan_device_timeline(device_id):
         return jsonify({'error': 'Database error'}), 500
     finally:
         conn.close()
-    
+
     return jsonify({'timeline': timeline})
 
 
@@ -1628,7 +1628,7 @@ def api_lan_device_timeline(device_id):
 def api_lan_device_events(device_id):
     """Get syslog events associated with a device."""
     limit = int(request.args.get('limit', '50'))
-    
+
     conn = get_db_connection()
     if conn is None:
         # Return mock events
@@ -1648,11 +1648,11 @@ def api_lan_device_events(device_id):
             }
         ]
         return jsonify({'events': events})
-    
+
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute("""
-                SELECT 
+                SELECT
                     s.received_utc AS timestamp,
                     s.severity,
                     s.message,
@@ -1666,7 +1666,7 @@ def api_lan_device_events(device_id):
                 LIMIT %s
             """, (device_id, limit))
             rows = cur.fetchall()
-            
+
             events = []
             for row in rows:
                 event = dict(row)
@@ -1678,7 +1678,7 @@ def api_lan_device_events(device_id):
         return jsonify({'error': 'Database error'}), 500
     finally:
         conn.close()
-    
+
     return jsonify({'events': events})
 
 

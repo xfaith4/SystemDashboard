@@ -338,7 +338,7 @@ function Invoke-PostgresCopy {
         else {
             $table = $TableName
         }
-        $copyCommand = "\\copy $table (received_utc, event_utc, source_host, app_name, facility, severity, message, raw_message, remote_endpoint, source) FROM '$CsvPath' WITH (FORMAT csv, HEADER true, DELIMITER ',');"
+        $copyCommand = "\copy $table (received_utc, event_utc, source_host, app_name, facility, severity, message, raw_message, remote_endpoint, source) FROM '$CsvPath' WITH (FORMAT csv, HEADER true, DELIMITER ',');"
 
         # Write the COPY command to a temp file to avoid quoting issues on Windows
         $sqlFile = [System.IO.Path]::GetTempFileName()
@@ -563,6 +563,9 @@ function Invoke-AsusWifiClientScan {
         return @()
     }
 
+    # Convert plain text password to SecureString
+    $securePassword = ConvertTo-SecureString $password -AsPlainText -Force
+
     try {
         # Commands to gather WiFi client information
         $commands = @(
@@ -586,7 +589,7 @@ function Invoke-AsusWifiClientScan {
             try {
                 # Placeholder for SSH command execution
                 # In real implementation, this would execute SSH commands
-                $output = Invoke-SSHCommand -ComputerName $routerIP -Username $username -Password $password -Command $command
+                $output = Invoke-SSHCommand -ComputerName $routerIP -Username $username -Password $securePassword -Command $command
 
                 if ($output -and $output.Length -gt 0) {
                     $wifiEvent = [pscustomobject]@{
@@ -623,7 +626,7 @@ function Invoke-SSHCommand {
     param(
         [Parameter(Mandatory)][string]$ComputerName,
         [Parameter(Mandatory)][string]$Username,
-        [Parameter(Mandatory)][string]$Password,
+        [Parameter(Mandatory)][SecureString]$Password,
         [Parameter(Mandatory)][string]$Command
     )
 
@@ -634,8 +637,7 @@ function Invoke-SSHCommand {
     Write-Verbose "SSH Command placeholder: $Username@$ComputerName : $Command"
 
     # Example of what this would look like with Posh-SSH:
-    # $securePassword = ConvertTo-SecureString $Password -AsPlainText -Force
-    # $credential = New-Object System.Management.Automation.PSCredential($Username, $securePassword)
+    # $credential = New-Object System.Management.Automation.PSCredential($Username, $Password)
     # $session = New-SSHSession -ComputerName $ComputerName -Credential $credential -AcceptKey
     # $result = Invoke-SSHCommand -SessionId $session.SessionId -Command $Command
     # Remove-SSHSession -SessionId $session.SessionId
