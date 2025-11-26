@@ -194,50 +194,85 @@ def lookup_mac_vendor(mac_address):
         return None
 
 
-def get_windows_events(level: str = None, max_events: int = 50, with_source: bool = False, since_hours: int = None, offset: int = 0):
+def get_windows_events(level: str = None, max_events: int = 50, with_source: bool = False, since_hours: int = None, offset: int = 0, log_types: list = None):
     """Fetch recent Windows events via PowerShell. Level can be 'Error', 'Warning', or None for any.
-    Returns list of dicts with time, source, id, level, message.
+    log_types can be a list like ['Application', 'System', 'Security']. Defaults to all three.
+    Returns list of dicts with time, source, id, level, message, log_type.
     """
+    # Default to all three log types if not specified
+    if log_types is None:
+        log_types = ['Application', 'System', 'Security']
+    
+    # Validate and filter log types
+    valid_log_types = ['Application', 'System', 'Security']
+    log_types = [lt for lt in log_types if lt in valid_log_types]
+    if not log_types:
+        log_types = ['Application', 'System', 'Security']
+    
     if not _is_windows():
         # Return mock events for demonstration purposes on non-Windows platforms
         now = datetime.datetime.now(datetime.UTC)
-        mock_events = [
+        all_mock_events = [
             {
                 'time': _to_est_string(now - datetime.timedelta(minutes=30)),
                 'source': 'Application Error',
                 'id': 1001,
                 'level': 'Warning',
-                'message': 'Mock application warning - database connection timeout occurred during operation'
+                'message': 'Mock application warning - database connection timeout occurred during operation',
+                'log_type': 'Application'
             },
             {
                 'time': _to_est_string(now - datetime.timedelta(hours=1)),
                 'source': 'Service Control Manager',
                 'id': 2001,
                 'level': 'Error',
-                'message': 'Mock system error - service failed to start due to configuration issue'
+                'message': 'Mock system error - service failed to start due to configuration issue',
+                'log_type': 'System'
             },
             {
                 'time': _to_est_string(now - datetime.timedelta(hours=2)),
                 'source': 'DNS Client',
                 'id': 1002,
                 'level': 'Information',
-                'message': 'Mock information event - DNS resolution completed successfully for domain'
+                'message': 'Mock information event - DNS resolution completed successfully for domain',
+                'log_type': 'System'
             },
             {
                 'time': _to_est_string(now - datetime.timedelta(minutes=45)),
                 'source': 'Application Error',
                 'id': 1003,
                 'level': 'Error',
-                'message': 'Mock critical error - application crashed due to memory access violation'
+                'message': 'Mock critical error - application crashed due to memory access violation',
+                'log_type': 'Application'
             },
             {
                 'time': _to_est_string(now - datetime.timedelta(minutes=15)),
                 'source': 'System',
                 'id': 3001,
                 'level': 'Warning',
-                'message': 'Mock system warning - disk space running low on drive C:'
+                'message': 'Mock system warning - disk space running low on drive C:',
+                'log_type': 'System'
+            },
+            {
+                'time': _to_est_string(now - datetime.timedelta(minutes=20)),
+                'source': 'Microsoft-Windows-Security-Auditing',
+                'id': 4624,
+                'level': 'Information',
+                'message': 'Mock security event - An account was successfully logged on',
+                'log_type': 'Security'
+            },
+            {
+                'time': _to_est_string(now - datetime.timedelta(minutes=10)),
+                'source': 'Microsoft-Windows-Security-Auditing',
+                'id': 4625,
+                'level': 'Warning',
+                'message': 'Mock security warning - An account failed to log on',
+                'log_type': 'Security'
             }
         ]
+
+        # Filter by log types
+        mock_events = [e for e in all_mock_events if e['log_type'] in log_types]
 
         # Filter by level if specified
         if level:
@@ -253,11 +288,14 @@ def get_windows_events(level: str = None, max_events: int = 50, with_source: boo
         code = level_map.get(level.lower())
         if code:
             level_filter = f"; Level={code}"
+    
+    # Build LogName filter from selected log types
+    log_names = ','.join(f"'{lt}'" for lt in log_types)
     ps = (
         "Get-WinEvent -FilterHashtable @{"
-        "LogName='Application','System'" + level_filter + "} "
+        f"LogName={log_names}" + level_filter + "} "
         f"-MaxEvents {max_events} | "
-        "Select-Object TimeCreated, ProviderName, Id, LevelDisplayName, Message | "
+        "Select-Object TimeCreated, ProviderName, Id, LevelDisplayName, Message, LogName | "
         "ConvertTo-Json -Depth 4"
     )
     try:
@@ -279,6 +317,7 @@ def get_windows_events(level: str = None, max_events: int = 50, with_source: boo
                 'id': e.get('Id'),
                 'level': e.get('LevelDisplayName'),
                 'message': e.get('Message'),
+                'log_type': e.get('LogName'),
             })
         # Apply simple offset/pagination for UI
         if offset > 0:
@@ -578,6 +617,7 @@ def _normalize_events(events: list[dict]) -> list[dict]:
         src = e.get('source') or e.get('Source') or e.get('ProviderName') or ''
         lvl = e.get('level') or e.get('Level') or e.get('LevelDisplayName') or ''
         time_val = e.get('time') or e.get('TimeCreated')
+        log_type = e.get('log_type') or e.get('LogName') or ''
 
         if not lvl:
             lower = msg.lower()
@@ -592,7 +632,8 @@ def _normalize_events(events: list[dict]) -> list[dict]:
             'time': _isoformat(time_val),
             'level': lvl,
             'source': src,
-            'message': msg
+            'message': msg,
+            'log_type': log_type
         })
     return normalized
 
@@ -937,14 +978,24 @@ def api_events():
     Supports both /api/events and /api/events/logs routes for convention consistency.
     When connected to Postgres, queries the eventlog_windows_recent view.
     Falls back to PowerShell Get-WinEvent on Windows or mock data elsewhere.
+    Query params:
+    - log_types: comma-separated list of log types (Application,System,Security). Defaults to all three.
     """
     level = request.args.get('level')
     max_events = int(request.args.get('max', '100'))
     page = int(request.args.get('page', '1'))
     since_hours = request.args.get('since_hours')
+    log_types_param = request.args.get('log_types', '')
+    
+    # Parse log_types parameter
+    if log_types_param:
+        log_types = [lt.strip() for lt in log_types_param.split(',') if lt.strip()]
+    else:
+        log_types = None  # Will default to all three in get_windows_events
+    
     offset = (page - 1) * max_events if page > 0 else 0
     since = int(since_hours) if since_hours else None
-    events_raw, source = get_windows_events(level=level, max_events=max_events, with_source=True, since_hours=since, offset=offset)
+    events_raw, source = get_windows_events(level=level, max_events=max_events, with_source=True, since_hours=since, offset=offset, log_types=log_types)
     events = _normalize_events(events_raw)
     return jsonify({'events': events, 'source': source, 'page': page})
 
@@ -953,8 +1004,16 @@ def api_events():
 def api_events_summary():
     max_events = int(request.args.get('max', '300'))
     since_hours = request.args.get('since_hours')
+    log_types_param = request.args.get('log_types', '')
+    
+    # Parse log_types parameter
+    if log_types_param:
+        log_types = [lt.strip() for lt in log_types_param.split(',') if lt.strip()]
+    else:
+        log_types = None  # Will default to all three in get_windows_events
+    
     since = int(since_hours) if since_hours else None
-    events_raw, source = get_windows_events(max_events=max_events, with_source=True, since_hours=since)
+    events_raw, source = get_windows_events(max_events=max_events, with_source=True, since_hours=since, log_types=log_types)
     events = _normalize_events(events_raw)
     data = summarize_system_events(events)
     data['source'] = source
