@@ -1,5 +1,9 @@
 # Changelog
 
+## [Unreleased]
+### Fixed
+- Dashboard now correctly displays sample data when database is connected but empty, instead of showing confusing zeros across all metrics. The blue info banner "Sample data displayed — database connection unavailable" indicates when mock data is being used.
+
 ## [1.1.0] - 2025-09-18
 ### Added
 - PowerShell telemetry service (`services/SystemDashboardService.ps1`) orchestrating syslog listening, ASUS router polling, and PostgreSQL ingestion via `psql` COPY.

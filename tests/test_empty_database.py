@@ -36,7 +36,7 @@ def test_empty_database_returns_mock_data():
         result = flask_app.get_dashboard_summary()
     
     # Verify that mock data is returned
-    assert result['using_mock'] == True, 'Should use mock data when database is empty'
+    assert result['using_mock'] is True, 'Should use mock data when database is empty'
     assert result['iis']['current_errors'] > 0, 'Mock data should have IIS errors'
     assert len(result['auth']) > 0, 'Mock data should have auth failures'
     assert len(result['windows']) > 0, 'Mock data should have Windows events'
@@ -66,7 +66,7 @@ def test_database_with_iis_data_only():
         result = flask_app.get_dashboard_summary()
     
     # Verify that real data is returned (not mock)
-    assert result['using_mock'] == False, 'Should use real data when IIS data exists'
+    assert result['using_mock'] is False, 'Should use real data when IIS data exists'
     assert result['iis']['current_errors'] == 5, 'Should return actual IIS errors'
     assert result['iis']['total_requests'] == 100, 'Should return actual total requests'
 
@@ -90,8 +90,13 @@ def test_database_with_syslog_data_only():
         [],  # Auth query
         [],  # Windows query
         [],  # Router query
-        [{'received_utc': '2024-01-01T12:00:00Z', 'source': 'test', 
-          'source_host': 'test-host', 'severity': 6, 'message': 'Test message'}],  # Syslog query
+        [{
+            'received_utc': '2024-01-01T12:00:00Z',
+            'source': 'test',
+            'source_host': 'test-host',
+            'severity': 6,
+            'message': 'Test message'
+        }],  # Syslog query
     ]
     
     # Patch get_db_connection to return our mock
@@ -99,7 +104,7 @@ def test_database_with_syslog_data_only():
         result = flask_app.get_dashboard_summary()
     
     # Verify that real data is returned (not mock)
-    assert result['using_mock'] == False, 'Should use real data when syslog data exists'
+    assert result['using_mock'] is False, 'Should use real data when syslog data exists'
     assert len(result['syslog']) > 0, 'Should have syslog entries'
 
 
