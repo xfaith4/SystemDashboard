@@ -85,13 +85,13 @@
         {% block content %}{% endblock %}
     </main>
     <script>
-        // Update time display
+        // Update time display in EST
         function updateTime() {
             const now = new Date();
-            const timeStr = now.toLocaleTimeString('en-US', { hour12: false });
-            const dateStr = now.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            const timeStr = now.toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour12: false });
+            const dateStr = now.toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric' });
             const el = document.getElementById('current-time');
-            if (el) el.textContent = `${dateStr} ${timeStr}`;
+            if (el) el.textContent = `${dateStr} ${timeStr} EST`;
         }
         updateTime();
         setInterval(updateTime, 1000);
