@@ -876,7 +876,18 @@ def get_dashboard_summary():
     finally:
         conn.close()
 
-    if not any([summary['auth'], summary['windows'], summary['router'], summary['syslog']]):
+    # Check if we have any meaningful data across all metrics
+    # If database is empty (no IIS requests, no auth failures, no Windows events, no router logs, no syslog),
+    # use mock data to provide a helpful example of what the dashboard looks like with data
+    has_data = (
+        summary['iis']['total_requests'] > 0 or
+        len(summary['auth']) > 0 or
+        len(summary['windows']) > 0 or
+        len(summary['router']) > 0 or
+        len(summary['syslog']) > 0
+    )
+    
+    if not has_data:
         return _mock_dashboard_summary()
 
     return summary
