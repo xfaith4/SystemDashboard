@@ -185,6 +185,8 @@ function getSelectedLogTypes() {
 // Build query string with log types
 function buildLogTypesQuery() {
     const logTypes = getSelectedLogTypes();
+    // If no log types selected, don't send parameter (backend defaults to all three)
+    // If some selected, send those specific ones
     return logTypes.length > 0 ? `&log_types=${logTypes.join(',')}`  : '';
 }
 
@@ -443,11 +445,11 @@ async function analyzeTrends() {
             const secData = await securityResponse.json();
             const sysData = await systemResponse.json();
             
-            // Combine all events
+            // Combine all events (log_type already set by backend)
             events = [
-                ...(appData.events || []).map(e => ({ ...e, log_type: 'Application' })),
-                ...(secData.events || []).map(e => ({ ...e, log_type: 'Security' })),
-                ...(sysData.events || []).map(e => ({ ...e, log_type: 'System' }))
+                ...(appData.events || []),
+                ...(secData.events || []),
+                ...(sysData.events || [])
             ];
             
             // Sort by time descending
