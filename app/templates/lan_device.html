@@ -44,7 +44,10 @@
             </div>
             <div class="info-item">
                 <span class="label">Vendor</span>
-                <span class="value" id="info-vendor">--</span>
+                <span class="value">
+                    <span id="info-vendor">--</span>
+                    <button class="btn-small-inline" onclick="lookupVendor()" title="Look up vendor from MAC address">🔍 Lookup</button>
+                </span>
             </div>
             <div class="info-item">
                 <span class="label">First Seen</span>
@@ -236,6 +239,32 @@ async function loadDeviceInfo() {
         }
     } catch (error) {
         console.error('Failed to load device info:', error);
+    }
+}
+
+async function lookupVendor() {
+    const vendorEl = document.getElementById('info-vendor');
+    const originalText = vendorEl.textContent;
+    vendorEl.textContent = 'Looking up...';
+    
+    try {
+        const response = await fetch(`/api/lan/device/${deviceId}/lookup-vendor`, {
+            method: 'POST'
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            vendorEl.textContent = data.vendor;
+            setTimeout(() => loadDeviceInfo(), 500);
+        } else {
+            vendorEl.textContent = originalText;
+            alert(data.message || 'Vendor lookup failed');
+        }
+    } catch (error) {
+        console.error('Failed to lookup vendor:', error);
+        vendorEl.textContent = originalText;
+        alert('Error looking up vendor');
     }
 }
 
@@ -579,5 +608,20 @@ document.addEventListener('DOMContentLoaded', () => {
 .edit-status.saving { color: var(--status-warning); }
 .edit-status.success { color: var(--status-healthy); }
 .edit-status.error { color: var(--status-critical); }
+
+.btn-small-inline {
+    padding: 0.15rem 0.5rem;
+    margin-left: 0.5rem;
+    font-size: 0.75rem;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-md);
+    color: var(--text-primary);
+    cursor: pointer;
+}
+
+.btn-small-inline:hover {
+    background: var(--accent-primary);
+}
 </style>
 {% endblock %}
