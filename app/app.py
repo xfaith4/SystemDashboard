@@ -1435,6 +1435,200 @@ def api_ai_explain():
         return jsonify({'error': f'AI explanation failed: {ex}'}), 502
 
 
+@app.route('/api/ai/feedback', methods=['POST'])
+def api_ai_feedback_create():
+    """Create a new AI feedback entry when AI explains an event."""
+    data = request.get_json(silent=True) or {}
+    
+    # Extract event details
+    event_id = data.get('event_id')
+    event_source = (data.get('event_source') or '')[:500]
+    event_message = (data.get('event_message') or '')[:8000]
+    event_log_type = (data.get('event_log_type') or '')[:100]
+    event_level = (data.get('event_level') or '')[:50]
+    event_time = data.get('event_time')
+    ai_response = (data.get('ai_response') or '')[:10000]
+    review_status = data.get('review_status', 'Viewed')  # Default to 'Viewed'
+    
+    # Validate required fields
+    if not event_message:
+        return jsonify({'error': 'Missing event_message'}), 400
+    if not ai_response:
+        return jsonify({'error': 'Missing ai_response'}), 400
+    if review_status not in ['Pending', 'Viewed', 'Resolved']:
+        return jsonify({'error': 'Invalid review_status. Must be Pending, Viewed, or Resolved'}), 400
+    
+    # Get database connection
+    conn = get_db_connection()
+    if conn is None:
+        return jsonify({'error': 'Database unavailable'}), 503
+    
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                """
+                INSERT INTO telemetry.ai_feedback 
+                (event_id, event_source, event_message, event_log_type, event_level, 
+                 event_time, ai_response, review_status)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING id, created_at, updated_at
+                """,
+                (event_id, event_source, event_message, event_log_type, event_level,
+                 event_time, ai_response, review_status)
+            )
+            result = cur.fetchone()
+            conn.commit()
+            
+            return jsonify({
+                'status': 'ok',
+                'id': result['id'],
+                'created_at': _isoformat(result['created_at']),
+                'updated_at': _isoformat(result['updated_at'])
+            }), 201
+    except Exception as exc:
+        app.logger.error('Failed to create AI feedback: %s', exc)
+        conn.rollback()
+        return jsonify({'error': 'Database error'}), 500
+    finally:
+        conn.close()
+
+
+@app.route('/api/ai/feedback', methods=['GET'])
+def api_ai_feedback_list():
+    """Retrieve AI feedback entries with optional filtering."""
+    # Parse query parameters
+    limit = min(int(request.args.get('limit', '50')), 200)
+    offset = int(request.args.get('offset', '0'))
+    review_status = request.args.get('status')  # Filter by status
+    event_log_type = request.args.get('log_type')  # Filter by log type
+    since_days = request.args.get('since_days', '30')  # Default to last 30 days
+    
+    # Get database connection
+    conn = get_db_connection()
+    if conn is None:
+        return jsonify({'feedback': [], 'total': 0, 'source': 'unavailable'})
+    
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            # Build WHERE clause
+            conditions = [f"created_at >= NOW() - INTERVAL '{int(since_days)} days'"]
+            params = []
+            
+            if review_status:
+                conditions.append("review_status = %s")
+                params.append(review_status)
+            
+            if event_log_type:
+                conditions.append("event_log_type = %s")
+                params.append(event_log_type)
+            
+            where_clause = ' AND '.join(conditions)
+            
+            # Get total count
+            count_query = f"SELECT COUNT(*) FROM telemetry.ai_feedback WHERE {where_clause}"
+            cur.execute(count_query, params)
+            total = cur.fetchone()['count']
+            
+            # Get paginated results
+            query = f"""
+                SELECT 
+                    id,
+                    event_id,
+                    event_source,
+                    event_message,
+                    event_log_type,
+                    event_level,
+                    event_time,
+                    ai_response,
+                    review_status,
+                    created_at,
+                    updated_at
+                FROM telemetry.ai_feedback
+                WHERE {where_clause}
+                ORDER BY created_at DESC
+                LIMIT %s OFFSET %s
+            """
+            cur.execute(query, params + [limit, offset])
+            rows = cur.fetchall()
+            
+            # Format results
+            feedback = []
+            for row in rows:
+                feedback.append({
+                    'id': row['id'],
+                    'event_id': row['event_id'],
+                    'event_source': row['event_source'],
+                    'event_message': row['event_message'],
+                    'event_log_type': row['event_log_type'],
+                    'event_level': row['event_level'],
+                    'event_time': _isoformat(row['event_time']),
+                    'ai_response': row['ai_response'],
+                    'review_status': row['review_status'],
+                    'created_at': _isoformat(row['created_at']),
+                    'updated_at': _isoformat(row['updated_at'])
+                })
+            
+            return jsonify({
+                'feedback': feedback,
+                'total': total,
+                'limit': limit,
+                'offset': offset,
+                'source': 'database'
+            })
+    except Exception as exc:
+        app.logger.error('Failed to retrieve AI feedback: %s', exc)
+        return jsonify({'error': 'Database error'}), 500
+    finally:
+        conn.close()
+
+
+@app.route('/api/ai/feedback/<int:feedback_id>/status', methods=['PATCH'])
+def api_ai_feedback_update_status(feedback_id):
+    """Update the review status of an AI feedback entry."""
+    data = request.get_json(silent=True) or {}
+    new_status = data.get('status')
+    
+    # Validate status
+    if not new_status or new_status not in ['Pending', 'Viewed', 'Resolved']:
+        return jsonify({'error': 'Invalid status. Must be Pending, Viewed, or Resolved'}), 400
+    
+    # Get database connection
+    conn = get_db_connection()
+    if conn is None:
+        return jsonify({'error': 'Database unavailable'}), 503
+    
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                """
+                UPDATE telemetry.ai_feedback
+                SET review_status = %s
+                WHERE id = %s
+                RETURNING id, review_status, updated_at
+                """,
+                (new_status, feedback_id)
+            )
+            result = cur.fetchone()
+            
+            if not result:
+                return jsonify({'error': 'Feedback entry not found'}), 404
+            
+            conn.commit()
+            
+            return jsonify({
+                'status': 'ok',
+                'id': result['id'],
+                'review_status': result['review_status'],
+                'updated_at': _isoformat(result['updated_at'])
+            })
+    except Exception as exc:
+        app.logger.error('Failed to update AI feedback status: %s', exc)
+        conn.rollback()
+        return jsonify({'error': 'Database error'}), 500
+    finally:
+        conn.close()
+
+
 @app.route('/health')
 def health():
     # Check database connection instead of backend service
