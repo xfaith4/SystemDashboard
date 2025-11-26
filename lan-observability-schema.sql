@@ -253,6 +253,34 @@ ALTER TABLE telemetry.devices
 ALTER TABLE telemetry.devices
     ADD COLUMN IF NOT EXISTS network_type TEXT DEFAULT 'main'; -- 'main', 'guest', 'iot', 'unknown'
 
+-- Device events table for tracking connect/disconnect and other events
+CREATE TABLE IF NOT EXISTS telemetry.device_events (
+    event_id            BIGSERIAL PRIMARY KEY,
+    device_id           INTEGER NOT NULL REFERENCES telemetry.devices(device_id) ON DELETE CASCADE,
+    event_type          TEXT NOT NULL, -- 'connected', 'disconnected', 'reconnected', 'ip_change', 'interface_change'
+    event_time          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    previous_state      JSONB,
+    new_state           JSONB,
+    details             TEXT,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_device_events_device ON telemetry.device_events (device_id, event_time DESC);
+CREATE INDEX IF NOT EXISTS idx_device_events_type ON telemetry.device_events (event_type, event_time DESC);
+CREATE INDEX IF NOT EXISTS idx_device_events_time ON telemetry.device_events (event_time DESC);
+
+-- Event settings
+INSERT INTO telemetry.lan_settings (setting_key, setting_value, description)
+VALUES 
+    ('track_device_events', 'true', 'Track device connect/disconnect events'),
+    ('event_retention_days', '90', 'Days to keep device event history')
+ON CONFLICT (setting_key) DO NOTHING;
+
+GRANT SELECT, INSERT ON telemetry.device_events TO sysdash_ingest;
+GRANT SELECT ON telemetry.device_events TO sysdash_reader;
+
+COMMENT ON TABLE telemetry.device_events IS 'Timeline of device connection events (connect/disconnect/changes)';
+
 -- Device alerts table for tracking network issues and events
 CREATE TABLE IF NOT EXISTS telemetry.device_alerts (
     alert_id            BIGSERIAL PRIMARY KEY,

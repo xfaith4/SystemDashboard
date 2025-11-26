@@ -1720,6 +1720,68 @@ def api_lan_device_events(device_id):
     return jsonify({'events': events})
 
 
+@app.route('/api/lan/device/<device_id>/connection-events')
+def api_lan_device_connection_events(device_id):
+    """Get connection/disconnection event timeline for a device."""
+    limit = int(request.args.get('limit', '50'))
+    
+    conn = get_db_connection()
+    if conn is None:
+        # Return mock events
+        now = datetime.datetime.now(datetime.UTC)
+        events = [
+            {
+                'event_id': 1,
+                'event_type': 'connected',
+                'event_time': (now - datetime.timedelta(hours=2)).isoformat(),
+                'details': 'Device connected to network'
+            },
+            {
+                'event_id': 2,
+                'event_type': 'disconnected',
+                'event_time': (now - datetime.timedelta(hours=5)).isoformat(),
+                'details': 'Device went offline'
+            },
+            {
+                'event_id': 3,
+                'event_type': 'connected',
+                'event_time': (now - datetime.timedelta(days=1)).isoformat(),
+                'details': 'Device connected to network'
+            }
+        ]
+        return jsonify({'events': events})
+    
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("""
+                SELECT 
+                    event_id,
+                    event_type,
+                    event_time,
+                    previous_state,
+                    new_state,
+                    details
+                FROM telemetry.device_events
+                WHERE device_id = %s
+                ORDER BY event_time DESC
+                LIMIT %s
+            """, (device_id, limit))
+            rows = cur.fetchall()
+            
+            events = []
+            for row in rows:
+                event = dict(row)
+                event['event_time'] = _isoformat(event.get('event_time'))
+                events.append(event)
+    except Exception as exc:
+        app.logger.debug('Device connection events query failed: %s', exc)
+        return jsonify({'error': 'Database error'}), 500
+    finally:
+        conn.close()
+    
+    return jsonify({'events': events})
+
+
 @app.route('/lan')
 def lan_overview():
     """LAN overview dashboard page."""
