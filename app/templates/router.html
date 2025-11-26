@@ -226,7 +226,8 @@ const chartOptions = {
 function formatTime(value) {
     if (!value) return '--';
     const dt = new Date(value);
-    return dt.toLocaleString();
+    // Format in EST timezone
+    return dt.toLocaleString('en-US', { timeZone: 'America/New_York', hour12: false });
 }
 
 async function loadSummary() {
