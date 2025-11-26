@@ -5,6 +5,7 @@ import os
 import sys
 import datetime
 import zoneinfo
+import pytest
 
 # Add the app directory to the path so we can import app
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'app'))
@@ -138,9 +139,6 @@ def test_api_dashboard_summary_returns_est_timestamps(client):
         if time_str and time_str != '':
             assert '-04:00' in time_str or '-05:00' in time_str, f"Expected EST timezone in {time_str}"
 
-
-# Import pytest fixture
-import pytest
 
 @pytest.fixture
 def client():
