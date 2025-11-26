@@ -7,40 +7,36 @@
             <h1>Operations Overview</h1>
             <p class="subtitle">Real-time monitoring of your home infrastructure</p>
         </div>
-        {% if summary.using_mock %}
-        <div class="notice">Sample data displayed — database connection unavailable</div>
-        {% endif %}
+        <div id="mock-notice" class="notice" style="display: none;">Sample data displayed — database connection unavailable</div>
     </header>
 
     <!-- Primary KPI Cards -->
     <div class="kpi-grid">
-        <article class="kpi-card{% if summary.iis.spike %} alert{% endif %}">
+        <article class="kpi-card" id="iis-card">
             <h2>IIS Server Errors</h2>
-            <p class="metric">{{ summary.iis.current_errors }}</p>
+            <p class="metric" id="iis-metric">Loading...</p>
             <p class="detail">Last 5 minutes</p>
-            <p class="detail">Baseline: {{ summary.iis.baseline_avg }} ± {{ summary.iis.baseline_std }}</p>
-            {% if summary.iis.spike %}
-            <p class="alert-text">Spike detected — investigate immediately</p>
-            {% endif %}
+            <p class="detail" id="iis-baseline">Baseline: ...</p>
+            <p class="alert-text" id="iis-alert" style="display: none;">Spike detected — investigate immediately</p>
         </article>
         
-        <article class="kpi-card{% if summary.auth|length > 0 %} warning{% endif %}">
+        <article class="kpi-card" id="auth-card">
             <h2>Auth Failures</h2>
-            <p class="metric">{{ summary.auth|length }}</p>
+            <p class="metric" id="auth-metric">Loading...</p>
             <p class="detail">Burst events (15 min)</p>
             <p class="detail">Threshold: ≥ {{ auth_threshold }} per client</p>
         </article>
         
-        <article class="kpi-card{% if summary.windows|length > 3 %} warning{% endif %}">
+        <article class="kpi-card" id="windows-card">
             <h2>Windows Events</h2>
-            <p class="metric">{{ summary.windows|length }}</p>
+            <p class="metric" id="windows-metric">Loading...</p>
             <p class="detail">Critical/Error level</p>
             <p class="detail">Last 10 minutes</p>
         </article>
         
-        <article class="kpi-card{% if summary.router|length > 3 %} warning{% endif %}">
+        <article class="kpi-card" id="router-card">
             <h2>Router Alerts</h2>
-            <p class="metric">{{ summary.router|length }}</p>
+            <p class="metric" id="router-metric">Loading...</p>
             <p class="detail">WAN/DHCP/Auth issues</p>
             <p class="detail">Recent window</p>
         </article>
@@ -73,143 +69,261 @@
     <section class="panel-grid">
         <article class="panel">
             <h2>Authentication Bursts</h2>
-            {% if summary.auth %}
-            <table class="data-table">
-                <thead>
-                    <tr><th>Client IP</th><th>Failures</th><th>Last Seen</th></tr>
-                </thead>
-                <tbody>
-                    {% for item in summary.auth %}
-                    <tr>
-                        <td><code>{{ item.client_ip }}</code></td>
-                        <td><span class="badge badge-warning">{{ item.count }}</span></td>
-                        <td>{{ item.last_seen }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-            {% else %}
-            <p class="empty">No authentication bursts detected in the last 15 minutes</p>
-            {% endif %}
+            <div id="auth-panel-content">
+                <p class="empty">Loading authentication burst data...</p>
+            </div>
         </article>
         
         <article class="panel">
             <h2>Windows Critical Events</h2>
-            {% if summary.windows %}
-            <table class="data-table">
-                <thead>
-                    <tr><th>Time</th><th>Source</th><th>Level</th><th>Message</th></tr>
-                </thead>
-                <tbody>
-                    {% for evt in summary.windows %}
-                    <tr>
-                        <td>{{ evt.time }}</td>
-                        <td>{{ evt.source }}</td>
-                        <td><span class="badge badge-{{ evt.level|lower }}">{{ evt.level }}</span></td>
-                        <td class="wrap">{{ evt.message[:100] }}{% if evt.message|length > 100 %}...{% endif %}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-            {% else %}
-            <p class="empty">No critical Windows events in the last 10 minutes</p>
-            {% endif %}
+            <div id="windows-panel-content">
+                <p class="empty">Loading Windows events...</p>
+            </div>
         </article>
     </section>
 
     <section class="panel">
         <h2>Router Alerts</h2>
-        {% if summary.router %}
-        <table class="data-table">
-            <thead>
-                <tr><th>Time</th><th>Severity</th><th>Message</th><th>Host</th></tr>
-            </thead>
-            <tbody>
-                {% for log in summary.router %}
-                <tr>
-                    <td>{{ log.time }}</td>
-                    <td><span class="badge badge-{{ log.severity|lower }}">{{ log.severity }}</span></td>
-                    <td class="wrap">{{ log.message }}</td>
-                    <td><code>{{ log.host }}</code></td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-        {% else %}
-        <p class="empty">No router anomalies in the recent window</p>
-        {% endif %}
+        <div id="router-panel-content">
+            <p class="empty">Loading router alerts...</p>
+        </div>
     </section>
 
     <section class="panel">
         <h2>Latest Syslog Activity</h2>
-        {% if summary.syslog %}
-        <table class="data-table">
-            <thead>
-                <tr><th>Time</th><th>Source</th><th>Severity</th><th>Message</th></tr>
-            </thead>
-            <tbody>
-                {% for entry in summary.syslog %}
-                <tr>
-                    <td>{{ entry.time }}</td>
-                    <td>{{ entry.source }}</td>
-                    <td><span class="badge badge-{{ entry.severity|lower }}">{{ entry.severity }}</span></td>
-                    <td class="wrap">{{ entry.message }}</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-        {% else %}
-        <p class="empty">No recent syslog messages captured</p>
-        {% endif %}
+        <div id="syslog-panel-content">
+            <p class="empty">Loading syslog activity...</p>
+        </div>
     </section>
 </section>
 
 <script>
-// Initialize trend charts with CSS-based bar visualization
+// Load dashboard data from API
 (async function() {
-    try {
-        const response = await fetch('/api/trends');
-        const data = await response.json();
-        
-        function createBarChart(containerId, values, color) {
-            const container = document.getElementById(containerId);
-            if (!container) return;
-            
-            const maxValue = Math.max.apply(Math, values.concat([1]));
-            
-            const chartHTML = `
-                <div class="bar-chart">
-                    ${data.dates.map((date, i) => {
-                        const height = Math.max((values[i] / maxValue) * 100, 3);
-                        const shortDate = date.substring(5);
-                        return `
-                            <div class="bar-wrapper">
-                                <div class="bar-container">
-                                    <div class="bar" style="height: ${height}%; background: ${color};" title="${date}: ${values[i]}">
-                                        <span class="bar-value">${values[i]}</span>
-                                    </div>
-                                </div>
-                                <div class="bar-label">${shortDate}</div>
-                            </div>
-                        `;
-                    }).join('')}
-                </div>
-            `;
-            
-            container.innerHTML = chartHTML;
-        }
-        
-        createBarChart('iisErrorsChart', data.iis_errors, '#ef4444');
-        createBarChart('authFailuresChart', data.auth_failures, '#f59e0b');
-        createBarChart('windowsErrorsChart', data.windows_errors, '#3b82f6');
-        createBarChart('routerAlertsChart', data.router_alerts, '#8b5cf6');
-        
-    } catch (error) {
-        console.error('Failed to load trend data:', error);
-        document.querySelectorAll('.chart-placeholder').forEach(el => {
-            el.textContent = 'Unable to load chart data';
-        });
+    // Helper function to escape HTML
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
     }
+
+    // Helper function to truncate text
+    function truncate(text, maxLength) {
+        if (!text) return '';
+        return text.length > maxLength ? text.substring(0, maxLength) + '...' : text;
+    }
+
+    // Load dashboard summary data
+    async function loadDashboardSummary() {
+        try {
+            const response = await fetch('/api/dashboard/summary');
+            if (!response.ok) {
+                throw new Error('Failed to fetch dashboard summary');
+            }
+            const summary = await response.json();
+            
+            // Show mock notice if using mock data
+            if (summary.using_mock) {
+                document.getElementById('mock-notice').style.display = 'block';
+            }
+            
+            // Update IIS card
+            const iisCard = document.getElementById('iis-card');
+            document.getElementById('iis-metric').textContent = summary.iis.current_errors;
+            document.getElementById('iis-baseline').textContent = 
+                `Baseline: ${summary.iis.baseline_avg} ± ${summary.iis.baseline_std}`;
+            
+            if (summary.iis.spike) {
+                iisCard.classList.add('alert');
+                document.getElementById('iis-alert').style.display = 'block';
+            }
+            
+            // Update Auth Failures card
+            const authCard = document.getElementById('auth-card');
+            document.getElementById('auth-metric').textContent = summary.auth.length;
+            if (summary.auth.length > 0) {
+                authCard.classList.add('warning');
+            }
+            
+            // Update Windows Events card
+            const windowsCard = document.getElementById('windows-card');
+            document.getElementById('windows-metric').textContent = summary.windows.length;
+            if (summary.windows.length > 3) {
+                windowsCard.classList.add('warning');
+            }
+            
+            // Update Router Alerts card
+            const routerCard = document.getElementById('router-card');
+            document.getElementById('router-metric').textContent = summary.router.length;
+            if (summary.router.length > 3) {
+                routerCard.classList.add('warning');
+            }
+            
+            // Update Authentication Bursts panel
+            const authPanel = document.getElementById('auth-panel-content');
+            if (summary.auth && summary.auth.length > 0) {
+                authPanel.innerHTML = `
+                    <table class="data-table">
+                        <thead>
+                            <tr><th>Client IP</th><th>Failures</th><th>Last Seen</th></tr>
+                        </thead>
+                        <tbody>
+                            ${summary.auth.map(item => `
+                                <tr>
+                                    <td><code>${escapeHtml(item.client_ip)}</code></td>
+                                    <td><span class="badge badge-warning">${item.count}</span></td>
+                                    <td>${escapeHtml(item.last_seen)}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                `;
+            } else {
+                authPanel.innerHTML = '<p class="empty">No authentication bursts detected in the last 15 minutes</p>';
+            }
+            
+            // Update Windows Critical Events panel
+            const windowsPanel = document.getElementById('windows-panel-content');
+            if (summary.windows && summary.windows.length > 0) {
+                windowsPanel.innerHTML = `
+                    <table class="data-table">
+                        <thead>
+                            <tr><th>Time</th><th>Source</th><th>Level</th><th>Message</th></tr>
+                        </thead>
+                        <tbody>
+                            ${summary.windows.map(evt => `
+                                <tr>
+                                    <td>${escapeHtml(evt.time)}</td>
+                                    <td>${escapeHtml(evt.source)}</td>
+                                    <td><span class="badge badge-${(evt.level || '').toLowerCase()}">${escapeHtml(evt.level)}</span></td>
+                                    <td class="wrap">${escapeHtml(truncate(evt.message, 100))}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                `;
+            } else {
+                windowsPanel.innerHTML = '<p class="empty">No critical Windows events in the last 10 minutes</p>';
+            }
+            
+            // Update Router Alerts panel
+            const routerPanel = document.getElementById('router-panel-content');
+            if (summary.router && summary.router.length > 0) {
+                routerPanel.innerHTML = `
+                    <table class="data-table">
+                        <thead>
+                            <tr><th>Time</th><th>Severity</th><th>Message</th><th>Host</th></tr>
+                        </thead>
+                        <tbody>
+                            ${summary.router.map(log => `
+                                <tr>
+                                    <td>${escapeHtml(log.time)}</td>
+                                    <td><span class="badge badge-${(log.severity || '').toLowerCase()}">${escapeHtml(log.severity)}</span></td>
+                                    <td class="wrap">${escapeHtml(log.message)}</td>
+                                    <td><code>${escapeHtml(log.host || '')}</code></td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                `;
+            } else {
+                routerPanel.innerHTML = '<p class="empty">No router anomalies in the recent window</p>';
+            }
+            
+            // Update Latest Syslog Activity panel
+            const syslogPanel = document.getElementById('syslog-panel-content');
+            if (summary.syslog && summary.syslog.length > 0) {
+                syslogPanel.innerHTML = `
+                    <table class="data-table">
+                        <thead>
+                            <tr><th>Time</th><th>Source</th><th>Severity</th><th>Message</th></tr>
+                        </thead>
+                        <tbody>
+                            ${summary.syslog.map(entry => `
+                                <tr>
+                                    <td>${escapeHtml(entry.time)}</td>
+                                    <td>${escapeHtml(entry.source)}</td>
+                                    <td><span class="badge badge-${(entry.severity || '').toLowerCase()}">${escapeHtml(entry.severity)}</span></td>
+                                    <td class="wrap">${escapeHtml(entry.message)}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                `;
+            } else {
+                syslogPanel.innerHTML = '<p class="empty">No recent syslog messages captured</p>';
+            }
+            
+        } catch (error) {
+            console.error('Failed to load dashboard summary:', error);
+            // Show error message in panels
+            document.getElementById('iis-metric').textContent = 'Error';
+            document.getElementById('auth-metric').textContent = 'Error';
+            document.getElementById('windows-metric').textContent = 'Error';
+            document.getElementById('router-metric').textContent = 'Error';
+            document.getElementById('auth-panel-content').innerHTML = '<p class="empty">Failed to load data</p>';
+            document.getElementById('windows-panel-content').innerHTML = '<p class="empty">Failed to load data</p>';
+            document.getElementById('router-panel-content').innerHTML = '<p class="empty">Failed to load data</p>';
+            document.getElementById('syslog-panel-content').innerHTML = '<p class="empty">Failed to load data</p>';
+        }
+    }
+
+    // Load trend charts
+    async function loadTrendCharts() {
+        try {
+            const response = await fetch('/api/trends');
+            if (!response.ok) {
+                throw new Error('Failed to fetch trend data');
+            }
+            const data = await response.json();
+            
+            function createBarChart(containerId, values, color) {
+                const container = document.getElementById(containerId);
+                if (!container) return;
+                
+                const maxValue = Math.max.apply(Math, values.concat([1]));
+                
+                const chartHTML = `
+                    <div class="bar-chart">
+                        ${data.dates.map((date, i) => {
+                            const height = Math.max((values[i] / maxValue) * 100, 3);
+                            const shortDate = date.substring(5);
+                            return `
+                                <div class="bar-wrapper">
+                                    <div class="bar-container">
+                                        <div class="bar" style="height: ${height}%; background: ${color};" title="${date}: ${values[i]}">
+                                            <span class="bar-value">${values[i]}</span>
+                                        </div>
+                                    </div>
+                                    <div class="bar-label">${shortDate}</div>
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
+                `;
+                
+                container.innerHTML = chartHTML;
+            }
+            
+            createBarChart('iisErrorsChart', data.iis_errors, '#ef4444');
+            createBarChart('authFailuresChart', data.auth_failures, '#f59e0b');
+            createBarChart('windowsErrorsChart', data.windows_errors, '#3b82f6');
+            createBarChart('routerAlertsChart', data.router_alerts, '#8b5cf6');
+            
+        } catch (error) {
+            console.error('Failed to load trend data:', error);
+            document.querySelectorAll('.chart-placeholder').forEach(el => {
+                el.textContent = 'Unable to load chart data';
+            });
+        }
+    }
+
+    // Load all data on page load
+    await loadDashboardSummary();
+    await loadTrendCharts();
+    
+    // Refresh data every 30 seconds
+    setInterval(loadDashboardSummary, 30000);
 })();
 </script>
 {% endblock %}
