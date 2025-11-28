@@ -50,18 +50,18 @@ $psqlPath = $config.Database.PsqlPath
 if (-not $psqlPath -or -not (Test-Path $psqlPath)) {
     # Try to find psql in common locations
     $commonPaths = @(
-        "C:\Program Files\PostgreSQL\16\bin\psql.exe",
+        "C:\Program Files\PostgreSQL\18\bin\psql.exe",
         "C:\Program Files\PostgreSQL\15\bin\psql.exe",
         "C:\Program Files\PostgreSQL\14\bin\psql.exe"
     )
-    
+
     foreach ($path in $commonPaths) {
         if (Test-Path $path) {
             $psqlPath = $path
             break
         }
     }
-    
+
     if (-not $psqlPath) {
         Write-Error "psql.exe not found. Please install PostgreSQL client tools or specify path in config.json"
         exit 1
@@ -86,20 +86,28 @@ $env:PGPASSWORD = $dbPassword
 $checkCmd = "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'telemetry' AND table_name = 'devices';"
 $checkResult = & "$psqlPath" -h $dbHost -p $dbPort -U $dbUser -d $dbName -t -c $checkCmd 2>&1
 
-if ($LASTEXITCODE -eq 0 -and $checkResult -match '^\s*(\d+)') {
-    $tableCount = [int]$matches[1]
-    
-    if ($tableCount -gt 0) {
-        Write-Host "LAN tables already exist in the database." -ForegroundColor Yellow
-        
-        if (-not $Force) {
-            Write-Host "`nThe schema appears to be already applied." -ForegroundColor Yellow
-            Write-Host "If you want to reapply the schema (this is safe for existing data), use the -Force parameter." -ForegroundColor Yellow
-            Write-Host "Example: .\apply-lan-schema.ps1 -Force" -ForegroundColor Cyan
-            exit 0
+if ($LASTEXITCODE -eq 0) {
+    $checkText = ($checkResult | Out-String)
+    $countMatch = [regex]::Match($checkText, '^\s*(\d+)', [System.Text.RegularExpressions.RegexOptions]::Multiline)
+
+    if ($countMatch.Success) {
+        $tableCount = [int]$countMatch.Groups[1].Value
+
+        if ($tableCount -gt 0) {
+            Write-Host "LAN tables already exist in the database." -ForegroundColor Yellow
+
+            if (-not $Force) {
+                Write-Host "`nThe schema appears to be already applied." -ForegroundColor Yellow
+                Write-Host "If you want to reapply the schema (this is safe for existing data), use the -Force parameter." -ForegroundColor Yellow
+                Write-Host "Example: .\apply-lan-schema.ps1 -Force" -ForegroundColor Cyan
+                exit 0
+            }
+
+            Write-Host "Force parameter specified. Proceeding with schema application..." -ForegroundColor Yellow
         }
-        
-        Write-Host "Force parameter specified. Proceeding with schema application..." -ForegroundColor Yellow
+    }
+    else {
+        Write-Warning "Could not parse table count from psql output: $checkText"
     }
 }
 
@@ -108,16 +116,16 @@ Write-Host "`nApplying LAN Observability schema..." -ForegroundColor Green
 
 try {
     $output = & "$psqlPath" -h $dbHost -p $dbPort -U $dbUser -d $dbName -f $schemaFile 2>&1
-    
+
     if ($LASTEXITCODE -ne 0) {
         Write-Error "Failed to apply schema. Exit code: $LASTEXITCODE"
         Write-Host "Output:" -ForegroundColor Red
         Write-Host $output
         exit 1
     }
-    
+
     Write-Host "`n✅ Schema applied successfully!" -ForegroundColor Green
-    
+
     # Show summary
     Write-Host "`nSchema Summary:" -ForegroundColor Cyan
     Write-Host "- Created devices table (stable inventory)" -ForegroundColor White
@@ -127,23 +135,23 @@ try {
     Write-Host "- Created helper functions and views" -ForegroundColor White
     Write-Host "- Set up initial partition for current month" -ForegroundColor White
     Write-Host "- Granted permissions to sysdash_ingest and sysdash_reader" -ForegroundColor White
-    
+
     # Verify tables
     Write-Host "`nVerifying tables..." -ForegroundColor Yellow
     $verifyCmd = @"
-SELECT table_name, 
-       pg_size_pretty(pg_total_relation_size('telemetry.' || table_name)) AS size
-FROM information_schema.tables 
-WHERE table_schema = 'telemetry' 
-  AND table_name IN ('devices', 'device_snapshots_template', 'syslog_device_links', 'lan_settings')
+SELECT table_name,
+pg_size_pretty(pg_total_relation_size('telemetry.' || table_name)) AS size
+FROM information_schema.tables
+WHERE table_schema = 'telemetry'
+AND table_name IN ('devices', 'device_snapshots_template', 'syslog_device_links', 'lan_settings')
 ORDER BY table_name;
 "@
-    
+
     $verifyResult = & "$psqlPath" -h $dbHost -p $dbPort -U $dbUser -d $dbName -c $verifyCmd 2>&1
     Write-Host $verifyResult
-    
+
     Write-Host "`n✅ All LAN Observability tables verified!" -ForegroundColor Green
-    
+
     # Show next steps
     Write-Host "`nNext Steps:" -ForegroundColor Cyan
     Write-Host "1. Start the LAN collector service:" -ForegroundColor White
