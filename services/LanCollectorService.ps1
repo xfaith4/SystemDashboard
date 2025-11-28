@@ -44,8 +44,27 @@ if (-not (Test-Path $logPath)) {
 }
 $logFile = Join-Path $logPath "lan-collector.log"
 
+$script:LogLevels = @{
+    'DEBUG' = 0
+    'INFO'  = 1
+    'WARN'  = 2
+    'ERROR' = 3
+}
+$script:EffectiveLogLevel = ($env:SYSTEMDASHBOARD_LOG_LEVEL ?? 'INFO').ToUpperInvariant()
+if (-not $LogLevels.ContainsKey($script:EffectiveLogLevel)) {
+    $script:EffectiveLogLevel = 'INFO'
+}
+
+function Should-Log {
+    param([string]$Level)
+    $levelName = ($Level ?? 'INFO').ToUpperInvariant()
+    if (-not $LogLevels.ContainsKey($levelName)) { $levelName = 'INFO' }
+    return $LogLevels[$levelName] -ge $LogLevels[$script:EffectiveLogLevel]
+}
+
 function Write-Log {
     param([string]$Message, [string]$Level = 'INFO')
+    if (-not (Should-Log -Level $Level)) { return }
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     $logMessage = "$timestamp [$Level] $Message"
     $logMessage | Out-File -FilePath $logFile -Append -Encoding utf8
@@ -68,6 +87,7 @@ function Get-DatabaseConnection {
         }
 
         $connString = "Host=$dbHost;Port=$dbPort;Database=$dbName;Username=$dbUser;Password=$dbPassword;Timeout=30;"
+        Write-Log "Connecting to database Host=$dbHost Port=$dbPort Database=$dbName User=$dbUser" -Level 'DEBUG'
 
         function Import-LibraryAssembly {
             param([string]$DllName)
@@ -143,6 +163,7 @@ function Invoke-CollectionCycle {
     try {
         # Get LAN settings from database
         $lanSettings = Get-LanSettings -DbConnection $DbConnection
+        Write-Log "LAN settings: inactive_threshold_minutes=$($lanSettings.inactive_threshold_minutes); snapshot_retention_days=$($lanSettings.snapshot_retention_days); syslog_correlation_enabled=$($lanSettings.syslog_correlation_enabled)" -Level 'DEBUG'
 
         # Poll router and collect device data
         Invoke-LanDeviceCollection -Config $Config -DbConnection $DbConnection
@@ -196,6 +217,17 @@ try {
     # Convert PSCustomObject to hashtable so downstream functions that expect hashtable work
     $configJson = $configObject | ConvertTo-Json -Depth 10
     $config = $configJson | ConvertFrom-Json -AsHashtable
+
+    $configuredLevel = $env:SYSTEMDASHBOARD_LOG_LEVEL
+    if (-not $configuredLevel -and $config.Logging.LogLevel) { $configuredLevel = $config.Logging.LogLevel }
+    elseif (-not $configuredLevel -and $config.Service.LogLevel) { $configuredLevel = $config.Service.LogLevel }
+    if ($configuredLevel) {
+        $candidate = $configuredLevel.ToUpperInvariant()
+        if ($LogLevels.ContainsKey($candidate)) {
+            $script:EffectiveLogLevel = $candidate
+        }
+    }
+    Write-Log "Log level set to $script:EffectiveLogLevel" -Level 'INFO'
 
     # Get poll interval from config or use parameter
     if ($config.Service.Asus.PollIntervalSeconds) {
