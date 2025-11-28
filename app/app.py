@@ -860,8 +860,9 @@ def get_dashboard_summary():
                     """
                 )
                 current = cur.fetchone() or {}
-                summary['iis']['current_errors'] = current.get('errors', 0) or 0
-                summary['iis']['total_requests'] = current.get('total', 0) or 0
+                # Use 'or 0' to handle None values that PostgreSQL may return for aggregate functions
+                summary['iis']['current_errors'] = int(current.get('errors') or 0)
+                summary['iis']['total_requests'] = int(current.get('total') or 0)
                 summary['iis']['error_rate'] = _calculate_error_rate(
                     summary['iis']['current_errors'],
                     summary['iis']['total_requests']
