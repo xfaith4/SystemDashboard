@@ -9,6 +9,7 @@ import socket
 import datetime
 from decimal import Decimal
 import zoneinfo
+import logging
 
 try:
     import psycopg2  # type: ignore
@@ -24,6 +25,14 @@ except Exception:  # pragma: no cover - optional dependency
     mac_lookup = None
 
 app = Flask(__name__)
+
+LOG_LEVEL_NAME = os.environ.get('DASHBOARD_LOG_LEVEL', 'INFO').upper()
+LOG_LEVEL = getattr(logging, LOG_LEVEL_NAME, logging.INFO)
+
+logging.basicConfig(level=LOG_LEVEL)
+app.logger.setLevel(LOG_LEVEL)
+logging.getLogger('werkzeug').setLevel(LOG_LEVEL)
+app.logger.info("Web UI starting with log level %s", logging.getLevelName(LOG_LEVEL))
 
 CHATTY_THRESHOLD = int(os.environ.get('CHATTY_THRESHOLD', '500'))
 AUTH_FAILURE_THRESHOLD = int(os.environ.get('AUTH_FAILURE_THRESHOLD', '10'))

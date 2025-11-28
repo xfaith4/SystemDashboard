@@ -43,11 +43,11 @@ function Start-WebUIService {
     # Load database configuration from config file
     $configPath = Join-Path $RootPath "config.json"
     if (Test-Path $configPath) {
-        try {
-            $config = Get-Content $configPath | ConvertFrom-Json
-            Write-ServiceLog "Loaded configuration from: $configPath"
-        } catch {
-            Write-ServiceLog "WARNING: Failed to load config file: $($_.Exception.Message)"
+    try {
+        $config = Get-Content $configPath | ConvertFrom-Json
+        Write-ServiceLog "Loaded configuration from: $configPath"
+    } catch {
+        Write-ServiceLog "WARNING: Failed to load config file: $($_.Exception.Message)"
             $config = $null
         }
     }
@@ -78,7 +78,18 @@ function Start-WebUIService {
     if (-not $env:DASHBOARD_PORT) { $env:DASHBOARD_PORT = "5001" }
     $env:FLASK_ENV = "production"
 
+    $desiredLogLevel = $env:SYSTEMDASHBOARD_LOG_LEVEL
+    if (-not $desiredLogLevel -and $config -and $config.Logging -and $config.Logging.LogLevel) {
+        $desiredLogLevel = $config.Logging.LogLevel
+    }
+    elseif (-not $desiredLogLevel -and $config -and $config.Service -and $config.Service.LogLevel) {
+        $desiredLogLevel = $config.Service.LogLevel
+    }
+    if (-not $desiredLogLevel) { $desiredLogLevel = 'INFO' }
+    $env:DASHBOARD_LOG_LEVEL = $desiredLogLevel
+
     Write-ServiceLog "Database config: Host=$($env:DASHBOARD_DB_HOST), Port=$($env:DASHBOARD_DB_PORT), DB=$($env:DASHBOARD_DB_NAME), User=$($env:DASHBOARD_DB_USER)"    # Verify prerequisites
+    Write-ServiceLog "Web UI log level: $($env:DASHBOARD_LOG_LEVEL)"
     if (-not (Test-Path $PythonExe)) {
         Write-ServiceLog "ERROR: Python virtual environment not found at $VenvPath"
         exit 1
