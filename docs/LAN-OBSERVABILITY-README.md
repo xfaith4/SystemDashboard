@@ -4,7 +4,7 @@ This document describes the LAN Observability feature added to the SystemDashboa
 
 ## Overview
 
-The LAN Observability layer provides comprehensive network device monitoring and tracking for your home/office network. It collects data from your ASUS router (via HTTP or SSH) and maintains:
+The LAN Observability layer provides comprehensive network device monitoring and tracking for your home/office network. It collects data from your ASUS router over SSH and maintains:
 
 - **Device Inventory**: Stable list of all devices ever seen on your network
 - **Time-Series Metrics**: Historical data on signal strength (RSSI), transfer rates, and online/offline status
@@ -83,9 +83,7 @@ Three main pages:
 - Npgsql assembly (for direct database connection in LanCollectorService)
   - Place `Npgsql.dll` in a `lib/` directory, or
   - Install via NuGet: `Install-Package Npgsql`
-- ASUS router with either:
-  - HTTP access (web UI credentials)
-  - SSH access (requires Posh-SSH module: `Install-Module Posh-SSH`)
+- ASUS router with SSH access (requires Posh-SSH module: `Install-Module Posh-SSH`)
 
 ### Step 1: Apply Database Schema
 
@@ -113,13 +111,13 @@ Edit `config.json` and ensure the ASUS router settings are correct:
   "Service": {
     "Asus": {
       "Enabled": true,
-      "Uri": "http://192.168.50.1/syslog.txt",
+      "RemoteLogPath": "/tmp/syslog.log",
       "HostName": "asus-router",
       "Username": "admin",
       "PasswordSecret": "env:ASUS_ROUTER_PASSWORD",
       "PollIntervalSeconds": 300,
       "SSH": {
-        "Enabled": false,
+        "Enabled": true,
         "Host": "192.168.50.1",
         "Username": "admin",
         "PasswordSecret": "env:ASUS_ROUTER_PASSWORD",
@@ -135,17 +133,12 @@ Set your router password as an environment variable:
 ```powershell
 $env:ASUS_ROUTER_PASSWORD = "your_router_password"
 ```
-
-#### Using SSH Instead of HTTP
-
-If HTTP scraping doesn't work reliably with your router firmware:
-
+SSH access is required for log collection and WiFi scanning:
 1. Enable SSH on your router (Administration → System → SSH Daemon = Yes)
 2. Install Posh-SSH module:
    ```powershell
    Install-Module -Name Posh-SSH -Scope CurrentUser
    ```
-3. Set `"SSH": { "Enabled": true }` in config.json
 
 ### Step 3: Start the Collector Service
 
@@ -196,17 +189,12 @@ SET setting_value = '14'
 WHERE setting_key = 'snapshot_retention_days';
 ```
 
-### Router Polling Methods
+### Router Polling Method
 
-The collector tries methods in this order:
-
-1. **SSH** (if `SSH.Enabled = true`) - Most reliable, requires Posh-SSH module
-2. **HTTP** - Scrapes router web UI, may need adjustments for different firmware
-
-If both fail, check:
+All router data is gathered over SSH (Posh-SSH) using router CLI commands; HTTP scraping is no longer used. If polling fails, check:
 - Router credentials
 - Network connectivity
-- Router firmware compatibility
+- Router firmware SSH settings
 
 ## Usage
 

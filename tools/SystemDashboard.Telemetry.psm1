@@ -126,6 +126,9 @@ function Read-SystemDashboardConfig {
     if (-not $raw.Service.Asus) {
         $raw.Service.Asus = @{}
     }
+    if (-not $raw.Service.Asus.SSH) {
+        $raw.Service.Asus.SSH = @{}
+    }
     if ($raw.Service.Asus.StatePath) {
         $raw.Service.Asus.StatePath = Resolve-SystemDashboardPath -BasePath $base -Path $raw.Service.Asus.StatePath
     }
@@ -134,6 +137,7 @@ function Read-SystemDashboardConfig {
     }
     if (-not $raw.Service.Asus.PollIntervalSeconds) { $raw.Service.Asus.PollIntervalSeconds = 60 }
     if (-not $raw.Service.Asus.Enabled) { $raw.Service.Asus.Enabled = $false }
+    if (-not $raw.Service.Asus.RemoteLogPath) { $raw.Service.Asus.RemoteLogPath = '/tmp/syslog.log' }
 
     if ($raw.Service.Asus.DownloadPath) {
         $raw.Service.Asus.DownloadPath = Resolve-SystemDashboardPath -BasePath $base -Path $raw.Service.Asus.DownloadPath
@@ -141,6 +145,8 @@ function Read-SystemDashboardConfig {
     else {
         $raw.Service.Asus.DownloadPath = Resolve-SystemDashboardPath -BasePath $base -Path './var/asus'
     }
+    if (-not $raw.Service.Asus.SSH.TimeoutSeconds) { $raw.Service.Asus.SSH.TimeoutSeconds = 30 }
+    if (-not $raw.Service.Asus.SSH.Port) { $raw.Service.Asus.SSH.Port = 22 }
 
     $raw.Service.Syslog.BufferDirectory = Resolve-SystemDashboardPath -BasePath $base -Path ($raw.Service.Syslog.BufferDirectory ?? './var/syslog')
 
@@ -480,28 +486,66 @@ function Invoke-AsusLogFetch {
         [Parameter()][hashtable]$State
     )
 
-    $uri = $Config.Uri ?? $Config.Url
-    if (-not $uri) {
-        throw 'Asus log endpoint URI must be configured (Service.Asus.Uri).'
+    $sshConfig = $Config.SSH ?? @{}
+    if (-not ($sshConfig.Enabled -eq $true)) {
+        Write-Verbose "ASUS SSH log fetch skipped because SSH is disabled."
+        Write-Output -NoEnumerate @()
+        return
     }
 
-    $params = @{ Uri = $uri; Method = 'Get' }
-    if ($Config.TimeoutSeconds) { $params.TimeoutSec = [int]$Config.TimeoutSeconds }
-    if ($Config.Headers) { $params.Headers = $Config.Headers }
+    $routerIP = $sshConfig.Host ?? $sshConfig.HostName ?? $Config.HostName ?? '192.168.50.1'
+    $username = $sshConfig.Username ?? $Config.Username ?? 'admin'
+    $password = Resolve-SystemDashboardSecret -Secret ($sshConfig.PasswordSecret ?? $Config.PasswordSecret) -Fallback ($sshConfig.Password ?? $Config.Password)
+    if (-not $password) {
+        throw 'Asus router credentials missing password. Configure Service.Asus.SSH.Password or PasswordSecret.'
+    }
 
-    $username = $Config.Username ?? $Config.User
-    if ($username) {
-        $password = Resolve-SystemDashboardSecret -Secret $Config.PasswordSecret -Fallback $Config.Password
-        if (-not $password) {
-            throw 'Asus router credentials missing password. Configure Service.Asus.Password or PasswordSecret.'
+    $remoteLogPath = $sshConfig.RemoteLogPath ?? $Config.RemoteLogPath
+    if (-not $remoteLogPath -and $Config.Uri) {
+        try {
+            $remoteLogPath = ([uri]$Config.Uri).AbsolutePath
         }
-        $secure = ConvertTo-SecureString $password -AsPlainText -Force
-        $params.Credential = [pscredential]::new($username, $secure)
+        catch {
+            $remoteLogPath = $null
+        }
+    }
+    if (-not $remoteLogPath) {
+        $remoteLogPath = '/tmp/syslog.log'
     }
 
-    $response = Invoke-WebRequest @params
-    $content = $response.Content -replace "\r", ''
-    $lines = $content -split "\n"
+    $timeoutSeconds = [int]($sshConfig.TimeoutSeconds ?? 30)
+    $sshPort = [int]($sshConfig.Port ?? 22)
+
+    if (-not (Get-Module -Name Posh-SSH -ListAvailable)) {
+        Write-Verbose "Posh-SSH module not found. Install with: Install-Module -Name Posh-SSH"
+        Write-Output -NoEnumerate @()
+        return
+    }
+    Import-Module Posh-SSH -ErrorAction SilentlyContinue
+
+    $secure = ConvertTo-SecureString $password -AsPlainText -Force
+    $credential = [pscredential]::new($username, $secure)
+
+    $session = $null
+    $lines = @()
+    try {
+        $session = Posh-SSH\New-SSHSession -ComputerName $routerIP -Credential $credential -Port $sshPort -AcceptKey -ConnectionTimeout $timeoutSeconds -ErrorAction Stop
+        $command = "cat $remoteLogPath"
+        $result = Posh-SSH\Invoke-SSHCommand -SessionId $session.SessionId -Command $command -TimeOut $timeoutSeconds -ErrorAction Stop
+        if ($result.Output) {
+            $lines = @($result.Output | Where-Object { $_ -ne $null })
+        }
+    }
+    catch {
+        Write-Verbose "Failed to fetch ASUS logs via SSH: $($_.Exception.Message)"
+        Write-Output -NoEnumerate @()
+        return
+    }
+    finally {
+        if ($session) {
+            Posh-SSH\Remove-SSHSession -SessionId $session.SessionId | Out-Null
+        }
+    }
 
     $lastUtc = $null
     if ($State -and $State.LastEventUtc) {
@@ -510,11 +554,12 @@ function Invoke-AsusLogFetch {
     }
 
     $events = @()
+    $remoteEndpoint = "ssh://${routerIP}${remoteLogPath}"
     foreach ($line in $lines) {
         if ([string]::IsNullOrWhiteSpace($line)) { continue }
         $parsed = ConvertFrom-AsusLine -Line $line -DefaultHost ($Config.HostName ?? 'asus-router')
         $parsed | Add-Member -NotePropertyName Source -NotePropertyValue 'asus'
-        $parsed | Add-Member -NotePropertyName RemoteEndpoint -NotePropertyValue ($Config.Uri ?? '')
+        $parsed | Add-Member -NotePropertyName RemoteEndpoint -NotePropertyValue $remoteEndpoint
         $parsed | Add-Member -NotePropertyName ReceivedUtc -NotePropertyValue ([DateTime]::UtcNow)
         if ($lastUtc -and $parsed.EventUtc -and $parsed.EventUtc -le $lastUtc) {
             continue
@@ -539,7 +584,7 @@ function Invoke-AsusLogFetch {
         }
     }
 
-    return ,$events
+    Write-Output -NoEnumerate $events
 }
 
 function Invoke-AsusWifiClientScan {
@@ -549,70 +594,77 @@ function Invoke-AsusWifiClientScan {
         [Parameter()][hashtable]$State
     )
 
-    # Check if SSH monitoring is enabled and configured
-    if (-not $Config.SSH -or -not $Config.SSH.Enabled) {
-        return @()
+    $sshConfig = $Config.SSH
+    if (-not $sshConfig -or -not $sshConfig.Enabled) {
+        Write-Output -NoEnumerate @()
+        return
     }
 
-    $routerIP = $Config.SSH.HostName ?? $Config.HostName ?? '192.168.50.1'
-    $username = $Config.SSH.Username ?? $Config.Username ?? 'xfaith'
-    $password = Resolve-SystemDashboardSecret -Secret ($Config.SSH.PasswordSecret ?? $Config.PasswordSecret) -Fallback ($Config.SSH.Password ?? $Config.Password)
+    $routerIP = $sshConfig.HostName ?? $sshConfig.Host ?? $Config.HostName ?? '192.168.50.1'
+    $username = $sshConfig.Username ?? $Config.Username ?? 'xfaith'
+    $password = Resolve-SystemDashboardSecret -Secret ($sshConfig.PasswordSecret ?? $Config.PasswordSecret) -Fallback ($sshConfig.Password ?? $Config.Password)
 
     if (-not $password) {
         Write-Verbose "WiFi client scan skipped: SSH password not configured"
-        return @()
+        Write-Output -NoEnumerate @()
+        return
     }
 
-    # Convert plain text password to SecureString
+    $sshPort = [int]($sshConfig.Port ?? 22)
+    $timeoutSeconds = [int]($sshConfig.TimeoutSeconds ?? 30)
+
+    if (-not (Get-Module -Name Posh-SSH -ListAvailable)) {
+        Write-Verbose "Posh-SSH module not available. Install with: Install-Module -Name Posh-SSH"
+        Write-Output -NoEnumerate @()
+        return
+    }
+    Import-Module Posh-SSH -ErrorAction SilentlyContinue
+
     $securePassword = ConvertTo-SecureString $password -AsPlainText -Force
+    $credential = [pscredential]::new($username, $securePassword)
 
+    $commands = @(
+        "nvram get wl0_assoclist",  # 2.4GHz clients
+        "nvram get wl1_assoclist",  # 5GHz clients
+        "nvram get wl2_assoclist",  # 6GHz clients (WiFi 6E)
+        "wl -i eth1 assoclist",     # Alternative method for 2.4GHz
+        "wl -i eth2 assoclist",     # Alternative method for 5GHz
+        "arp -a",                   # ARP table for IP assignments
+        "cat /proc/net/arp"         # Alternative ARP method
+    )
+
+    $events = @()
+    $timestamp = [DateTime]::UtcNow
+    $remoteEndpoint = "ssh://${routerIP}"
+
+    $session = $null
     try {
-        # Commands to gather WiFi client information
-        $commands = @(
-            "nvram get wl0_assoclist",  # 2.4GHz clients
-            "nvram get wl1_assoclist",  # 5GHz clients
-            "nvram get wl2_assoclist",  # 6GHz clients (WiFi 6E)
-            "wl -i eth1 assoclist",     # Alternative method for 2.4GHz
-            "wl -i eth2 assoclist",     # Alternative method for 5GHz
-            "arp -a",                   # ARP table for IP assignments
-            "cat /proc/net/arp"         # Alternative ARP method
-        )
-
-        $events = @()
-        $timestamp = [DateTime]::UtcNow
-
-        # Note: This is a conceptual implementation
-        # In practice, you would need to use a PowerShell SSH module like Posh-SSH
-        # or implement SSH connectivity through .NET SSH libraries
+        $session = Posh-SSH\New-SSHSession -ComputerName $routerIP -Credential $credential -Port $sshPort -AcceptKey -ConnectionTimeout $timeoutSeconds -ErrorAction Stop
 
         foreach ($command in $commands) {
             try {
-                # Placeholder for SSH command execution
-                # In real implementation, this would execute SSH commands
-                $output = Invoke-SSHCommand -ComputerName $routerIP -Username $username -Password $securePassword -Command $command
+                $result = Posh-SSH\Invoke-SSHCommand -SessionId $session.SessionId -Command $command -TimeOut $timeoutSeconds -ErrorAction Stop
+                $outputLines = @($result.Output | Where-Object { $_ -ne $null })
+                if ($outputLines.Count -eq 0) { continue }
 
-                if ($output -and $output.Length -gt 0 -and $command -like "*assoclist*") {
+                if ($command -like "*assoclist*") {
                     $wifiEvent = [pscustomobject]@{
                         ReceivedUtc    = $timestamp
-                        EventUtc       = $timestamp # Assuming the output doesn't contain a specific timestamp for each client
+                        EventUtc       = $timestamp # Output does not include per-client timestamps
                         SourceHost     = $routerIP
                         AppName        = 'asus-wifi-scan'
                         Facility       = 16  # local0
                         Severity       = 6   # info
                         Message        = "WiFi scan: $command"
-                        RawMessage     = $output
-                        RemoteEndpoint = "ssh://${routerIP}"
+                        RawMessage     = ($outputLines -join "`n")
+                        RemoteEndpoint = $remoteEndpoint
                         Source         = 'asus-wifi'
                         Command        = $command
                     }
                     $events += $wifiEvent
                 }
-                elseif ($output -and $output.Length -gt 0 -and ($command -like "*arp -a*" -or $command -like "*proc/net/arp*")) {
-                    # Process ARP output to extract IP and MAC addresses
-                    # This is a simplified example, actual parsing might be more complex
-                    $arpEntries = $output -split "`n" | Where-Object { $_ -match '\S' }
-                    foreach ($entry in $arpEntries) {
-                        # Example: "router (192.168.50.1) at 00:11:22:33:44:55 [ether] on br0"
+                elseif ($command -like "*arp -a*" -or $command -like "*proc/net/arp*") {
+                    foreach ($entry in $outputLines) {
                         if ($entry -match '\((?<ip>\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\)\s+at\s+(?<mac>([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2})') {
                             $ip = $Matches['ip']
                             $mac = $Matches['mac']
@@ -625,51 +677,31 @@ function Invoke-AsusWifiClientScan {
                                 Severity       = 6   # info
                                 Message        = "ARP entry: IP=$ip, MAC=$mac"
                                 RawMessage     = $entry
-                                RemoteEndpoint = "ssh://${routerIP}"
+                                RemoteEndpoint = $remoteEndpoint
                                 Source         = 'asus-arp'
                             }
                             $events += $arpEvent
                         }
                     }
-                    $events += $wifiEvent
                 }
             }
             catch {
                 Write-Verbose "WiFi scan command failed: $command - $($_.Exception.Message)"
             }
         }
-
-        return ,$events
     }
     catch {
         Write-Verbose "WiFi client scan failed: $($_.Exception.Message)"
-        return @()
+        Write-Output -NoEnumerate @()
+        return
     }
-}
+    finally {
+        if ($session) {
+            Posh-SSH\Remove-SSHSession -SessionId $session.SessionId | Out-Null
+        }
+    }
 
-function Invoke-SSHCommand {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)][string]$ComputerName,
-        [Parameter(Mandatory)][string]$Username,
-        [Parameter(Mandatory)][SecureString]$Password,
-        [Parameter(Mandatory)][string]$Command
-    )
-
-    # This is a placeholder function that would need to be implemented
-    # using a proper SSH library like Posh-SSH or SSH.NET
-    # For now, return empty to prevent errors
-
-    Write-Verbose "SSH Command placeholder: $Username@$ComputerName : $Command"
-
-    # Example of what this would look like with Posh-SSH:
-    # $credential = New-Object System.Management.Automation.PSCredential($Username, $Password)
-    # $session = New-SSHSession -ComputerName $ComputerName -Credential $credential -AcceptKey
-    # $result = Invoke-SSHCommand -SessionId $session.SessionId -Command $Command
-    # Remove-SSHSession -SessionId $session.SessionId
-    # return $result.Output
-
-    return ""
+    Write-Output -NoEnumerate $events
 }
 
 function Start-TelemetryService {

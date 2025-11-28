@@ -163,7 +163,7 @@ For detailed troubleshooting, see [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING
 **Quick fixes:**
 - **Service fails to start** – Check `var/log/telemetry-service.log`. Missing `psql` or incorrect credentials are the most common causes.
 - **No data in PostgreSQL** – Ensure `telemetry.ensure_syslog_partition` has been called for the current month and that the service account has `INSERT` permissions on the schema.
-- **ASUS fetch errors** – Verify the router URI allows HTTP GET and that credentials/environment variables are configured. The service backs off quietly but logs warnings.
+- **ASUS fetch errors** – Verify SSH connectivity to the router, the configured remote log path, and credentials/environment variables. The service backs off quietly but logs warnings.
 - **Flask app shows placeholders** – Confirm database environment variables are set and that the reader role can execute the dashboard queries.
 
 ## Documentation

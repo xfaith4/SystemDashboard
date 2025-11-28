@@ -32,7 +32,7 @@ This document summarizes the security analysis performed on the LAN Observabilit
 - **String Length Limits**: API endpoints enforce reasonable limits on query parameters
 
 ### 4. Network Security
-- **Router Access**: Supports both HTTP and SSH, with SSH being more secure
+- **Router Access**: Router collection now uses SSH only (HTTP scraping removed)
 - **Authentication Required**: All router access requires valid credentials
 - **Connection Timeouts**: All network operations have configurable timeouts to prevent hanging
 
@@ -50,9 +50,9 @@ This document summarizes the security analysis performed on the LAN Observabilit
 ## Known Considerations
 
 ### 1. Router Communication
-- **HTTP Method**: HTTP scraping of router UI is less secure than SSH
-  - **Mitigation**: SSH method is preferred and supported
-  - **Recommendation**: Enable SSH on router and use SSH-based collection
+- **SSH Dependency**: Collection depends on SSH access to the router
+  - **Mitigation**: Ensure strong credentials and restrict SSH exposure to LAN
+  - **Recommendation**: Rotate credentials and limit SSH to trusted hosts
 
 ### 2. Syslog Correlation
 - **Pattern Matching**: Uses string matching to correlate syslog with devices
@@ -68,7 +68,7 @@ This document summarizes the security analysis performed on the LAN Observabilit
 
 ### Essential
 1. ✅ Use environment variables for all credentials
-2. ✅ Enable SSH access on router instead of HTTP scraping
+2. ✅ Enable and enforce SSH access on router for all collection
 3. ✅ Use separate database users with minimal permissions
 4. ✅ Configure SSL/TLS for PostgreSQL connections in production
 
