@@ -255,7 +255,7 @@ WHERE datetime(received_utc) >= datetime('now', '-24 hours');
 -- Recent IIS requests (last 24 hours)
 CREATE VIEW IF NOT EXISTS iis_requests_recent AS
 SELECT * FROM iis_requests
-WHERE datetime(received_utc) >= datetime('now', '-24 hours');
+WHERE datetime(request_time) >= datetime('now', '-24 hours');
 
 -- Recent device snapshots (last 7 days)
 CREATE VIEW IF NOT EXISTS device_snapshots_recent AS

@@ -56,7 +56,7 @@ For complete documentation, see [docs/LAN-OBSERVABILITY-README.md](docs/LAN-OBSE
 ```
 
 - **Ingest** – `SystemDashboardService` binds to UDP 514 on Windows 11, normalizes syslog payloads (facility/severity parsing, host extraction), polls an ASUS router endpoint at a configurable cadence, and writes batches to SQLite . The service maintains its own durable state (`var/asus/state.json`) and logs to `var/log/telemetry-service.log`.
-- **Store** – SQLite hosts wide, partitioned tables. Use `tools/schema.sql` to create the base schema and helper function for monthly partitions (`telemetry.ensure_syslog_partition`). Ingestion scripts call `COPY` into the `telemetry.syslog_generic_YYMM` partitions.
+- **Store** – SQLite hosts the database at `var/system_dashboard.db`. Use `python scripts/init_db.py` to create the database and schema. The schema is defined in `tools/schema-sqlite.sql`.
 - **Serve** – The classic PowerShell HTTP listener can still expose metrics at `http://localhost:15000/`. The Flask UI (or an IIS site you publish it to) queries SQLite for recent trends, 5xx spikes, authentication storms, and router anomalies.
 
 ## Quick start on Windows 11
@@ -122,7 +122,7 @@ All paths are expanded relative to the location of `config.json` unless absolute
 
 - **Syslog listener** – A PowerShell loop backed by `System.Net.Sockets.UdpClient` that normalizes `<PRI>` values, extracts timestamp/host/app, and queues messages for ingestion.
 - **ASUS log poller** – Periodically calls the configured router URI, filters out lines already seen (based on the most recent timestamp), and appends new entries to `var/asus/asus-log-YYYYMMDD.log` for audit.
-- **Ingestion** – Batches are written to CSV in `var/staging/` and loaded via `python scripts/init_db.py INSERT` into the `telemetry.syslog_generic_YYMM` partition. Failures are logged with level `ERROR`. The service persists ASUS polling state so restarts resume where they left off.
+- **Ingestion** – Batches are inserted directly into SQLite tables. Failures are logged with level `ERROR`. The service persists ASUS polling state so restarts resume where they left off.
 - **Extensibility** – The module `tools/SystemDashboard.Telemetry.psm1` exposes `Start-TelemetryService`, `Invoke-AsusLogFetch`, `Invoke-SyslogIngestion`, and configuration helpers so you can plug additional sources (Windows Event Logs, IIS logs) into the same ingestion path or scheduled tasks.
 
 ## Flask dashboard highlights
@@ -147,24 +147,24 @@ $env:DASHBOARD_DB_PASSWORD = '<read-only password>'
 $env:AUTH_FAILURE_THRESHOLD = '10'   # optional override for auth burst detection
 ```
 
-`requirements.txt` installs `sqlite3-binary` alongside Flask so no additional packages are required.
+`requirements.txt` installs the Flask package. SQLite3 is part of Pythons standard library so no database drivers are needed.
 
 ## Database operations
 
-- Run `tools/schema.sql` after provisioning SQLite.
-- Call `SELECT telemetry.ensure_syslog_partition(date_trunc('month', NOW()));` at the start of each month (or automate it) so ingestion always has a live partition.
-- Create read/write roles that align with the project charter (`sysdash_ingest` for the service, `sysdash_reader` for dashboards).
-- Consider materialized views for top KPIs (IIS 5xx, auth failures, router drops). Refresh them via scheduled tasks using PowerShell.
+- Run `python scripts/init_db.py` to create or recreate the database with the schema.
+- Run `python scripts/init_db.py --verify` to check the database structure.
+- Use `python scripts/init_db.py --force` to reset the database (warning: deletes all data).
+- The database is stored at `var/system_dashboard.db` by default.
 
 ## Troubleshooting
 
 For detailed troubleshooting, see [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md).
 
 **Quick fixes:**
-- **Service fails to start** – Check `var/log/telemetry-service.log`. Missing `python scripts/init_db.py` or incorrect credentials are the most common causes.
-- **No data in SQLite** – Ensure `telemetry.ensure_syslog_partition` has been called for the current month and that the service account has `INSERT` permissions on the schema.
+- **Service fails to start** – Check `var/log/telemetry-service.log` for errors.
+- **No data in SQLite** – Ensure the database has been initialized with `python scripts/init_db.py`.
 - **ASUS fetch errors** – Verify SSH connectivity to the router, the configured remote log path, and credentials/environment variables. The service backs off quietly but logs warnings.
-- **Flask app shows placeholders** – Confirm database environment variables are set and that the reader role can execute the dashboard queries.
+- **Flask app shows placeholders** – Confirm the database exists and is readable.
 
 ## Documentation
 
