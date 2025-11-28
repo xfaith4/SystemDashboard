@@ -103,9 +103,11 @@ class TestDataSources:
             f.flush()
             
             try:
-                with patch.dict(os.environ, {'ROUTER_LOG_PATH': f.name}):
-                    # Request ascending order to match original test expectations
-                    logs = flask_app.get_router_logs(sort_dir='asc')
+                # Mock database to return None to force file-based logs
+                with patch('app.get_db_connection', return_value=None):
+                    with patch.dict(os.environ, {'ROUTER_LOG_PATH': f.name}):
+                        # Request ascending order to match original test expectations
+                        logs = flask_app.get_router_logs(sort_dir='asc')
                 
                 assert len(logs) == 3
                 assert logs[0]['time'] == '2024-01-01 12:00:00'
@@ -147,9 +149,11 @@ Incomplete line
             f.flush()
             
             try:
-                with patch.dict(os.environ, {'ROUTER_LOG_PATH': f.name}):
-                    # Request ascending order to match original test expectations
-                    logs = flask_app.get_router_logs(sort_dir='asc')
+                # Mock database to return None to force file-based logs
+                with patch('app.get_db_connection', return_value=None):
+                    with patch.dict(os.environ, {'ROUTER_LOG_PATH': f.name}):
+                        # Request ascending order to match original test expectations
+                        logs = flask_app.get_router_logs(sort_dir='asc')
                 
                 # Note: Lines with < 4 parts get empty time/level
                 # "2024-01-01 12:01:00 WARN" has only 3 parts, so it's treated as incomplete

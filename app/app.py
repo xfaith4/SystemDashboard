@@ -10,12 +10,7 @@ import datetime
 from decimal import Decimal
 import zoneinfo
 import logging
-
-try:
-    import psycopg2  # type: ignore
-    import psycopg2.extras  # type: ignore
-except Exception:  # pragma: no cover - optional dependency during local dev
-    psycopg2 = None
+import sqlite3
 
 try:
     from mac_vendor_lookup import MacLookup
@@ -48,53 +43,81 @@ SYSLOG_SEVERITY = {
     7: 'Debug'
 }
 
+# Database path - can be set via environment variable or config
+_DB_PATH = None
+
+
+def _get_db_path():
+    """Get the SQLite database path from environment or config."""
+    global _DB_PATH
+    if _DB_PATH is not None:
+        return _DB_PATH
+
+    # Check environment variable first
+    db_path = os.environ.get('DASHBOARD_DB_PATH')
+    if db_path:
+        _DB_PATH = db_path
+        return _DB_PATH
+
+    # Try to load from config.json
+    try:
+        config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config.json')
+        if os.path.exists(config_path):
+            with open(config_path, 'r') as f:
+                config = json.load(f)
+            db_config = config.get('Database', {})
+            if db_config.get('Type', '').lower() == 'sqlite':
+                path = db_config.get('Path', './var/system_dashboard.db')
+                # Make path relative to config file directory
+                if not os.path.isabs(path):
+                    base_dir = os.path.dirname(config_path)
+                    path = os.path.join(base_dir, path)
+                _DB_PATH = os.path.abspath(path)
+                return _DB_PATH
+    except Exception as e:
+        app.logger.debug('Failed to load config: %s', e)
+
+    # Default path
+    _DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'var', 'system_dashboard.db')
+    return _DB_PATH
+
 
 def _is_windows():
     return platform.system().lower().startswith('win')
 
 
 def get_db_settings():
-    if psycopg2 is None:
-        return None
-    dsn = os.environ.get('DASHBOARD_DB_DSN')
-    if dsn:
-        return {'dsn': dsn}
-    host = os.environ.get('DASHBOARD_DB_HOST')
-    user = os.environ.get('DASHBOARD_DB_USER')
-    password = os.environ.get('DASHBOARD_DB_PASSWORD')
-    dbname = os.environ.get('DASHBOARD_DB_NAME') or os.environ.get('DASHBOARD_DB_DATABASE')
-    if not all([host, user, password, dbname]):
-        return None
-    settings = {
-        'host': host,
-        'port': int(os.environ.get('DASHBOARD_DB_PORT', '5432')),
-        'dbname': dbname,
-        'user': user,
-        'password': password,
-    }
-    sslmode = os.environ.get('DASHBOARD_DB_SSLMODE')
-    if sslmode:
-        settings['sslmode'] = sslmode
-    return settings
+    """Get database settings for SQLite."""
+    db_path = _get_db_path()
+    if db_path and os.path.exists(db_path):
+        return {'path': db_path, 'type': 'sqlite'}
+    return None
 
 
 def get_db_connection():
-    settings = get_db_settings()
-    if not settings:
+    """Get a SQLite database connection."""
+    db_path = _get_db_path()
+    if not db_path:
         return None
     try:
-        if 'dsn' in settings:
-            return psycopg2.connect(settings['dsn'])
-        params = dict(settings)
-        password = params.pop('password', None)
-        if password is None:
-            return None
-        if 'connect_timeout' not in params:
-            params['connect_timeout'] = 3
-        return psycopg2.connect(password=password, **params)
+        # Ensure directory exists
+        db_dir = os.path.dirname(db_path)
+        if db_dir and not os.path.exists(db_dir):
+            os.makedirs(db_dir, exist_ok=True)
+
+        conn = sqlite3.connect(db_path, timeout=5)
+        conn.row_factory = sqlite3.Row  # Enable dict-like access
+        return conn
     except Exception as exc:  # pragma: no cover - depends on runtime
-        app.logger.warning('Failed to connect to PostgreSQL: %s', exc)
+        app.logger.warning('Failed to connect to SQLite: %s', exc)
         return None
+
+
+def dict_from_row(row):
+    """Convert a sqlite3.Row to a dictionary."""
+    if row is None:
+        return None
+    return dict(row)
 
 
 def _to_est_string(value):
@@ -402,71 +425,72 @@ def get_router_logs(max_lines: int = 100, with_source: bool = False, offset: int
 def get_router_logs_from_db(limit: int = 100, offset: int = 0, sort_field: str = 'received_utc',
                             sort_dir: str = 'desc', level_filter: str = None, host_filter: str = None,
                             search_query: str = None):
-    """Fetch router logs from PostgreSQL with pagination, sorting and filtering support."""
+    """Fetch router logs from SQLite with pagination, sorting and filtering support."""
     conn = get_db_connection()
     if conn is None:
         return None, 0
     try:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            # Build WHERE clause conditions
-            conditions = ["source IN ('asus', 'router', 'syslog')"]
-            params = []
+        cur = conn.cursor()
+        # Build WHERE clause conditions
+        conditions = ["source IN ('asus', 'router', 'syslog')"]
+        params = []
 
-            if level_filter:
-                # Map text level to severity number
-                level_map = {
-                    'emergency': 0, 'alert': 1, 'critical': 2, 'error': 3,
-                    'warning': 4, 'notice': 5, 'informational': 6, 'info': 6, 'debug': 7
-                }
-                sev = level_map.get(level_filter.lower())
-                if sev is not None:
-                    conditions.append("severity = %s")
-                    params.append(sev)
+        if level_filter:
+            # Map text level to severity number
+            level_map = {
+                'emergency': 0, 'alert': 1, 'critical': 2, 'error': 3,
+                'warning': 4, 'notice': 5, 'informational': 6, 'info': 6, 'debug': 7
+            }
+            sev = level_map.get(level_filter.lower())
+            if sev is not None:
+                conditions.append("severity = ?")
+                params.append(sev)
 
-            if host_filter:
-                conditions.append("source_host ILIKE %s")
-                params.append(f'%{host_filter}%')
+        if host_filter:
+            conditions.append("source_host LIKE ?")
+            params.append(f'%{host_filter}%')
 
-            if search_query:
-                conditions.append("message ILIKE %s")
-                params.append(f'%{search_query}%')
+        if search_query:
+            conditions.append("message LIKE ?")
+            params.append(f'%{search_query}%')
 
-            where_clause = ' AND '.join(conditions)
+        where_clause = ' AND '.join(conditions)
 
-            # Validate sort field to prevent SQL injection
-            valid_sort_fields = {'received_utc': 'received_utc', 'time': 'COALESCE(event_utc, received_utc)',
-                                'severity': 'severity', 'level': 'severity',
-                                'source_host': 'source_host', 'host': 'source_host',
-                                'message': 'message'}
-            sort_column = valid_sort_fields.get(sort_field.lower(), 'received_utc')
-            sort_direction = 'ASC' if sort_dir.lower() == 'asc' else 'DESC'
+        # Validate sort field to prevent SQL injection
+        valid_sort_fields = {'received_utc': 'received_utc', 'time': 'COALESCE(event_utc, received_utc)',
+                            'severity': 'severity', 'level': 'severity',
+                            'source_host': 'source_host', 'host': 'source_host',
+                            'message': 'message'}
+        sort_column = valid_sort_fields.get(sort_field.lower(), 'received_utc')
+        sort_direction = 'ASC' if sort_dir.lower() == 'asc' else 'DESC'
 
-            # Get total count for pagination
-            count_query = f"SELECT COUNT(*) FROM telemetry.syslog_recent WHERE {where_clause}"
-            cur.execute(count_query, params)
-            total_count = cur.fetchone()['count']
+        # Get total count for pagination
+        count_query = f"SELECT COUNT(*) as count FROM syslog_recent WHERE {where_clause}"
+        cur.execute(count_query, params)
+        row = cur.fetchone()
+        total_count = row['count'] if row else 0
 
-            # Get paginated results
-            query = f"""
-                SELECT COALESCE(event_utc, received_utc) AS time,
-                       severity,
-                       message,
-                       source_host
-                FROM telemetry.syslog_recent
-                WHERE {where_clause}
-                ORDER BY {sort_column} {sort_direction}
-                LIMIT %s OFFSET %s
-            """
-            cur.execute(query, params + [limit, offset])
-            rows = cur.fetchall()
+        # Get paginated results
+        query = f"""
+            SELECT COALESCE(event_utc, received_utc) AS time,
+                   severity,
+                   message,
+                   source_host
+            FROM syslog_recent
+            WHERE {where_clause}
+            ORDER BY {sort_column} {sort_direction}
+            LIMIT ? OFFSET ?
+        """
+        cur.execute(query, params + [limit, offset])
+        rows = cur.fetchall()
 
         logs = []
         for row in rows:
             logs.append({
-                'time': _isoformat(row.get('time')),
-                'level': _severity_to_text(row.get('severity')),
-                'message': row.get('message') or '',
-                'host': row.get('source_host') or ''
+                'time': _isoformat(row['time']),
+                'level': _severity_to_text(row['severity']),
+                'message': row['message'] or '',
+                'host': row['source_host'] or ''
             })
         return logs, total_count
     except Exception as exc:  # pragma: no cover - depends on db objects
@@ -858,251 +882,245 @@ def get_dashboard_summary():
         return _mock_dashboard_summary()
 
     try:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            try:
-                cur.execute(
-                    """
-                    SELECT COUNT(*) FILTER (WHERE status BETWEEN 500 AND 599) AS errors,
-                           COUNT(*) AS total
-                    FROM telemetry.iis_requests_recent
-                    WHERE request_time >= NOW() - INTERVAL '5 minutes'
-                    """
-                )
-                current = cur.fetchone() or {}
-                # Use 'or 0' to handle None values that PostgreSQL may return for aggregate functions
-                summary['iis']['current_errors'] = int(current.get('errors') or 0)
-                summary['iis']['total_requests'] = int(current.get('total') or 0)
-                summary['iis']['error_rate'] = _calculate_error_rate(
-                    summary['iis']['current_errors'],
-                    summary['iis']['total_requests']
-                )
+        cur = conn.cursor()
+        try:
+            # Get IIS errors in last 5 minutes
+            cur.execute(
+                """
+                SELECT 
+                    SUM(CASE WHEN status BETWEEN 500 AND 599 THEN 1 ELSE 0 END) AS errors,
+                    COUNT(*) AS total
+                FROM iis_requests_recent
+                WHERE datetime(request_time) >= datetime('now', '-5 minutes')
+                """
+            )
+            current = dict_from_row(cur.fetchone()) or {}
+            summary['iis']['current_errors'] = int(current.get('errors') or 0)
+            summary['iis']['total_requests'] = int(current.get('total') or 0)
+            summary['iis']['error_rate'] = _calculate_error_rate(
+                summary['iis']['current_errors'],
+                summary['iis']['total_requests']
+            )
 
-                cur.execute(
-                    """
-                    SELECT AVG(err_count) AS avg_errors,
-                           STDDEV_POP(err_count) AS std_errors
-                    FROM (
-                        SELECT date_trunc('minute', request_time) AS bucket,
-                               COUNT(*) FILTER (WHERE status BETWEEN 500 AND 599) AS err_count
-                        FROM telemetry.iis_requests_recent
-                        WHERE request_time >= NOW() - INTERVAL '60 minutes'
-                        GROUP BY bucket
-                    ) s
-                    """
+            # Get baseline for spike detection (simplified for SQLite)
+            cur.execute(
+                """
+                SELECT 
+                    AVG(err_count) AS avg_errors
+                FROM (
+                    SELECT strftime('%Y-%m-%d %H:%M', request_time) AS bucket,
+                           SUM(CASE WHEN status BETWEEN 500 AND 599 THEN 1 ELSE 0 END) AS err_count
+                    FROM iis_requests_recent
+                    WHERE datetime(request_time) >= datetime('now', '-60 minutes')
+                    GROUP BY bucket
                 )
-                baseline = cur.fetchone() or {}
-                avg = _safe_float(baseline.get('avg_errors'))
-                std = _safe_float(baseline.get('std_errors'))
-                summary['iis']['baseline_avg'] = round(avg, 2)
-                summary['iis']['baseline_std'] = round(std, 2)
-                threshold = avg + (3 * std if std else 0)
-                summary['iis']['spike'] = summary['iis']['current_errors'] > threshold
-            except Exception as exc:
-                app.logger.debug('IIS KPI query failed: %s', exc)
+                """
+            )
+            baseline = dict_from_row(cur.fetchone()) or {}
+            avg = _safe_float(baseline.get('avg_errors'))
+            summary['iis']['baseline_avg'] = round(avg, 2)
+            summary['iis']['baseline_std'] = 0.0  # SQLite doesn't have STDDEV
+            summary['iis']['spike'] = summary['iis']['current_errors'] > (avg * 3 if avg else 10)
+        except Exception as exc:
+            app.logger.debug('IIS KPI query failed: %s', exc)
 
-            try:
+        try:
+            cur.execute(
+                """
+                SELECT client_ip,
+                       COUNT(*) AS failures,
+                       MIN(request_time) AS first_seen,
+                       MAX(request_time) AS last_seen
+                FROM iis_requests_recent
+                WHERE datetime(request_time) >= datetime('now', '-15 minutes')
+                  AND status IN (401, 403)
+                GROUP BY client_ip
+                HAVING COUNT(*) >= ?
+                ORDER BY failures DESC
+                LIMIT 10
+                """,
+                (AUTH_FAILURE_THRESHOLD,)
+            )
+            rows = cur.fetchall()
+            summary['auth'] = [
+                {
+                    'client_ip': row['client_ip'],
+                    'count': row['failures'] or 0,
+                    'window_minutes': 15,
+                    'last_seen': _isoformat(row['last_seen'])
+                }
+                for row in rows
+            ]
+        except Exception as exc:
+            app.logger.debug('Auth burst query failed: %s', exc)
+
+        try:
+            cur.execute(
+                """
+                SELECT COALESCE(event_utc, received_utc) AS evt_time,
+                       COALESCE(source, provider_name) AS source,
+                       event_id,
+                       COALESCE(level_text, CAST(level AS TEXT)) AS level,
+                       message
+                FROM eventlog_windows_recent
+                WHERE (datetime(event_utc) >= datetime('now', '-10 minutes')
+                       OR datetime(received_utc) >= datetime('now', '-10 minutes'))
+                  AND (COALESCE(level, 0) <= 2 
+                       OR LOWER(COALESCE(level_text, '')) LIKE '%error%' 
+                       OR LOWER(COALESCE(level_text, '')) LIKE '%critical%')
+                ORDER BY evt_time DESC
+                LIMIT 10
+                """
+            )
+            rows = cur.fetchall()
+            summary['windows'] = [
+                {
+                    'time': _isoformat(row['evt_time']),
+                    'source': row['source'],
+                    'id': row['event_id'],
+                    'level': row['level'],
+                    'message': row['message']
+                }
+                for row in rows
+            ]
+        except Exception as exc:
+            app.logger.debug('Windows events query failed: %s', exc)
+
+        try:
+            cur.execute(
+                """
+                SELECT received_utc,
+                       message,
+                       severity,
+                       source_host
+                FROM syslog_recent
+                WHERE source = 'asus'
+                  AND (severity <= 3
+                       OR LOWER(message) LIKE '%wan%'
+                       OR LOWER(message) LIKE '%dhcp%'
+                       OR LOWER(message) LIKE '%failed%'
+                       OR LOWER(message) LIKE '%drop%')
+                ORDER BY received_utc DESC
+                LIMIT 10
+                """
+            )
+            rows = cur.fetchall()
+            summary['router'] = [
+                {
+                    'time': _isoformat(row['received_utc']),
+                    'severity': _severity_to_text(row['severity']),
+                    'message': row['message'],
+                    'host': row['source_host']
+                }
+                for row in rows
+            ]
+        except Exception as exc:
+            app.logger.debug('Router anomaly query failed: %s', exc)
+
+        try:
+            cur.execute(
+                """
+                SELECT received_utc,
+                       source,
+                       source_host,
+                       severity,
+                       message
+                FROM syslog_recent
+                ORDER BY received_utc DESC
+                LIMIT 15
+                """
+            )
+            rows = cur.fetchall()
+            summary['syslog'] = [
+                {
+                    'time': _isoformat(row['received_utc']),
+                    'source': row['source'] or row['source_host'],
+                    'severity': _severity_to_text(row['severity']),
+                    'message': row['message']
+                }
+                for row in rows
+            ]
+        except Exception as exc:
+            app.logger.debug('Syslog summary query failed: %s', exc)
+
+        # Get LAN device statistics
+        try:
+            cur.execute("SELECT * FROM lan_summary_stats")
+            lan_row = dict_from_row(cur.fetchone())
+            if lan_row:
+                summary['lan']['total_devices'] = lan_row.get('total_devices', 0) or 0
+                summary['lan']['active_devices'] = lan_row.get('active_devices', 0) or 0
+        except Exception as exc:
+            app.logger.debug('LAN stats query failed: %s', exc)
+
+        # Get new devices in last 24 hours
+        try:
+            cur.execute(
+                """
+                SELECT COUNT(*) AS new_count
+                FROM devices
+                WHERE datetime(first_seen_utc) >= datetime('now', '-24 hours')
+                """
+            )
+            new_row = dict_from_row(cur.fetchone())
+            if new_row:
+                summary['lan']['new_devices_24h'] = new_row.get('new_count', 0) or 0
+        except Exception as exc:
+            app.logger.debug('New devices query failed: %s', exc)
+
+        # Get hourly breakdown for the last 6 hours (simplified for SQLite)
+        try:
+            # Generate last 6 hours
+            hourly_breakdown = []
+            for i in range(6):
+                hour_offset = 5 - i  # Start from 5 hours ago
                 cur.execute(
                     """
-                    SELECT client_ip,
-                           COUNT(*) AS failures,
-                           MIN(request_time) AS first_seen,
-                           MAX(request_time) AS last_seen
-                    FROM telemetry.iis_requests_recent
-                    WHERE request_time >= NOW() - INTERVAL '15 minutes'
-                      AND status IN (401, 403)
-                    GROUP BY client_ip
-                    HAVING COUNT(*) >= %s
-                    ORDER BY failures DESC
-                    LIMIT 10
+                    SELECT 
+                        SUM(CASE WHEN status BETWEEN 500 AND 599 THEN 1 ELSE 0 END) AS iis_errors,
+                        SUM(CASE WHEN status IN (401, 403) THEN 1 ELSE 0 END) AS auth_failures
+                    FROM iis_requests_recent
+                    WHERE strftime('%Y-%m-%d %H', request_time) = strftime('%Y-%m-%d %H', datetime('now', ? || ' hours'))
                     """,
-                    (AUTH_FAILURE_THRESHOLD,)
+                    (f'-{hour_offset}',)
                 )
-                rows = cur.fetchall()
-                summary['auth'] = [
-                    {
-                        'client_ip': row.get('client_ip'),
-                        'count': row.get('failures', 0),
-                        'window_minutes': 15,
-                        'last_seen': _isoformat(row.get('last_seen'))
-                    }
-                    for row in rows
-                ]
-            except Exception as exc:
-                app.logger.debug('Auth burst query failed: %s', exc)
+                iis_row = dict_from_row(cur.fetchone()) or {}
 
-            try:
                 cur.execute(
                     """
-                    SELECT COALESCE(event_utc, received_utc) AS evt_time,
-                           COALESCE(source, provider_name) AS source,
-                           event_id,
-                           COALESCE(level_text, level::text) AS level,
-                           message
-                    FROM telemetry.eventlog_windows_recent
-                    WHERE (event_utc >= NOW() - INTERVAL '10 minutes'
-                           OR received_utc >= NOW() - INTERVAL '10 minutes')
-                      AND (COALESCE(level, 0) <= 2 OR COALESCE(level_text, '') ILIKE '%error%' OR COALESCE(level_text, '') ILIKE '%critical%')
-                    ORDER BY evt_time DESC
-                    LIMIT 10
-                    """
+                    SELECT COUNT(*) AS errors
+                    FROM eventlog_windows_recent
+                    WHERE strftime('%Y-%m-%d %H', COALESCE(event_utc, received_utc)) = strftime('%Y-%m-%d %H', datetime('now', ? || ' hours'))
+                      AND (COALESCE(level, 0) <= 2 OR LOWER(COALESCE(level_text, '')) LIKE '%error%')
+                    """,
+                    (f'-{hour_offset}',)
                 )
-                rows = cur.fetchall()
-                summary['windows'] = [
-                    {
-                        'time': _isoformat(row.get('evt_time')),
-                        'source': row.get('source'),
-                        'id': row.get('event_id'),
-                        'level': row.get('level'),
-                        'message': row.get('message')
-                    }
-                    for row in rows
-                ]
-            except Exception as exc:
-                app.logger.debug('Windows events query failed: %s', exc)
+                win_row = dict_from_row(cur.fetchone()) or {}
 
-            try:
                 cur.execute(
                     """
-                    SELECT received_utc,
-                           message,
-                           severity,
-                           source_host
-                    FROM telemetry.syslog_recent
+                    SELECT COUNT(*) AS alerts
+                    FROM syslog_recent
                     WHERE source = 'asus'
-                      AND (severity <= 3
-                           OR message ILIKE '%wan%'
-                           OR message ILIKE '%dhcp%'
-                           OR message ILIKE '%failed%'
-                           OR message ILIKE '%drop%')
-                    ORDER BY received_utc DESC
-                    LIMIT 10
-                    """
+                      AND strftime('%Y-%m-%d %H', received_utc) = strftime('%Y-%m-%d %H', datetime('now', ? || ' hours'))
+                      AND (severity <= 3 OR LOWER(message) LIKE '%wan%' OR LOWER(message) LIKE '%failed%')
+                    """,
+                    (f'-{hour_offset}',)
                 )
-                rows = cur.fetchall()
-                summary['router'] = [
-                    {
-                        'time': _isoformat(row.get('received_utc')),
-                        'severity': _severity_to_text(row.get('severity')),
-                        'message': row.get('message'),
-                        'host': row.get('source_host')
-                    }
-                    for row in rows
-                ]
-            except Exception as exc:
-                app.logger.debug('Router anomaly query failed: %s', exc)
+                router_row = dict_from_row(cur.fetchone()) or {}
 
-            try:
-                cur.execute(
-                    """
-                    SELECT received_utc,
-                           source,
-                           source_host,
-                           severity,
-                           message
-                    FROM telemetry.syslog_recent
-                    ORDER BY received_utc DESC
-                    LIMIT 15
-                    """
-                )
-                rows = cur.fetchall()
-                summary['syslog'] = [
-                    {
-                        'time': _isoformat(row.get('received_utc')),
-                        'source': row.get('source') or row.get('source_host'),
-                        'severity': _severity_to_text(row.get('severity')),
-                        'message': row.get('message')
-                    }
-                    for row in rows
-                ]
-            except Exception as exc:
-                app.logger.debug('Syslog summary query failed: %s', exc)
-
-            # Get LAN device statistics
-            try:
-                cur.execute("SELECT * FROM telemetry.lan_summary_stats")
-                lan_row = cur.fetchone()
-                if lan_row:
-                    summary['lan']['total_devices'] = lan_row.get('total_devices', 0) or 0
-                    summary['lan']['active_devices'] = lan_row.get('active_devices', 0) or 0
-            except Exception as exc:
-                app.logger.debug('LAN stats query failed: %s', exc)
-
-            # Get new devices in last 24 hours
-            try:
-                cur.execute(
-                    """
-                    SELECT COUNT(*) AS new_count
-                    FROM telemetry.devices
-                    WHERE first_seen_utc >= NOW() - INTERVAL '24 hours'
-                    """
-                )
-                new_row = cur.fetchone()
-                if new_row:
-                    summary['lan']['new_devices_24h'] = new_row.get('new_count', 0) or 0
-            except Exception as exc:
-                app.logger.debug('New devices query failed: %s', exc)
-
-            # Get hourly breakdown for the last 6 hours
-            try:
-                cur.execute(
-                    """
-                    WITH hours AS (
-                        SELECT generate_series(
-                            date_trunc('hour', NOW()) - INTERVAL '5 hours',
-                            date_trunc('hour', NOW()),
-                            INTERVAL '1 hour'
-                        ) AS hour
-                    ),
-                    iis_hourly AS (
-                        SELECT date_trunc('hour', request_time) AS hour,
-                               COUNT(*) FILTER (WHERE status BETWEEN 500 AND 599) AS errors,
-                               COUNT(*) FILTER (WHERE status IN (401, 403)) AS auth_failures
-                        FROM telemetry.iis_requests_recent
-                        WHERE request_time >= NOW() - INTERVAL '6 hours'
-                        GROUP BY 1
-                    ),
-                    windows_hourly AS (
-                        SELECT date_trunc('hour', COALESCE(event_utc, received_utc)) AS hour,
-                               COUNT(*) AS errors
-                        FROM telemetry.eventlog_windows_recent
-                        WHERE COALESCE(event_utc, received_utc) >= NOW() - INTERVAL '6 hours'
-                          AND (COALESCE(level, 0) <= 2 OR COALESCE(level_text, '') ILIKE '%error%')
-                        GROUP BY 1
-                    ),
-                    router_hourly AS (
-                        SELECT date_trunc('hour', received_utc) AS hour,
-                               COUNT(*) AS alerts
-                        FROM telemetry.syslog_recent
-                        WHERE source = 'asus'
-                          AND received_utc >= NOW() - INTERVAL '6 hours'
-                          AND (severity <= 3 OR message ILIKE '%wan%' OR message ILIKE '%failed%')
-                        GROUP BY 1
-                    )
-                    SELECT h.hour,
-                           COALESCE(i.errors, 0) AS iis_errors,
-                           COALESCE(i.auth_failures, 0) AS auth_failures,
-                           COALESCE(w.errors, 0) AS windows_errors,
-                           COALESCE(r.alerts, 0) AS router_alerts
-                    FROM hours h
-                    LEFT JOIN iis_hourly i ON h.hour = i.hour
-                    LEFT JOIN windows_hourly w ON h.hour = w.hour
-                    LEFT JOIN router_hourly r ON h.hour = r.hour
-                    ORDER BY h.hour
-                    """
-                )
-                rows = cur.fetchall()
-                summary['hourly_breakdown'] = [
-                    {
-                        'hour': _isoformat(row.get('hour')),
-                        'iis_errors': row.get('iis_errors', 0) or 0,
-                        'auth_failures': row.get('auth_failures', 0) or 0,
-                        'windows_errors': row.get('windows_errors', 0) or 0,
-                        'router_alerts': row.get('router_alerts', 0) or 0
-                    }
-                    for row in rows
-                ]
-            except Exception as exc:
-                app.logger.debug('Hourly breakdown query failed: %s', exc)
+                hour_time = now - datetime.timedelta(hours=hour_offset)
+                hour_time = hour_time.replace(minute=0, second=0, microsecond=0)
+                hourly_breakdown.append({
+                    'hour': _isoformat(hour_time),
+                    'iis_errors': (iis_row.get('iis_errors') or 0),
+                    'auth_failures': (iis_row.get('auth_failures') or 0),
+                    'windows_errors': (win_row.get('errors') or 0),
+                    'router_alerts': (router_row.get('alerts') or 0)
+                })
+            summary['hourly_breakdown'] = hourly_breakdown
+        except Exception as exc:
+            app.logger.debug('Hourly breakdown query failed: %s', exc)
 
     finally:
         conn.close()
@@ -1320,95 +1338,97 @@ def get_trend_data():
     }
 
     try:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            # Generate dates for last 7 days
-            now = datetime.datetime.now(datetime.UTC)
-            dates = [(now - datetime.timedelta(days=i)).strftime('%Y-%m-%d') for i in range(6, -1, -1)]
-            trends['dates'] = dates
+        cur = conn.cursor()
+        # Generate dates for last 7 days
+        now = datetime.datetime.now(datetime.UTC)
+        dates = [(now - datetime.timedelta(days=i)).strftime('%Y-%m-%d') for i in range(6, -1, -1)]
+        trends['dates'] = dates
 
-            # IIS 5xx errors by day
-            try:
-                cur.execute(
-                    """
-                    SELECT DATE(request_time) AS day,
-                           COUNT(*) FILTER (WHERE status BETWEEN 500 AND 599) AS errors
-                    FROM telemetry.iis_requests_recent
-                    WHERE request_time >= NOW() - INTERVAL '7 days'
-                    GROUP BY day
-                    ORDER BY day
-                    """
-                )
-                rows = cur.fetchall()
-                errors_by_day = {row['day'].strftime('%Y-%m-%d'): row['errors'] for row in rows}
-                trends['iis_errors'] = [errors_by_day.get(d, 0) for d in dates]
-            except Exception as exc:
-                app.logger.debug('IIS trend query failed: %s', exc)
-                trends['iis_errors'] = [0] * 7
+        # IIS 5xx errors by day
+        try:
+            cur.execute(
+                """
+                SELECT DATE(request_time) AS day,
+                       SUM(CASE WHEN status BETWEEN 500 AND 599 THEN 1 ELSE 0 END) AS errors
+                FROM iis_requests
+                WHERE datetime(request_time) >= datetime('now', '-7 days')
+                GROUP BY day
+                ORDER BY day
+                """
+            )
+            rows = cur.fetchall()
+            errors_by_day = {row['day']: row['errors'] for row in rows}
+            trends['iis_errors'] = [errors_by_day.get(d, 0) for d in dates]
+        except Exception as exc:
+            app.logger.debug('IIS trend query failed: %s', exc)
+            trends['iis_errors'] = [0] * 7
 
-            # Auth failures by day
-            try:
-                cur.execute(
-                    """
-                    SELECT DATE(request_time) AS day,
-                           COUNT(*) AS failures
-                    FROM telemetry.iis_requests_recent
-                    WHERE request_time >= NOW() - INTERVAL '7 days'
-                      AND status IN (401, 403)
-                    GROUP BY day
-                    ORDER BY day
-                    """
-                )
-                rows = cur.fetchall()
-                failures_by_day = {row['day'].strftime('%Y-%m-%d'): row['failures'] for row in rows}
-                trends['auth_failures'] = [failures_by_day.get(d, 0) for d in dates]
-            except Exception as exc:
-                app.logger.debug('Auth trend query failed: %s', exc)
-                trends['auth_failures'] = [0] * 7
+        # Auth failures by day
+        try:
+            cur.execute(
+                """
+                SELECT DATE(request_time) AS day,
+                       COUNT(*) AS failures
+                FROM iis_requests
+                WHERE datetime(request_time) >= datetime('now', '-7 days')
+                  AND status IN (401, 403)
+                GROUP BY day
+                ORDER BY day
+                """
+            )
+            rows = cur.fetchall()
+            failures_by_day = {row['day']: row['failures'] for row in rows}
+            trends['auth_failures'] = [failures_by_day.get(d, 0) for d in dates]
+        except Exception as exc:
+            app.logger.debug('Auth trend query failed: %s', exc)
+            trends['auth_failures'] = [0] * 7
 
-            # Windows errors by day
-            try:
-                cur.execute(
-                    """
-                    SELECT DATE(COALESCE(event_utc, received_utc)) AS day,
-                           COUNT(*) AS errors
-                    FROM telemetry.eventlog_windows_recent
-                    WHERE COALESCE(event_utc, received_utc) >= NOW() - INTERVAL '7 days'
-                      AND (COALESCE(level, 0) <= 2 OR COALESCE(level_text, '') ILIKE '%error%' OR COALESCE(level_text, '') ILIKE '%critical%')
-                    GROUP BY day
-                    ORDER BY day
-                    """
-                )
-                rows = cur.fetchall()
-                errors_by_day = {row['day'].strftime('%Y-%m-%d'): row['errors'] for row in rows}
-                trends['windows_errors'] = [errors_by_day.get(d, 0) for d in dates]
-            except Exception as exc:
-                app.logger.debug('Windows trend query failed: %s', exc)
-                trends['windows_errors'] = [0] * 7
+        # Windows errors by day
+        try:
+            cur.execute(
+                """
+                SELECT DATE(COALESCE(event_utc, received_utc)) AS day,
+                       COUNT(*) AS errors
+                FROM eventlog_windows
+                WHERE datetime(COALESCE(event_utc, received_utc)) >= datetime('now', '-7 days')
+                  AND (COALESCE(level, 0) <= 2 
+                       OR LOWER(COALESCE(level_text, '')) LIKE '%error%' 
+                       OR LOWER(COALESCE(level_text, '')) LIKE '%critical%')
+                GROUP BY day
+                ORDER BY day
+                """
+            )
+            rows = cur.fetchall()
+            errors_by_day = {row['day']: row['errors'] for row in rows}
+            trends['windows_errors'] = [errors_by_day.get(d, 0) for d in dates]
+        except Exception as exc:
+            app.logger.debug('Windows trend query failed: %s', exc)
+            trends['windows_errors'] = [0] * 7
 
-            # Router alerts by day
-            try:
-                cur.execute(
-                    """
-                    SELECT DATE(received_utc) AS day,
-                           COUNT(*) AS alerts
-                    FROM telemetry.syslog_recent
-                    WHERE source = 'asus'
-                      AND received_utc >= NOW() - INTERVAL '7 days'
-                      AND (severity <= 3
-                           OR message ILIKE '%wan%'
-                           OR message ILIKE '%dhcp%'
-                           OR message ILIKE '%failed%'
-                           OR message ILIKE '%drop%')
-                    GROUP BY day
-                    ORDER BY day
-                    """
-                )
-                rows = cur.fetchall()
-                alerts_by_day = {row['day'].strftime('%Y-%m-%d'): row['alerts'] for row in rows}
-                trends['router_alerts'] = [alerts_by_day.get(d, 0) for d in dates]
-            except Exception as exc:
-                app.logger.debug('Router trend query failed: %s', exc)
-                trends['router_alerts'] = [0] * 7
+        # Router alerts by day
+        try:
+            cur.execute(
+                """
+                SELECT DATE(received_utc) AS day,
+                       COUNT(*) AS alerts
+                FROM syslog_messages
+                WHERE source = 'asus'
+                  AND datetime(received_utc) >= datetime('now', '-7 days')
+                  AND (severity <= 3
+                       OR LOWER(message) LIKE '%wan%'
+                       OR LOWER(message) LIKE '%dhcp%'
+                       OR LOWER(message) LIKE '%failed%'
+                       OR LOWER(message) LIKE '%drop%')
+                GROUP BY day
+                ORDER BY day
+                """
+            )
+            rows = cur.fetchall()
+            alerts_by_day = {row['day']: row['alerts'] for row in rows}
+            trends['router_alerts'] = [alerts_by_day.get(d, 0) for d in dates]
+        except Exception as exc:
+            app.logger.debug('Router trend query failed: %s', exc)
+            trends['router_alerts'] = [0] * 7
 
     finally:
         conn.close()
@@ -1687,27 +1707,27 @@ def api_ai_feedback_create():
         return jsonify({'error': 'Database unavailable'}), 503
     
     try:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute(
-                """
-                INSERT INTO telemetry.ai_feedback 
-                (event_id, event_source, event_message, event_log_type, event_level, 
-                 event_time, ai_response, review_status)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                RETURNING id, created_at, updated_at
-                """,
-                (event_id, event_source, event_message, event_log_type, event_level,
-                 event_time, ai_response, review_status)
-            )
-            result = cur.fetchone()
-            conn.commit()
-            
-            return jsonify({
-                'status': 'ok',
-                'id': result['id'],
-                'created_at': _isoformat(result['created_at']),
-                'updated_at': _isoformat(result['updated_at'])
-            }), 201
+        cur = conn.cursor()
+        now = datetime.datetime.now(datetime.UTC).isoformat()
+        cur.execute(
+            """
+            INSERT INTO ai_feedback 
+            (event_id, event_source, event_message, event_log_type, event_level, 
+             event_time, ai_response, review_status, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (event_id, event_source, event_message, event_log_type, event_level,
+             event_time, ai_response, review_status, now, now)
+        )
+        result_id = cur.lastrowid
+        conn.commit()
+        
+        return jsonify({
+            'status': 'ok',
+            'id': result_id,
+            'created_at': now,
+            'updated_at': now
+        }), 201
     except Exception as exc:
         app.logger.error('Failed to create AI feedback: %s', exc)
         conn.rollback()
@@ -1732,83 +1752,82 @@ def api_ai_feedback_list():
         return jsonify({'feedback': [], 'total': 0, 'source': 'unavailable'})
     
     try:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            # Build WHERE clause with parameterized conditions
-            conditions = []
-            params = []
-            
-            # Validate and add since_days parameter
-            try:
-                days_value = int(since_days)
-                if days_value < 1 or days_value > 365:
-                    days_value = 30  # Default to 30 if out of range
-            except (ValueError, TypeError):
-                days_value = 30  # Default to 30 if invalid
-            
-            conditions.append("created_at >= NOW() - INTERVAL '%s days'")
-            params.append(days_value)
-            
-            if review_status:
-                conditions.append("review_status = %s")
-                params.append(review_status)
-            
-            if event_log_type:
-                conditions.append("event_log_type = %s")
-                params.append(event_log_type)
-            
-            where_clause = ' AND '.join(conditions)
-            
-            # Get total count
-            count_query = f"SELECT COUNT(*) FROM telemetry.ai_feedback WHERE {where_clause}"
-            cur.execute(count_query, params)
-            total = cur.fetchone()['count']
-            
-            # Get paginated results
-            query = f"""
-                SELECT 
-                    id,
-                    event_id,
-                    event_source,
-                    event_message,
-                    event_log_type,
-                    event_level,
-                    event_time,
-                    ai_response,
-                    review_status,
-                    created_at,
-                    updated_at
-                FROM telemetry.ai_feedback
-                WHERE {where_clause}
-                ORDER BY created_at DESC
-                LIMIT %s OFFSET %s
-            """
-            cur.execute(query, params + [limit, offset])
-            rows = cur.fetchall()
-            
-            # Format results
-            feedback = []
-            for row in rows:
-                feedback.append({
-                    'id': row['id'],
-                    'event_id': row['event_id'],
-                    'event_source': row['event_source'],
-                    'event_message': row['event_message'],
-                    'event_log_type': row['event_log_type'],
-                    'event_level': row['event_level'],
-                    'event_time': _isoformat(row['event_time']),
-                    'ai_response': row['ai_response'],
-                    'review_status': row['review_status'],
-                    'created_at': _isoformat(row['created_at']),
-                    'updated_at': _isoformat(row['updated_at'])
-                })
-            
-            return jsonify({
-                'feedback': feedback,
-                'total': total,
-                'limit': limit,
-                'offset': offset,
-                'source': 'database'
+        cur = conn.cursor()
+        # Build WHERE clause with parameterized conditions
+        conditions = []
+        params = []
+        
+        # Validate and add since_days parameter
+        try:
+            days_value = int(since_days)
+            if days_value < 1 or days_value > 365:
+                days_value = 30  # Default to 30 if out of range
+        except (ValueError, TypeError):
+            days_value = 30  # Default to 30 if invalid
+        
+        conditions.append(f"datetime(created_at) >= datetime('now', '-{days_value} days')")
+        
+        if review_status:
+            conditions.append("review_status = ?")
+            params.append(review_status)
+        
+        if event_log_type:
+            conditions.append("event_log_type = ?")
+            params.append(event_log_type)
+        
+        where_clause = ' AND '.join(conditions)
+        
+        # Get total count
+        count_query = f"SELECT COUNT(*) as count FROM ai_feedback WHERE {where_clause}"
+        cur.execute(count_query, params)
+        total = dict_from_row(cur.fetchone()).get('count', 0)
+        
+        # Get paginated results
+        query = f"""
+            SELECT 
+                id,
+                event_id,
+                event_source,
+                event_message,
+                event_log_type,
+                event_level,
+                event_time,
+                ai_response,
+                review_status,
+                created_at,
+                updated_at
+            FROM ai_feedback
+            WHERE {where_clause}
+            ORDER BY created_at DESC
+            LIMIT ? OFFSET ?
+        """
+        cur.execute(query, params + [limit, offset])
+        rows = cur.fetchall()
+        
+        # Format results
+        feedback = []
+        for row in rows:
+            feedback.append({
+                'id': row['id'],
+                'event_id': row['event_id'],
+                'event_source': row['event_source'],
+                'event_message': row['event_message'],
+                'event_log_type': row['event_log_type'],
+                'event_level': row['event_level'],
+                'event_time': _isoformat(row['event_time']),
+                'ai_response': row['ai_response'],
+                'review_status': row['review_status'],
+                'created_at': _isoformat(row['created_at']),
+                'updated_at': _isoformat(row['updated_at'])
             })
+        
+        return jsonify({
+            'feedback': feedback,
+            'total': total,
+            'limit': limit,
+            'offset': offset,
+            'source': 'database'
+        })
     except Exception as exc:
         app.logger.error('Failed to retrieve AI feedback: %s', exc)
         return jsonify({'error': 'Database error'}), 500
@@ -1832,29 +1851,28 @@ def api_ai_feedback_update_status(feedback_id):
         return jsonify({'error': 'Database unavailable'}), 503
     
     try:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute(
-                """
-                UPDATE telemetry.ai_feedback
-                SET review_status = %s
-                WHERE id = %s
-                RETURNING id, review_status, updated_at
-                """,
-                (new_status, feedback_id)
-            )
-            result = cur.fetchone()
-            
-            if not result:
-                return jsonify({'error': 'Feedback entry not found'}), 404
-            
-            conn.commit()
-            
-            return jsonify({
-                'status': 'ok',
-                'id': result['id'],
-                'review_status': result['review_status'],
-                'updated_at': _isoformat(result['updated_at'])
-            })
+        cur = conn.cursor()
+        now = datetime.datetime.now(datetime.UTC).isoformat()
+        cur.execute(
+            """
+            UPDATE ai_feedback
+            SET review_status = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (new_status, now, feedback_id)
+        )
+        
+        if cur.rowcount == 0:
+            return jsonify({'error': 'Feedback entry not found'}), 404
+        
+        conn.commit()
+        
+        return jsonify({
+            'status': 'ok',
+            'id': feedback_id,
+            'review_status': new_status,
+            'updated_at': now
+        })
     except Exception as exc:
         app.logger.error('Failed to update AI feedback status: %s', exc)
         conn.rollback()
@@ -1869,9 +1887,9 @@ def health():
     conn = get_db_connection()
     if conn:
         try:
-            with conn.cursor() as cur:
-                cur.execute("SELECT 1")
-                cur.fetchone()
+            cur = conn.cursor()
+            cur.execute("SELECT 1")
+            cur.fetchone()
             conn.close()
             return 'ok', 200
         except Exception:
@@ -1952,14 +1970,14 @@ def api_lan_stats():
         return jsonify(_mock_lan_stats())
 
     try:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute("SELECT * FROM telemetry.lan_summary_stats")
-            row = cur.fetchone()
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM lan_summary_stats")
+        row = cur.fetchone()
 
-            if row:
-                stats = dict(row)
-            else:
-                stats = _mock_lan_stats()
+        if row:
+            stats = dict(row)
+        else:
+            stats = _mock_lan_stats()
     except Exception as exc:
         app.logger.debug('LAN stats query failed: %s', exc)
         stats = _mock_lan_stats()
@@ -1988,75 +2006,72 @@ def api_lan_devices():
         return jsonify({'devices': devices})
 
     try:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            query = """
-                SELECT
-                    d.device_id,
-                    d.mac_address,
-                    d.primary_ip_address,
-                    d.hostname,
-                    d.nickname,
-                    d.location,
-                    d.manufacturer,
-                    d.vendor,
-                    d.first_seen_utc,
-                    d.last_seen_utc,
-                    d.is_active,
-                    d.tags,
-                    d.network_type,
-                    ds.interface AS last_interface,
-                    ds.rssi AS last_rssi,
-                    ds.tx_rate_mbps AS last_tx_rate_mbps,
-                    ds.rx_rate_mbps AS last_rx_rate_mbps,
-                    ds.lease_type AS lease_type
-                FROM telemetry.devices d
-                LEFT JOIN LATERAL (
-                    SELECT
-                        interface,
-                        rssi,
-                        tx_rate_mbps,
-                        rx_rate_mbps,
-                        NULLIF(raw_json::json->>'LeaseType', '') AS lease_type
-                    FROM telemetry.device_snapshots_template
-                    WHERE device_id = d.device_id
-                    ORDER BY sample_time_utc DESC
-                    LIMIT 1
-                ) ds ON true
-                WHERE 1=1
-            """
+        cur = conn.cursor()
+        # Simplified query for SQLite (no LATERAL join)
+        query = """
+            SELECT
+                d.device_id,
+                d.mac_address,
+                d.primary_ip_address,
+                d.hostname,
+                d.nickname,
+                d.location,
+                d.manufacturer,
+                d.vendor,
+                d.first_seen_utc,
+                d.last_seen_utc,
+                d.is_active,
+                d.tags,
+                d.network_type
+            FROM devices d
+            WHERE 1=1
+        """
 
-            params = []
-            if state == 'active':
-                query += " AND d.is_active = true"
-            elif state == 'inactive':
-                query += " AND d.is_active = false"
+        params = []
+        if state == 'active':
+            query += " AND d.is_active = 1"
+        elif state == 'inactive':
+            query += " AND d.is_active = 0"
 
-            if interface:
-                query += " AND ds.interface ILIKE %s"
-                params.append(f'%{interface}%')
+        if tag:
+            query += " AND LOWER(d.tags) LIKE LOWER(?)"
+            params.append(f'%{tag}%')
 
-            if tag:
-                query += " AND d.tags ILIKE %s"
-                params.append(f'%{tag}%')
+        if network_type:
+            query += " AND d.network_type = ?"
+            params.append(network_type)
 
-            if network_type:
-                query += " AND d.network_type = %s"
-                params.append(network_type)
+        query += " ORDER BY d.last_seen_utc DESC LIMIT ?"
+        params.append(limit)
 
-            query += " ORDER BY d.last_seen_utc DESC LIMIT %s"
-            params.append(limit)
+        cur.execute(query, params)
+        rows = cur.fetchall()
 
-            cur.execute(query, params)
-            rows = cur.fetchall()
-
-            devices = []
-            for row in rows:
-                device = dict(row)
-                device['first_seen_utc'] = _isoformat(device.get('first_seen_utc'))
-                device['last_seen_utc'] = _isoformat(device.get('last_seen_utc'))
-                device['last_tx_rate_mbps'] = _safe_float(device.get('last_tx_rate_mbps'))
-                device['last_rx_rate_mbps'] = _safe_float(device.get('last_rx_rate_mbps'))
-                devices.append(device)
+        devices = []
+        for row in rows:
+            device = dict(row)
+            device['first_seen_utc'] = _isoformat(device.get('first_seen_utc'))
+            device['last_seen_utc'] = _isoformat(device.get('last_seen_utc'))
+            # Get latest snapshot info for this device
+            cur.execute("""
+                SELECT interface, rssi, tx_rate_mbps, rx_rate_mbps
+                FROM device_snapshots
+                WHERE device_id = ?
+                ORDER BY sample_time_utc DESC
+                LIMIT 1
+            """, (device['device_id'],))
+            snapshot = cur.fetchone()
+            if snapshot:
+                device['last_interface'] = snapshot['interface']
+                device['last_rssi'] = snapshot['rssi']
+                device['last_tx_rate_mbps'] = _safe_float(snapshot['tx_rate_mbps'])
+                device['last_rx_rate_mbps'] = _safe_float(snapshot['rx_rate_mbps'])
+            else:
+                device['last_interface'] = None
+                device['last_rssi'] = None
+                device['last_tx_rate_mbps'] = 0.0
+                device['last_rx_rate_mbps'] = 0.0
+            devices.append(device)
     except Exception as exc:
         app.logger.debug('LAN devices query failed: %s', exc)
         devices = _mock_lan_devices()
@@ -2075,30 +2090,30 @@ def api_lan_devices_online():
         return jsonify({'devices': devices})
 
     try:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute("""
-                SELECT
-                    device_id,
-                    mac_address,
-                    primary_ip_address,
-                    hostname,
-                    vendor,
-                    last_seen_utc,
-                    current_ip,
-                    current_interface,
-                    current_rssi,
-                    last_snapshot_time
-                FROM telemetry.devices_online
-                ORDER BY last_seen_utc DESC
-            """)
-            rows = cur.fetchall()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT
+                device_id,
+                mac_address,
+                primary_ip_address,
+                hostname,
+                vendor,
+                last_seen_utc,
+                current_ip,
+                current_interface,
+                current_rssi,
+                last_snapshot_time
+            FROM devices_online
+            ORDER BY last_seen_utc DESC
+        """)
+        rows = cur.fetchall()
 
-            devices = []
-            for row in rows:
-                device = dict(row)
-                device['last_seen_utc'] = _isoformat(device.get('last_seen_utc'))
-                device['last_snapshot_time'] = _isoformat(device.get('last_snapshot_time'))
-                devices.append(device)
+        devices = []
+        for row in rows:
+            device = dict(row)
+            device['last_seen_utc'] = _isoformat(device.get('last_seen_utc'))
+            device['last_snapshot_time'] = _isoformat(device.get('last_snapshot_time'))
+            devices.append(device)
     except Exception as exc:
         app.logger.debug('Online devices query failed: %s', exc)
         devices = [d for d in _mock_lan_devices() if d['is_active']]
@@ -2121,46 +2136,49 @@ def api_lan_device_detail(device_id):
         return jsonify({'error': 'Device not found'}), 404
 
     try:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute("""
-                SELECT
-                    d.*,
-                    (SELECT COUNT(*) FROM telemetry.device_snapshots_template WHERE device_id = d.device_id) AS total_snapshots,
-                    last.interface AS last_interface,
-                    last.rssi AS last_rssi,
-                    last.tx_rate_mbps AS last_tx_rate_mbps,
-                    last.rx_rate_mbps AS last_rx_rate_mbps,
-                    last.lease_type AS lease_type,
-                    last.sample_time_utc AS last_snapshot_time
-                FROM telemetry.devices d
-                LEFT JOIN LATERAL (
-                    SELECT
-                        interface,
-                        rssi,
-                        tx_rate_mbps,
-                        rx_rate_mbps,
-                        NULLIF(raw_json::json->>'LeaseType', '') AS lease_type,
-                        sample_time_utc
-                    FROM telemetry.device_snapshots_template
-                    WHERE device_id = d.device_id
-                    ORDER BY sample_time_utc DESC
-                    LIMIT 1
-                ) last ON true
-                WHERE d.device_id = %s
-            """, (device_id,))
-            row = cur.fetchone()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT * FROM devices WHERE device_id = ?
+        """, (device_id,))
+        row = cur.fetchone()
 
-            if not row:
-                return jsonify({'error': 'Device not found'}), 404
+        if not row:
+            return jsonify({'error': 'Device not found'}), 404
 
-            device = dict(row)
-            device['first_seen_utc'] = _isoformat(device.get('first_seen_utc'))
-            device['last_seen_utc'] = _isoformat(device.get('last_seen_utc'))
-            device['created_at'] = _isoformat(device.get('created_at'))
-            device['updated_at'] = _isoformat(device.get('updated_at'))
-            device['last_snapshot_time'] = _isoformat(device.get('last_snapshot_time'))
-            device['last_tx_rate_mbps'] = _safe_float(device.get('last_tx_rate_mbps'))
-            device['last_rx_rate_mbps'] = _safe_float(device.get('last_rx_rate_mbps'))
+        device = dict(row)
+        
+        # Get snapshot count
+        cur.execute("SELECT COUNT(*) as count FROM device_snapshots WHERE device_id = ?", (device_id,))
+        count_row = cur.fetchone()
+        device['total_snapshots'] = count_row['count'] if count_row else 0
+        
+        # Get latest snapshot
+        cur.execute("""
+            SELECT interface, rssi, tx_rate_mbps, rx_rate_mbps, sample_time_utc
+            FROM device_snapshots
+            WHERE device_id = ?
+            ORDER BY sample_time_utc DESC
+            LIMIT 1
+        """, (device_id,))
+        snapshot = cur.fetchone()
+        
+        if snapshot:
+            device['last_interface'] = snapshot['interface']
+            device['last_rssi'] = snapshot['rssi']
+            device['last_tx_rate_mbps'] = _safe_float(snapshot['tx_rate_mbps'])
+            device['last_rx_rate_mbps'] = _safe_float(snapshot['rx_rate_mbps'])
+            device['last_snapshot_time'] = _isoformat(snapshot['sample_time_utc'])
+        else:
+            device['last_interface'] = None
+            device['last_rssi'] = None
+            device['last_tx_rate_mbps'] = 0.0
+            device['last_rx_rate_mbps'] = 0.0
+            device['last_snapshot_time'] = None
+
+        device['first_seen_utc'] = _isoformat(device.get('first_seen_utc'))
+        device['last_seen_utc'] = _isoformat(device.get('last_seen_utc'))
+        device['created_at'] = _isoformat(device.get('created_at'))
+        device['updated_at'] = _isoformat(device.get('updated_at'))
     except Exception as exc:
         app.logger.debug('Device detail query failed: %s', exc)
         return jsonify({'error': 'Database error'}), 500
@@ -2193,21 +2211,20 @@ def api_lan_device_update(device_id):
         return jsonify({'error': 'Database unavailable'}), 503
 
     try:
-        with conn.cursor() as cur:
-            cur.execute("""
-                UPDATE telemetry.devices
-                SET
-                    nickname = COALESCE(%s, nickname),
-                    location = COALESCE(%s, location),
-                    tags = COALESCE(%s, tags),
-                    network_type = COALESCE(%s, network_type),
-                    updated_at = NOW()
-                WHERE device_id = %s
-                RETURNING device_id;
-            """, (nickname, location, tags, network_type, device_id))
-            updated = cur.fetchone()
-            if not updated:
-                return jsonify({'error': 'Device not found'}), 404
+        cur = conn.cursor()
+        now = datetime.datetime.now(datetime.UTC).isoformat()
+        cur.execute("""
+            UPDATE devices
+            SET
+                nickname = COALESCE(?, nickname),
+                location = COALESCE(?, location),
+                tags = COALESCE(?, tags),
+                network_type = COALESCE(?, network_type),
+                updated_at = ?
+            WHERE device_id = ?
+        """, (nickname, location, tags, network_type, now, device_id))
+        if cur.rowcount == 0:
+            return jsonify({'error': 'Device not found'}), 404
         conn.commit()
         return jsonify({'status': 'ok'})
     except Exception as exc:
@@ -2240,28 +2257,28 @@ def api_lan_device_timeline(device_id):
         return jsonify({'timeline': timeline})
 
     try:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute("""
-                SELECT
-                    sample_time_utc,
-                    ip_address,
-                    interface,
-                    rssi,
-                    tx_rate_mbps,
-                    rx_rate_mbps,
-                    is_online
-                FROM telemetry.device_snapshots_template
-                WHERE device_id = %s
-                  AND sample_time_utc >= NOW() - INTERVAL '%s hours'
-                ORDER BY sample_time_utc ASC
-            """, (device_id, hours))
-            rows = cur.fetchall()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT
+                sample_time_utc,
+                ip_address,
+                interface,
+                rssi,
+                tx_rate_mbps,
+                rx_rate_mbps,
+                is_online
+            FROM device_snapshots
+            WHERE device_id = ?
+              AND datetime(sample_time_utc) >= datetime('now', ? || ' hours')
+            ORDER BY sample_time_utc ASC
+        """, (device_id, f'-{hours}'))
+        rows = cur.fetchall()
 
-            timeline = []
-            for row in rows:
-                point = dict(row)
-                point['sample_time_utc'] = _isoformat(point.get('sample_time_utc'))
-                timeline.append(point)
+        timeline = []
+        for row in rows:
+            point = dict(row)
+            point['sample_time_utc'] = _isoformat(point.get('sample_time_utc'))
+            timeline.append(point)
     except Exception as exc:
         app.logger.debug('Device timeline query failed: %s', exc)
         return jsonify({'error': 'Database error'}), 500
@@ -2297,29 +2314,29 @@ def api_lan_device_events(device_id):
         return jsonify({'events': events})
 
     try:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute("""
-                SELECT
-                    s.received_utc AS timestamp,
-                    s.severity,
-                    s.message,
-                    s.source_host,
-                    l.match_type,
-                    l.confidence
-                FROM telemetry.syslog_device_links l
-                INNER JOIN telemetry.syslog_generic_template s ON l.syslog_id = s.id
-                WHERE l.device_id = %s
-                ORDER BY s.received_utc DESC
-                LIMIT %s
-            """, (device_id, limit))
-            rows = cur.fetchall()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT
+                s.received_utc AS timestamp,
+                s.severity,
+                s.message,
+                s.source_host,
+                l.match_type,
+                l.confidence
+            FROM syslog_device_links l
+            INNER JOIN syslog_messages s ON l.syslog_id = s.id
+            WHERE l.device_id = ?
+            ORDER BY s.received_utc DESC
+            LIMIT ?
+        """, (device_id, limit))
+        rows = cur.fetchall()
 
-            events = []
-            for row in rows:
-                event = dict(row)
-                event['timestamp'] = _isoformat(event.get('timestamp'))
-                event['severity'] = _severity_to_text(event.get('severity'))
-                events.append(event)
+        events = []
+        for row in rows:
+            event = dict(row)
+            event['timestamp'] = _isoformat(event.get('timestamp'))
+            event['severity'] = _severity_to_text(event.get('severity'))
+            events.append(event)
     except Exception as exc:
         app.logger.debug('Device events query failed: %s', exc)
         return jsonify({'error': 'Database error'}), 500
@@ -2361,27 +2378,27 @@ def api_lan_device_connection_events(device_id):
         return jsonify({'events': events})
 
     try:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute("""
-                SELECT
-                    event_id,
-                    event_type,
-                    event_time,
-                    previous_state,
-                    new_state,
-                    details
-                FROM telemetry.device_events
-                WHERE device_id = %s
-                ORDER BY event_time DESC
-                LIMIT %s
-            """, (device_id, limit))
-            rows = cur.fetchall()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT
+                event_id,
+                event_type,
+                event_time,
+                previous_state,
+                new_state,
+                details
+            FROM device_events
+            WHERE device_id = ?
+            ORDER BY event_time DESC
+            LIMIT ?
+        """, (device_id, limit))
+        rows = cur.fetchall()
 
-            events = []
-            for row in rows:
-                event = dict(row)
-                event['event_time'] = _isoformat(event.get('event_time'))
-                events.append(event)
+        events = []
+        for row in rows:
+            event = dict(row)
+            event['event_time'] = _isoformat(event.get('event_time'))
+            events.append(event)
     except Exception as exc:
         app.logger.debug('Device connection events query failed: %s', exc)
         return jsonify({'error': 'Database error'}), 500
@@ -2448,55 +2465,55 @@ def api_lan_alerts():
         return jsonify({'alerts': mock_alerts, 'total': len(mock_alerts)})
 
     try:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            query = """
-                SELECT
-                    alert_id,
-                    device_id,
-                    alert_type,
-                    severity,
-                    title,
-                    message,
-                    metadata,
-                    is_acknowledged,
-                    acknowledged_at,
-                    is_resolved,
-                    created_at,
-                    mac_address,
-                    hostname,
-                    nickname,
-                    primary_ip_address,
-                    tags
-                FROM telemetry.device_alerts_active
-                WHERE 1=1
-            """
+        cur = conn.cursor()
+        query = """
+            SELECT
+                alert_id,
+                device_id,
+                alert_type,
+                severity,
+                title,
+                message,
+                metadata,
+                is_acknowledged,
+                acknowledged_at,
+                is_resolved,
+                created_at,
+                mac_address,
+                hostname,
+                nickname,
+                primary_ip_address,
+                tags
+            FROM device_alerts_active
+            WHERE 1=1
+        """
 
-            params = []
-            if severity:
-                query += " AND severity = %s"
-                params.append(severity)
+        params = []
+        if severity:
+            query += " AND severity = ?"
+            params.append(severity)
 
-            if alert_type:
-                query += " AND alert_type = %s"
-                params.append(alert_type)
+        if alert_type:
+            query += " AND alert_type = ?"
+            params.append(alert_type)
 
-            query += " ORDER BY created_at DESC LIMIT %s"
-            params.append(limit)
+        query += " ORDER BY created_at DESC LIMIT ?"
+        params.append(limit)
 
-            cur.execute(query, params)
-            rows = cur.fetchall()
+        cur.execute(query, params)
+        rows = cur.fetchall()
 
-            alerts = []
-            for row in rows:
-                alert = dict(row)
-                alert['created_at'] = _isoformat(alert.get('created_at'))
-                alert['acknowledged_at'] = _isoformat(alert.get('acknowledged_at'))
-                alerts.append(alert)
+        alerts = []
+        for row in rows:
+            alert = dict(row)
+            alert['created_at'] = _isoformat(alert.get('created_at'))
+            alert['acknowledged_at'] = _isoformat(alert.get('acknowledged_at'))
+            alerts.append(alert)
 
-            # Get total count
-            cur.execute("SELECT COUNT(*) as total FROM telemetry.device_alerts_active")
-            total_row = cur.fetchone()
-            total = total_row['total'] if total_row else 0
+        # Get total count
+        cur.execute("SELECT COUNT(*) as total FROM device_alerts_active")
+        total_row = dict_from_row(cur.fetchone())
+        total = total_row['total'] if total_row else 0
     except Exception as exc:
         app.logger.debug('Alerts query failed: %s', exc)
         return jsonify({'error': 'Database error'}), 500
@@ -2517,19 +2534,18 @@ def api_lan_alert_acknowledge(alert_id):
         return jsonify({'error': 'Database unavailable'}), 503
 
     try:
-        with conn.cursor() as cur:
-            cur.execute("""
-                UPDATE telemetry.device_alerts
-                SET is_acknowledged = true,
-                    acknowledged_at = NOW(),
-                    acknowledged_by = %s,
-                    updated_at = NOW()
-                WHERE alert_id = %s AND is_acknowledged = false
-                RETURNING alert_id;
-            """, (acknowledged_by, alert_id))
-            updated = cur.fetchone()
-            if not updated:
-                return jsonify({'error': 'Alert not found or already acknowledged'}), 404
+        cur = conn.cursor()
+        now = datetime.datetime.now(datetime.UTC).isoformat()
+        cur.execute("""
+            UPDATE device_alerts
+            SET is_acknowledged = 1,
+                acknowledged_at = ?,
+                acknowledged_by = ?,
+                updated_at = ?
+            WHERE alert_id = ? AND is_acknowledged = 0
+        """, (now, acknowledged_by, now, alert_id))
+        if cur.rowcount == 0:
+            return jsonify({'error': 'Alert not found or already acknowledged'}), 404
         conn.commit()
         return jsonify({'status': 'ok'})
     except Exception as exc:
@@ -2548,18 +2564,17 @@ def api_lan_alert_resolve(alert_id):
         return jsonify({'error': 'Database unavailable'}), 503
 
     try:
-        with conn.cursor() as cur:
-            cur.execute("""
-                UPDATE telemetry.device_alerts
-                SET is_resolved = true,
-                    resolved_at = NOW(),
-                    updated_at = NOW()
-                WHERE alert_id = %s AND is_resolved = false
-                RETURNING alert_id;
-            """, (alert_id,))
-            updated = cur.fetchone()
-            if not updated:
-                return jsonify({'error': 'Alert not found or already resolved'}), 404
+        cur = conn.cursor()
+        now = datetime.datetime.now(datetime.UTC).isoformat()
+        cur.execute("""
+            UPDATE device_alerts
+            SET is_resolved = 1,
+                resolved_at = ?,
+                updated_at = ?
+            WHERE alert_id = ? AND is_resolved = 0
+        """, (now, now, alert_id))
+        if cur.rowcount == 0:
+            return jsonify({'error': 'Alert not found or already resolved'}), 404
         conn.commit()
         return jsonify({'status': 'ok'})
     except Exception as exc:
@@ -2583,17 +2598,17 @@ def api_lan_alerts_stats():
         })
 
     try:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute("""
-                SELECT
-                    COUNT(*) as total_active,
-                    COUNT(*) FILTER (WHERE severity = 'critical') as critical,
-                    COUNT(*) FILTER (WHERE severity = 'warning') as warning,
-                    COUNT(*) FILTER (WHERE severity = 'info') as info
-                FROM telemetry.device_alerts
-                WHERE is_resolved = false
-            """)
-            stats = dict(cur.fetchone() or {})
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT
+                COUNT(*) as total_active,
+                SUM(CASE WHEN severity = 'critical' THEN 1 ELSE 0 END) as critical,
+                SUM(CASE WHEN severity = 'warning' THEN 1 ELSE 0 END) as warning,
+                SUM(CASE WHEN severity = 'info' THEN 1 ELSE 0 END) as info
+            FROM device_alerts
+            WHERE is_resolved = 0
+        """)
+        stats = dict(cur.fetchone() or {})
     except Exception as exc:
         app.logger.debug('Alert stats query failed: %s', exc)
         return jsonify({'error': 'Database error'}), 500
@@ -2612,31 +2627,30 @@ def api_lan_device_lookup_vendor(device_id):
 
     try:
         # Get device MAC address
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute("SELECT mac_address, vendor FROM telemetry.devices WHERE device_id = %s", (device_id,))
-            device = cur.fetchone()
+        cur = conn.cursor()
+        cur.execute("SELECT mac_address, vendor FROM devices WHERE device_id = ?", (device_id,))
+        device = dict_from_row(cur.fetchone())
 
-            if not device:
-                return jsonify({'error': 'Device not found'}), 404
+        if not device:
+            return jsonify({'error': 'Device not found'}), 404
 
-            # Look up vendor
-            vendor = lookup_mac_vendor(device['mac_address'])
+        # Look up vendor
+        vendor = lookup_mac_vendor(device['mac_address'])
 
-            if not vendor:
-                return jsonify({'error': 'Vendor lookup failed', 'message': 'Could not determine vendor from MAC address'}), 404
+        if not vendor:
+            return jsonify({'error': 'Vendor lookup failed', 'message': 'Could not determine vendor from MAC address'}), 404
 
-            # Update device with vendor info
-            cur.execute("""
-                UPDATE telemetry.devices
-                SET vendor = %s,
-                    updated_at = NOW()
-                WHERE device_id = %s
-                RETURNING device_id;
-            """, (vendor, device_id))
-            updated = cur.fetchone()
+        # Update device with vendor info
+        now = datetime.datetime.now(datetime.UTC).isoformat()
+        cur.execute("""
+            UPDATE devices
+            SET vendor = ?,
+                updated_at = ?
+            WHERE device_id = ?
+        """, (vendor, now, device_id))
 
-            if not updated:
-                return jsonify({'error': 'Failed to update device'}), 500
+        if cur.rowcount == 0:
+            return jsonify({'error': 'Failed to update device'}), 500
 
         conn.commit()
         return jsonify({'status': 'ok', 'vendor': vendor})
@@ -2659,31 +2673,32 @@ def api_lan_devices_enrich_vendors():
         return jsonify({'error': 'MAC vendor lookup feature not configured. Install mac-vendor-lookup package.'}), 501
 
     try:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            # Get devices without vendor info
-            cur.execute("""
-                SELECT device_id, mac_address
-                FROM telemetry.devices
-                WHERE vendor IS NULL OR vendor = ''
-                LIMIT 100
-            """)
-            devices = cur.fetchall()
+        cur = conn.cursor()
+        # Get devices without vendor info
+        cur.execute("""
+            SELECT device_id, mac_address
+            FROM devices
+            WHERE vendor IS NULL OR vendor = ''
+            LIMIT 100
+        """)
+        devices = cur.fetchall()
 
-            updated_count = 0
-            failed_count = 0
+        updated_count = 0
+        failed_count = 0
+        now = datetime.datetime.now(datetime.UTC).isoformat()
 
-            for device in devices:
-                vendor = lookup_mac_vendor(device['mac_address'])
-                if vendor:
-                    cur.execute("""
-                        UPDATE telemetry.devices
-                        SET vendor = %s,
-                            updated_at = NOW()
-                        WHERE device_id = %s
-                    """, (vendor, device['device_id']))
-                    updated_count += 1
-                else:
-                    failed_count += 1
+        for device in devices:
+            vendor = lookup_mac_vendor(device['mac_address'])
+            if vendor:
+                cur.execute("""
+                    UPDATE devices
+                    SET vendor = ?,
+                        updated_at = ?
+                    WHERE device_id = ?
+                """, (vendor, now, device['device_id']))
+                updated_count += 1
+            else:
+                failed_count += 1
 
         conn.commit()
         return jsonify({
