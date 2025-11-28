@@ -88,7 +88,7 @@ function Show-SyslogMonitoring {
 
     Write-Host "System Dashboard collects syslog data through two methods:" -ForegroundColor Yellow
     Write-Host "  🔊 UDP Syslog Listener - Port 5514 (Primary method)" -ForegroundColor Green
-    Write-Host "  📡 ASUS Router HTTP - Periodic polling (Secondary)" -ForegroundColor Cyan
+    Write-Host "  📡 ASUS Router SSH fetch - Periodic polling (Secondary)" -ForegroundColor Cyan
     Write-Host ""
 
     Write-Host "⚠️  Note: Using port 5514 instead of standard 514 to avoid requiring admin privileges" -ForegroundColor Yellow
@@ -130,18 +130,18 @@ function Show-SyslogMonitoring {
     Write-Host "  2. Restart the telemetry service" -ForegroundColor Gray
 
     # ASUS router specific configuration
-    Write-Host "`n� ASUS Router HTTP Polling (Optional):" -ForegroundColor Yellow
+    Write-Host "`n📡 ASUS Router SSH Polling (Optional):" -ForegroundColor Yellow
     if ($env:ASUS_ROUTER_PASSWORD) {
-        Write-Host "✅ ASUS router password already configured for HTTP polling" -ForegroundColor Green
+        Write-Host "✅ ASUS router password already configured for SSH polling" -ForegroundColor Green
     } else {
-        Write-Host "⚠️ ASUS router password not set for HTTP polling" -ForegroundColor Yellow
-        $setPassword = Read-Host "Would you like to set the ASUS router password for HTTP polling? (y/n)"
+        Write-Host "⚠️ ASUS router password not set for SSH polling" -ForegroundColor Yellow
+        $setPassword = Read-Host "Would you like to set the ASUS router password for SSH polling? (y/n)"
 
         if ($setPassword -eq 'y') {
             $password = Read-Host "Enter ASUS router admin password" -AsSecureString
             $env:ASUS_ROUTER_PASSWORD = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($password))
             [Environment]::SetEnvironmentVariable("ASUS_ROUTER_PASSWORD", $env:ASUS_ROUTER_PASSWORD, [EnvironmentVariableTarget]::User)
-            Write-Host "✅ ASUS router password set for HTTP polling" -ForegroundColor Green
+            Write-Host "✅ ASUS router password set for SSH polling" -ForegroundColor Green
         }
     }
 

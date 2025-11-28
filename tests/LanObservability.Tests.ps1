@@ -25,8 +25,8 @@ Describe 'LanObservability - Null Safety Tests' {
                 $result = Invoke-RouterClientPoll -Config $config -WarningAction SilentlyContinue
                 
                 # Should return an empty array, not null
-                $result | Should -Not -BeNull
-                $result | Should -BeOfType [Array]
+                [object]::ReferenceEquals($null, $result) | Should -BeFalse
+                ($result -is [Array]) | Should -BeTrue
                 $result.Count | Should -Be 0
             }
             finally {
@@ -54,8 +54,8 @@ Describe 'LanObservability - Null Safety Tests' {
                 $result = Invoke-RouterClientPoll -Config $config -WarningAction SilentlyContinue
                 
                 # Even on connection failure, should return an array
-                $result | Should -Not -BeNull
-                $result | Should -BeOfType [Array]
+                [object]::ReferenceEquals($null, $result) | Should -BeFalse
+                ($result -is [Array]) | Should -BeTrue
                 $result.Count | Should -Be 0
             }
             finally {

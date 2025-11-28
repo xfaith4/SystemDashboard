@@ -45,10 +45,9 @@ function Get-LanSettings {
 function Get-RouterClientListViaHttp {
     <#
     .SYNOPSIS
-        Fetches client list from ASUS router via HTTP scraping
+        Legacy HTTP scraper (disabled; SSH is required)
     .DESCRIPTION
-        Attempts to retrieve the client list by parsing the router's web UI data.
-        This method scrapes the same data used by the stock router UI (update_clients.asp).
+        HTTP polling is intentionally disabled because the application now relies solely on SSH.
     #>
     [CmdletBinding()]
     param(
@@ -57,6 +56,10 @@ function Get-RouterClientListViaHttp {
         [string] $Password = $env:ASUS_ROUTER_PASSWORD,
         [Parameter()][int]$TimeoutSeconds = 30
     )
+
+    Write-Warning "HTTP polling is disabled. Enable Service.Asus.SSH.Enabled to collect clients via SSH."
+    Write-Output -NoEnumerate @()
+    return
 
     $clients = @()
 
@@ -74,9 +77,9 @@ function Get-RouterClientListViaHttp {
 
         # Try to fetch client list data
         # Note: Actual endpoint may vary by firmware version; adjust as needed
-        $url = "http://${RouterIP}/update_clients.asp"
+        $url = "http://${RouterIP}:8443/update_clients.asp"
 
-        Write-Verbose "Fetching client list from $url"
+        Write-Host "Fetching client list from $url"
 
         $response = Invoke-WebRequest -Uri $url -Headers $headers -TimeoutSec $TimeoutSeconds -UseBasicParsing -ErrorAction Stop
 
@@ -114,10 +117,11 @@ function Get-RouterClientListViaHttp {
     }
     catch {
         Write-Warning "Failed to fetch client list via HTTP: $_"
-        return @()
+        Write-Output -NoEnumerate @()
+        return
     }
 
-    return $clients
+    Write-Output -NoEnumerate $clients
 }
 
 function Get-RouterClientListViaSsh {
@@ -142,7 +146,8 @@ function Get-RouterClientListViaSsh {
 
     if (-not $Password) {
         Write-Warning "Router SSH password not provided."
-        return @()
+        Write-Output -NoEnumerate @()
+        return
     }
 
     function Parse-StaticLeases {
@@ -170,7 +175,8 @@ function Get-RouterClientListViaSsh {
     # Check if Posh-SSH is available
     if (-not (Get-Module -Name Posh-SSH -ListAvailable)) {
         Write-Warning "Posh-SSH module not available. Install with: Install-Module -Name Posh-SSH"
-        return @()
+        Write-Output -NoEnumerate @()
+        return
     }
 
     Import-Module Posh-SSH -ErrorAction SilentlyContinue
@@ -283,20 +289,21 @@ function Get-RouterClientListViaSsh {
     }
     catch {
         Write-Warning "Failed to fetch client list via SSH: $_"
-        return @()
+        Write-Output -NoEnumerate @()
+        return
     }
 
-    return $clients
+    Write-Output -NoEnumerate $clients
 }
 
 function Invoke-RouterClientPoll {
-    <#
-    .SYNOPSIS
-        Polls the router for current client list using configured method
-    .DESCRIPTION
-        Attempts to retrieve client list using HTTP or SSH based on configuration.
-        Normalizes the data into a consistent format for database insertion.
-    #>
+<#
+.SYNOPSIS
+    Polls the router for current client list using SSH
+.DESCRIPTION
+    Attempts to retrieve client list using SSH based on configuration.
+    Normalizes the data into a consistent format for database insertion.
+#>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][hashtable]$Config
@@ -335,12 +342,13 @@ function Invoke-RouterClientPoll {
 
     if (-not $password) {
         Write-Warning "Router password not configured. Set ASUS_ROUTER_PASSWORD environment variable."
-        return @()
+        Write-Output -NoEnumerate @()
+        return
     }
 
     $clients = @()
 
-    # Try SSH first if enabled
+    # Only SSH collection is supported
     $sshConfig = & $getValue $asusConfig 'SSH'
     if ((& $getValue $sshConfig 'Enabled') -eq $true) {
         Write-Verbose "Attempting to fetch clients via SSH"
@@ -349,12 +357,9 @@ function Invoke-RouterClientPoll {
         $clients = Get-RouterClientListViaSsh -RouterIP $sshHost -Username $username -Password $password -Port $sshPort
         if ($null -eq $clients) { $clients = @() }
     }
-
-    # Fallback to HTTP if SSH didn't work
-    if ($clients.Count -eq 0) {
-        Write-Verbose "Attempting to fetch clients via HTTP"
-        $clients = Get-RouterClientListViaHttp -RouterIP $routerIP -Username $username -Password $password
-        if ($null -eq $clients) { $clients = @() }
+    else {
+        Write-Warning "SSH polling is disabled. Enable Service.Asus.SSH.Enabled to collect clients."
+        $clients = @()
     }
 
     # Normalize MAC addresses to consistent format (uppercase with colons)
@@ -370,7 +375,7 @@ function Invoke-RouterClientPoll {
     }
 
     Write-Verbose "Found $($clients.Count) clients from router"
-    return $clients
+    Write-Output -NoEnumerate $clients
 }
 
 function Upsert-LanDevice {
