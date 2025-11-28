@@ -2,6 +2,17 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+$script:TelemetryLogLevels = @{
+    'DEBUG' = 0
+    'INFO'  = 1
+    'WARN'  = 2
+    'ERROR' = 3
+}
+$script:TelemetryLogLevel = (($env:SYSTEMDASHBOARD_LOG_LEVEL ?? 'INFO')).ToUpperInvariant()
+if (-not $script:TelemetryLogLevels.ContainsKey($script:TelemetryLogLevel)) {
+    $script:TelemetryLogLevel = 'INFO'
+}
+
 function Resolve-SystemDashboardPath {
     [CmdletBinding()]
     param(
@@ -96,6 +107,9 @@ function Read-SystemDashboardConfig {
     if (-not $raw.Database) {
         $raw | Add-Member -NotePropertyName Database -NotePropertyValue (@{})
     }
+    if (-not $raw.Logging) {
+        $raw | Add-Member -NotePropertyName Logging -NotePropertyValue (@{})
+    }
 
     # Resolve path-based settings
     if ($raw.Service.LogPath) {
@@ -152,6 +166,23 @@ function Read-SystemDashboardConfig {
 
     $raw.Database.Schema = $raw.Database.Schema ?? 'telemetry'
 
+    $configuredLogLevel = $null
+    if ($env:SYSTEMDASHBOARD_LOG_LEVEL) {
+        $configuredLogLevel = $env:SYSTEMDASHBOARD_LOG_LEVEL
+    }
+    elseif ($raw.Logging.LogLevel) {
+        $configuredLogLevel = $raw.Logging.LogLevel
+    }
+    elseif ($raw.Service.LogLevel) {
+        $configuredLogLevel = $raw.Service.LogLevel
+    }
+    else {
+        $configuredLogLevel = 'INFO'
+    }
+
+    $raw.Logging.LogLevel = $configuredLogLevel
+    $raw.Service.LogLevel = $raw.Service.LogLevel ?? $configuredLogLevel
+
     return [pscustomobject]@{
         Path     = $resolved
         BasePath = $base
@@ -164,8 +195,18 @@ function Write-TelemetryLog {
     param(
         [Parameter(Mandatory)][string]$LogPath,
         [Parameter(Mandatory)][string]$Message,
-        [ValidateSet('INFO','WARN','ERROR')][string]$Level = 'INFO'
+        [ValidateSet('DEBUG','INFO','WARN','ERROR')][string]$Level = 'INFO'
     )
+
+    $effectiveLevel = if ($script:TelemetryLogLevels.ContainsKey($script:TelemetryLogLevel)) {
+        $script:TelemetryLogLevel
+    } else {
+        'INFO'
+    }
+
+    if ($script:TelemetryLogLevels[$Level] -lt $script:TelemetryLogLevels[$effectiveLevel]) {
+        return
+    }
 
     $dir = Split-Path -Parent $LogPath
     if (-not (Test-Path -LiteralPath $dir)) {
@@ -173,6 +214,15 @@ function Write-TelemetryLog {
     }
     $ts = (Get-Date).ToString('o')
     Add-Content -Path $LogPath -Value "[$ts][$Level] $Message"
+}
+
+function Set-TelemetryLogLevel {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][ValidateSet('DEBUG','INFO','WARN','ERROR')][string]$Level
+    )
+
+    $script:TelemetryLogLevel = $Level.ToUpperInvariant()
 }
 
 function ConvertFrom-SyslogLine {
@@ -712,6 +762,16 @@ function Start-TelemetryService {
 
     $configInfo = Read-SystemDashboardConfig -ConfigPath $ConfigPath
     $config = $configInfo.Config
+    if ($config.Logging.LogLevel) {
+        try {
+            Set-TelemetryLogLevel -Level $config.Logging.LogLevel.ToUpperInvariant()
+        }
+        catch {
+            # Fallback to INFO if invalid value slipped through
+            Set-TelemetryLogLevel -Level 'INFO'
+        }
+    }
+
     $logPath = $config.Service.LogPath
     Write-TelemetryLog -LogPath $logPath -Message "SystemDashboard telemetry service starting." -Level 'INFO'
 
@@ -1013,4 +1073,4 @@ function Start-TelemetryService {
     }
 }
 
-Export-ModuleMember -Function *-SystemDashboard*, Write-TelemetryLog, ConvertFrom-SyslogLine, ConvertFrom-AsusLine, Invoke-SyslogIngestion, Invoke-AsusLogFetch, Invoke-AsusWifiClientScan, Start-TelemetryService, Invoke-PostgresStatement
+Export-ModuleMember -Function *-SystemDashboard*, Write-TelemetryLog, Set-TelemetryLogLevel, ConvertFrom-SyslogLine, ConvertFrom-AsusLine, Invoke-SyslogIngestion, Invoke-AsusLogFetch, Invoke-AsusWifiClientScan, Start-TelemetryService, Invoke-PostgresStatement

@@ -2,6 +2,17 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+$script:TelemetryLogLevels = @{
+    'DEBUG' = 0
+    'INFO'  = 1
+    'WARN'  = 2
+    'ERROR' = 3
+}
+$script:TelemetryLogLevel = (($env:SYSTEMDASHBOARD_LOG_LEVEL ?? 'INFO')).ToUpperInvariant()
+if (-not $script:TelemetryLogLevels.ContainsKey($script:TelemetryLogLevel)) {
+    $script:TelemetryLogLevel = 'INFO'
+}
+
 function Write-TelemetryLog {
     [CmdletBinding()]
     param(
@@ -9,6 +20,16 @@ function Write-TelemetryLog {
         [Parameter(Mandatory)][string]$Message,
         [Parameter()][ValidateSet('INFO', 'WARN', 'ERROR', 'DEBUG')][string]$Level = 'INFO'
     )
+
+    $effectiveLevel = if ($script:TelemetryLogLevels.ContainsKey($script:TelemetryLogLevel)) {
+        $script:TelemetryLogLevel
+    } else {
+        'INFO'
+    }
+
+    if ($script:TelemetryLogLevels[$Level] -lt $script:TelemetryLogLevels[$effectiveLevel]) {
+        return
+    }
 
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     $logEntry = "[$timestamp] [$Level] $Message"
@@ -21,6 +42,15 @@ function Write-TelemetryLog {
 
     Add-Content -Path $LogPath -Value $logEntry -ErrorAction SilentlyContinue
     Write-Host $logEntry
+}
+
+function Set-TelemetryLogLevel {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][ValidateSet('DEBUG','INFO','WARN','ERROR')][string]$Level
+    )
+
+    $script:TelemetryLogLevel = $Level.ToUpperInvariant()
 }
 
 function Read-SystemDashboardConfig {
@@ -57,6 +87,14 @@ function Start-TelemetryService {
         # Load configuration
         $config = Read-SystemDashboardConfig -ConfigPath $ConfigPath
         $logPath = $config.Service.LogPath
+
+        $effectiveLogLevel = $env:SYSTEMDASHBOARD_LOG_LEVEL ?? $config.Logging.LogLevel ?? $config.Service.LogLevel ?? 'INFO'
+        try {
+            Set-TelemetryLogLevel -Level $effectiveLogLevel.ToUpperInvariant()
+        }
+        catch {
+            Set-TelemetryLogLevel -Level 'INFO'
+        }
 
         if (-not [System.IO.Path]::IsPathRooted($logPath)) {
             $logPath = Join-Path (Split-Path $ConfigPath -Parent) $logPath
@@ -139,4 +177,4 @@ function Start-TelemetryService {
 }
 
 # Export the functions
-Export-ModuleMember -Function Start-TelemetryService, Write-TelemetryLog
+Export-ModuleMember -Function Start-TelemetryService, Write-TelemetryLog, Set-TelemetryLogLevel

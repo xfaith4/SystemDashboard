@@ -7,12 +7,13 @@ import os
 import sys
 
 # Set database environment variables explicitly
-os.environ['DASHBOARD_DB_HOST'] = 'localhost'
-os.environ['DASHBOARD_DB_PORT'] = '5432'
-os.environ['DASHBOARD_DB_NAME'] = 'system_dashboard'
-os.environ['DASHBOARD_DB_USER'] = 'sysdash_reader'
-os.environ['DASHBOARD_DB_PASSWORD'] = 'ReaderPassword456!'
-os.environ['FLASK_ENV'] = 'production'
+os.environ.setdefault('DASHBOARD_DB_HOST', 'localhost')
+os.environ.setdefault('DASHBOARD_DB_PORT', '5432')
+os.environ.setdefault('DASHBOARD_DB_NAME', 'system_dashboard')
+os.environ.setdefault('DASHBOARD_DB_USER', 'sysdash_reader')
+os.environ.setdefault('DASHBOARD_DB_PASSWORD', 'ReaderPassword456!')
+os.environ.setdefault('FLASK_ENV', 'production')
+os.environ.setdefault('DASHBOARD_LOG_LEVEL', 'INFO')
 
 # Import and run the Flask app
 if __name__ == '__main__':
