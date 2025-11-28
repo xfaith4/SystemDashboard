@@ -171,17 +171,23 @@ $$;
 -- Create initial partition for current month
 SELECT telemetry.ensure_device_snapshot_partition(CURRENT_DATE);
 
--- Grant permissions to existing users
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA telemetry TO sysdash_ingest;
-GRANT SELECT ON ALL TABLES IN SCHEMA telemetry TO sysdash_reader;
-GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA telemetry TO sysdash_ingest;
-GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA telemetry TO sysdash_ingest;
-
--- Update default privileges for future objects
-ALTER DEFAULT PRIVILEGES IN SCHEMA telemetry GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO sysdash_ingest;
-ALTER DEFAULT PRIVILEGES IN SCHEMA telemetry GRANT SELECT ON TABLES TO sysdash_reader;
-ALTER DEFAULT PRIVILEGES IN SCHEMA telemetry GRANT USAGE, SELECT ON SEQUENCES TO sysdash_ingest;
-ALTER DEFAULT PRIVILEGES IN SCHEMA telemetry GRANT EXECUTE ON FUNCTIONS TO sysdash_ingest;
+-- Grant permissions to existing users (only if roles exist)
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sysdash_ingest') THEN
+        GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA telemetry TO sysdash_ingest;
+        GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA telemetry TO sysdash_ingest;
+        GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA telemetry TO sysdash_ingest;
+        ALTER DEFAULT PRIVILEGES IN SCHEMA telemetry GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO sysdash_ingest;
+        ALTER DEFAULT PRIVILEGES IN SCHEMA telemetry GRANT USAGE, SELECT ON SEQUENCES TO sysdash_ingest;
+        ALTER DEFAULT PRIVILEGES IN SCHEMA telemetry GRANT EXECUTE ON FUNCTIONS TO sysdash_ingest;
+    END IF;
+    
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sysdash_reader') THEN
+        GRANT SELECT ON ALL TABLES IN SCHEMA telemetry TO sysdash_reader;
+        ALTER DEFAULT PRIVILEGES IN SCHEMA telemetry GRANT SELECT ON TABLES TO sysdash_reader;
+    END IF;
+END $$;
 
 -- Create a settings table for LAN observability configuration
 CREATE TABLE IF NOT EXISTS telemetry.lan_settings (
@@ -200,8 +206,15 @@ VALUES
     ('syslog_correlation_enabled', 'true', 'Whether to correlate syslog events with devices')
 ON CONFLICT (setting_key) DO NOTHING;
 
-GRANT SELECT, INSERT, UPDATE ON telemetry.lan_settings TO sysdash_ingest;
-GRANT SELECT ON telemetry.lan_settings TO sysdash_reader;
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sysdash_ingest') THEN
+        GRANT SELECT, INSERT, UPDATE ON telemetry.lan_settings TO sysdash_ingest;
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sysdash_reader') THEN
+        GRANT SELECT ON telemetry.lan_settings TO sysdash_reader;
+    END IF;
+END $$;
 
 -- Summary view for dashboard statistics
 CREATE OR REPLACE VIEW telemetry.lan_summary_stats AS
@@ -238,7 +251,12 @@ FROM device_totals dt
 LEFT JOIN latest_interfaces li ON true
 GROUP BY dt.total_devices, dt.active_devices, dt.inactive_devices;
 
-GRANT SELECT ON telemetry.lan_summary_stats TO sysdash_reader;
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sysdash_reader') THEN
+        GRANT SELECT ON telemetry.lan_summary_stats TO sysdash_reader;
+    END IF;
+END $$;
 
 -- Add comment for documentation
 COMMENT ON TABLE telemetry.devices IS 'Stable inventory of all LAN devices identified by MAC address';
@@ -276,8 +294,15 @@ VALUES
     ('event_retention_days', '90', 'Days to keep device event history')
 ON CONFLICT (setting_key) DO NOTHING;
 
-GRANT SELECT, INSERT ON telemetry.device_events TO sysdash_ingest;
-GRANT SELECT ON telemetry.device_events TO sysdash_reader;
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sysdash_ingest') THEN
+        GRANT SELECT, INSERT ON telemetry.device_events TO sysdash_ingest;
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sysdash_reader') THEN
+        GRANT SELECT ON telemetry.device_events TO sysdash_reader;
+    END IF;
+END $$;
 
 COMMENT ON TABLE telemetry.device_events IS 'Timeline of device connection events (connect/disconnect/changes)';
 
@@ -314,8 +339,15 @@ VALUES
     ('alert_retention_days', '30', 'Days to keep resolved alerts')
 ON CONFLICT (setting_key) DO NOTHING;
 
-GRANT SELECT, INSERT, UPDATE ON telemetry.device_alerts TO sysdash_ingest;
-GRANT SELECT ON telemetry.device_alerts TO sysdash_reader;
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sysdash_ingest') THEN
+        GRANT SELECT, INSERT, UPDATE ON telemetry.device_alerts TO sysdash_ingest;
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sysdash_reader') THEN
+        GRANT SELECT ON telemetry.device_alerts TO sysdash_reader;
+    END IF;
+END $$;
 
 -- View for recent unresolved alerts
 CREATE OR REPLACE VIEW telemetry.device_alerts_active AS
@@ -332,7 +364,12 @@ INNER JOIN telemetry.devices d ON a.device_id = d.device_id
 WHERE a.is_resolved = false
 ORDER BY a.created_at DESC;
 
-GRANT SELECT ON telemetry.device_alerts_active TO sysdash_reader;
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sysdash_reader') THEN
+        GRANT SELECT ON telemetry.device_alerts_active TO sysdash_reader;
+    END IF;
+END $$;
 
 COMMENT ON TABLE telemetry.device_alerts IS 'Alerts for network device events and issues';
 COMMENT ON VIEW telemetry.device_alerts_active IS 'Active (unresolved) alerts with device information';
