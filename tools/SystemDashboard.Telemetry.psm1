@@ -101,14 +101,33 @@ function Read-SystemDashboardConfig {
     $base = Split-Path -Parent $resolved
     $raw = Get-Content -LiteralPath $resolved -Raw | ConvertFrom-Json -Depth 10
 
-    if (-not $raw.Service) {
-        $raw | Add-Member -NotePropertyName Service -NotePropertyValue (@{})
+    if (-not ($raw | Get-Member -Name Service -ErrorAction SilentlyContinue)) {
+        $raw | Add-Member -NotePropertyName Service -NotePropertyValue (@{}) -Force
+    } elseif (-not $raw.Service) {
+        $raw.Service = @{}
     }
-    if (-not $raw.Database) {
-        $raw | Add-Member -NotePropertyName Database -NotePropertyValue (@{})
+    if (-not ($raw | Get-Member -Name Database -ErrorAction SilentlyContinue)) {
+        $raw | Add-Member -NotePropertyName Database -NotePropertyValue (@{}) -Force
+    } elseif (-not $raw.Database) {
+        $raw.Database = @{}
     }
-    if (-not $raw.Logging) {
-        $raw | Add-Member -NotePropertyName Logging -NotePropertyValue (@{})
+    if (-not ($raw | Get-Member -Name Logging -ErrorAction SilentlyContinue)) {
+        $raw | Add-Member -NotePropertyName Logging -NotePropertyValue (@{}) -Force
+    } elseif (-not $raw.Logging) {
+        $raw.Logging = @{}
+    }
+    if ($raw.Logging -is [System.Collections.IDictionary]) {
+        if (-not $raw.Logging.Contains('LogLevel')) { $raw.Logging['LogLevel'] = $null }
+    }
+    elseif (-not ($raw.Logging | Get-Member -Name LogLevel -ErrorAction SilentlyContinue)) {
+        $raw.Logging | Add-Member -NotePropertyName LogLevel -NotePropertyValue $null -Force
+    }
+
+    if ($raw.Service -is [System.Collections.IDictionary]) {
+        if (-not $raw.Service.Contains('LogLevel')) { $raw.Service['LogLevel'] = $null }
+    }
+    elseif (-not ($raw.Service | Get-Member -Name LogLevel -ErrorAction SilentlyContinue)) {
+        $raw.Service | Add-Member -NotePropertyName LogLevel -NotePropertyValue $null -Force
     }
 
     # Resolve path-based settings
