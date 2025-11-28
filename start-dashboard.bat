@@ -34,12 +34,18 @@ timeout /t 5 /nobreak >nul
 
 REM Start scheduled tasks if not running
 call :log "Checking System Dashboard services..."
-schtasks /query /tn "SystemDashboard-Telemetry" /fo csv | findstr "Running" >nul 2>&1
-if %errorlevel% neq 0 (
-    call :log "Starting Telemetry service task..."
-    schtasks /run /tn "SystemDashboard-Telemetry" >>"%LOGFILE%" 2>&1
+set "TELEMETRY_EXISTS=1"
+schtasks /query /tn "SystemDashboard-Telemetry" >nul 2>&1 || set "TELEMETRY_EXISTS=0"
+if "%TELEMETRY_EXISTS%"=="0" (
+    call :log "Telemetry scheduled task not found. Run setup-scheduled-task.ps1 to create SystemDashboard-Telemetry."
 ) else (
-    call :log "Telemetry service task already running"
+    schtasks /query /tn "SystemDashboard-Telemetry" /fo csv | findstr "Running" >nul 2>&1
+    if %errorlevel% neq 0 (
+        call :log "Starting Telemetry service task..."
+        schtasks /run /tn "SystemDashboard-Telemetry" >>"%LOGFILE%" 2>&1
+    ) else (
+        call :log "Telemetry service task already running"
+    )
 )
 
 schtasks /query /tn "SystemDashboard-WebUI" /fo csv | findstr "Running" >nul 2>&1
