@@ -27,7 +27,8 @@ jobs:
           
           Write-Host "Polling for dashboard readiness..."
           while ($attempt -lt $maxAttempts) {
-            Start-Sleep -Seconds 2
+           Start-Sleep -Seconds 2
+            Receive-Job $job -Keep | Write-Host
             $attempt++
             try {
               $response = Invoke-WebRequest -Uri $uri -UseBasicParsing -TimeoutSec 2
