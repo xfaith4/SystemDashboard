@@ -691,16 +691,103 @@ def get_wifi_clients():
         ]
 
 
+def _calculate_health_score(summary):
+    """Calculate an overall system health score (0-100) based on current metrics.
+    
+    The score is calculated by weighing various factors:
+    - IIS errors and spike status
+    - Authentication failures
+    - Windows critical events
+    - Router alerts
+    
+    Returns a tuple of (score, status, factors) where:
+    - score: 0-100 integer
+    - status: 'healthy', 'warning', or 'critical'
+    - factors: list of issues affecting the score
+    """
+    score = 100
+    factors = []
+    
+    # IIS errors impact (max -30 points)
+    iis_errors = summary.get('iis', {}).get('current_errors', 0)
+    if summary.get('iis', {}).get('spike', False):
+        score -= 25
+        factors.append({'type': 'critical', 'message': 'IIS error spike detected'})
+    elif iis_errors > 10:
+        score -= 15
+        factors.append({'type': 'warning', 'message': f'{iis_errors} IIS errors in last 5 minutes'})
+    elif iis_errors > 5:
+        score -= 5
+        factors.append({'type': 'info', 'message': f'{iis_errors} IIS errors in last 5 minutes'})
+    
+    # Auth failures impact (max -25 points)
+    auth_count = len(summary.get('auth', []))
+    if auth_count > 3:
+        score -= 20
+        factors.append({'type': 'critical', 'message': f'{auth_count} clients with auth burst activity'})
+    elif auth_count > 0:
+        score -= 10
+        factors.append({'type': 'warning', 'message': f'{auth_count} client(s) with repeated auth failures'})
+    
+    # Windows critical events impact (max -25 points)
+    windows_count = len(summary.get('windows', []))
+    critical_count = sum(1 for e in summary.get('windows', []) if (e.get('level') or '').lower() == 'critical')
+    if critical_count > 0:
+        score -= 20
+        factors.append({'type': 'critical', 'message': f'{critical_count} critical Windows event(s)'})
+    elif windows_count > 3:
+        score -= 10
+        factors.append({'type': 'warning', 'message': f'{windows_count} Windows error events'})
+    elif windows_count > 0:
+        score -= 5
+        factors.append({'type': 'info', 'message': f'{windows_count} Windows error event(s)'})
+    
+    # Router alerts impact (max -20 points)
+    router_count = len(summary.get('router', []))
+    router_errors = sum(1 for r in summary.get('router', []) if (r.get('severity') or '').lower() == 'error')
+    if router_errors > 2:
+        score -= 15
+        factors.append({'type': 'critical', 'message': f'{router_errors} router error alerts'})
+    elif router_count > 3:
+        score -= 10
+        factors.append({'type': 'warning', 'message': f'{router_count} router alerts'})
+    elif router_count > 0:
+        score -= 5
+        factors.append({'type': 'info', 'message': f'{router_count} router alert(s)'})
+    
+    # Ensure score doesn't go below 0
+    score = max(0, score)
+    
+    # Determine status based on score
+    if score >= 80:
+        status = 'healthy'
+    elif score >= 50:
+        status = 'warning'
+    else:
+        status = 'critical'
+    
+    return score, status, factors
+
+
+def _calculate_error_rate(errors, total):
+    """Calculate error rate as a percentage."""
+    if total == 0:
+        return 0.0
+    return round((errors / total) * 100, 2)
+
+
 def _mock_dashboard_summary():
     now = datetime.datetime.now(datetime.UTC)
-    return {
+    summary = {
         'using_mock': True,
+        'timestamp': _to_est_string(now),
         'iis': {
             'current_errors': 12,
             'total_requests': 4200,
             'baseline_avg': 2.1,
             'baseline_std': 1.3,
-            'spike': True
+            'spike': True,
+            'error_rate': _calculate_error_rate(12, 4200)
         },
         'auth': [
             {'client_ip': '192.168.1.50', 'count': 18, 'window_minutes': 15, 'last_seen': _to_est_string(now - datetime.timedelta(minutes=1))},
@@ -717,18 +804,45 @@ def _mock_dashboard_summary():
         'syslog': [
             {'time': _to_est_string(now - datetime.timedelta(minutes=1)), 'source': 'syslog', 'severity': 'Error', 'message': 'Mock IIS 500 spike detected on WEB01.'},
             {'time': _to_est_string(now - datetime.timedelta(minutes=5)), 'source': 'asus', 'severity': 'Warning', 'message': 'High bandwidth usage detected from 192.168.1.101.'}
+        ],
+        'lan': {
+            'total_devices': 15,
+            'active_devices': 8,
+            'new_devices_24h': 1
+        },
+        'hourly_breakdown': [
+            {'hour': _to_est_string(now.replace(minute=0, second=0, microsecond=0) - datetime.timedelta(hours=5)), 'iis_errors': 2, 'auth_failures': 1, 'windows_errors': 0, 'router_alerts': 0},
+            {'hour': _to_est_string(now.replace(minute=0, second=0, microsecond=0) - datetime.timedelta(hours=4)), 'iis_errors': 3, 'auth_failures': 2, 'windows_errors': 1, 'router_alerts': 0},
+            {'hour': _to_est_string(now.replace(minute=0, second=0, microsecond=0) - datetime.timedelta(hours=3)), 'iis_errors': 1, 'auth_failures': 0, 'windows_errors': 0, 'router_alerts': 1},
+            {'hour': _to_est_string(now.replace(minute=0, second=0, microsecond=0) - datetime.timedelta(hours=2)), 'iis_errors': 4, 'auth_failures': 3, 'windows_errors': 1, 'router_alerts': 0},
+            {'hour': _to_est_string(now.replace(minute=0, second=0, microsecond=0) - datetime.timedelta(hours=1)), 'iis_errors': 2, 'auth_failures': 5, 'windows_errors': 0, 'router_alerts': 1},
+            {'hour': _to_est_string(now.replace(minute=0, second=0, microsecond=0)), 'iis_errors': 12, 'auth_failures': 8, 'windows_errors': 2, 'router_alerts': 2}
         ]
     }
+    
+    # Calculate health score
+    score, status, factors = _calculate_health_score(summary)
+    summary['health'] = {
+        'score': score,
+        'status': status,
+        'factors': factors
+    }
+    
+    return summary
 
 
 def get_dashboard_summary():
+    now = datetime.datetime.now(datetime.UTC)
     summary = {
         'using_mock': False,
-        'iis': {'current_errors': 0, 'total_requests': 0, 'baseline_avg': 0.0, 'baseline_std': 0.0, 'spike': False},
+        'timestamp': _to_est_string(now),
+        'iis': {'current_errors': 0, 'total_requests': 0, 'baseline_avg': 0.0, 'baseline_std': 0.0, 'spike': False, 'error_rate': 0.0},
         'auth': [],
         'windows': [],
         'router': [],
-        'syslog': []
+        'syslog': [],
+        'lan': {'total_devices': 0, 'active_devices': 0, 'new_devices_24h': 0},
+        'hourly_breakdown': []
     }
     conn = get_db_connection()
     if conn is None:
@@ -746,8 +860,13 @@ def get_dashboard_summary():
                     """
                 )
                 current = cur.fetchone() or {}
-                summary['iis']['current_errors'] = current.get('errors', 0)
-                summary['iis']['total_requests'] = current.get('total', 0)
+                # Use 'or 0' to handle None values that PostgreSQL may return for aggregate functions
+                summary['iis']['current_errors'] = int(current.get('errors') or 0)
+                summary['iis']['total_requests'] = int(current.get('total') or 0)
+                summary['iis']['error_rate'] = _calculate_error_rate(
+                    summary['iis']['current_errors'],
+                    summary['iis']['total_requests']
+                )
 
                 cur.execute(
                     """
@@ -889,6 +1008,93 @@ def get_dashboard_summary():
             except Exception as exc:
                 app.logger.debug('Syslog summary query failed: %s', exc)
 
+            # Get LAN device statistics
+            try:
+                cur.execute("SELECT * FROM telemetry.lan_summary_stats")
+                lan_row = cur.fetchone()
+                if lan_row:
+                    summary['lan']['total_devices'] = lan_row.get('total_devices', 0) or 0
+                    summary['lan']['active_devices'] = lan_row.get('active_devices', 0) or 0
+            except Exception as exc:
+                app.logger.debug('LAN stats query failed: %s', exc)
+
+            # Get new devices in last 24 hours
+            try:
+                cur.execute(
+                    """
+                    SELECT COUNT(*) AS new_count
+                    FROM telemetry.devices
+                    WHERE first_seen_utc >= NOW() - INTERVAL '24 hours'
+                    """
+                )
+                new_row = cur.fetchone()
+                if new_row:
+                    summary['lan']['new_devices_24h'] = new_row.get('new_count', 0) or 0
+            except Exception as exc:
+                app.logger.debug('New devices query failed: %s', exc)
+
+            # Get hourly breakdown for the last 6 hours
+            try:
+                cur.execute(
+                    """
+                    WITH hours AS (
+                        SELECT generate_series(
+                            date_trunc('hour', NOW()) - INTERVAL '5 hours',
+                            date_trunc('hour', NOW()),
+                            INTERVAL '1 hour'
+                        ) AS hour
+                    ),
+                    iis_hourly AS (
+                        SELECT date_trunc('hour', request_time) AS hour,
+                               COUNT(*) FILTER (WHERE status BETWEEN 500 AND 599) AS errors,
+                               COUNT(*) FILTER (WHERE status IN (401, 403)) AS auth_failures
+                        FROM telemetry.iis_requests_recent
+                        WHERE request_time >= NOW() - INTERVAL '6 hours'
+                        GROUP BY 1
+                    ),
+                    windows_hourly AS (
+                        SELECT date_trunc('hour', COALESCE(event_utc, received_utc)) AS hour,
+                               COUNT(*) AS errors
+                        FROM telemetry.eventlog_windows_recent
+                        WHERE COALESCE(event_utc, received_utc) >= NOW() - INTERVAL '6 hours'
+                          AND (COALESCE(level, 0) <= 2 OR COALESCE(level_text, '') ILIKE '%error%')
+                        GROUP BY 1
+                    ),
+                    router_hourly AS (
+                        SELECT date_trunc('hour', received_utc) AS hour,
+                               COUNT(*) AS alerts
+                        FROM telemetry.syslog_recent
+                        WHERE source = 'asus'
+                          AND received_utc >= NOW() - INTERVAL '6 hours'
+                          AND (severity <= 3 OR message ILIKE '%wan%' OR message ILIKE '%failed%')
+                        GROUP BY 1
+                    )
+                    SELECT h.hour,
+                           COALESCE(i.errors, 0) AS iis_errors,
+                           COALESCE(i.auth_failures, 0) AS auth_failures,
+                           COALESCE(w.errors, 0) AS windows_errors,
+                           COALESCE(r.alerts, 0) AS router_alerts
+                    FROM hours h
+                    LEFT JOIN iis_hourly i ON h.hour = i.hour
+                    LEFT JOIN windows_hourly w ON h.hour = w.hour
+                    LEFT JOIN router_hourly r ON h.hour = r.hour
+                    ORDER BY h.hour
+                    """
+                )
+                rows = cur.fetchall()
+                summary['hourly_breakdown'] = [
+                    {
+                        'hour': _isoformat(row.get('hour')),
+                        'iis_errors': row.get('iis_errors', 0) or 0,
+                        'auth_failures': row.get('auth_failures', 0) or 0,
+                        'windows_errors': row.get('windows_errors', 0) or 0,
+                        'router_alerts': row.get('router_alerts', 0) or 0
+                    }
+                    for row in rows
+                ]
+            except Exception as exc:
+                app.logger.debug('Hourly breakdown query failed: %s', exc)
+
     finally:
         conn.close()
 
@@ -905,6 +1111,14 @@ def get_dashboard_summary():
     
     if not has_data:
         return _mock_dashboard_summary()
+
+    # Calculate health score for real data
+    score, status, factors = _calculate_health_score(summary)
+    summary['health'] = {
+        'score': score,
+        'status': status,
+        'factors': factors
+    }
 
     return summary
 

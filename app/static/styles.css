@@ -940,3 +940,289 @@ Modal
         grid-template-columns: 1fr;
     }
 }
+
+/* ============================================
+   Health Score & Status
+   ============================================ */
+.header-status {
+    display: flex;
+    align-items: center;
+    gap: var(--space-lg);
+}
+
+.health-score {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: var(--space-sm) var(--space-md);
+    border-radius: var(--radius-xl);
+    font-weight: 600;
+    transition: all var(--transition-fast);
+}
+
+.health-score .health-label {
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.health-score .health-value {
+    font-size: 1.2rem;
+    font-weight: 700;
+    min-width: 2.5rem;
+    text-align: center;
+}
+
+.health-score.health-healthy {
+    background: var(--status-healthy-bg);
+    border: 1px solid rgba(16, 185, 129, 0.3);
+    color: var(--status-healthy);
+}
+
+.health-score.health-warning {
+    background: var(--status-warning-bg);
+    border: 1px solid rgba(245, 158, 11, 0.3);
+    color: var(--status-warning);
+}
+
+.health-score.health-critical {
+    background: var(--status-critical-bg);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    color: var(--status-critical);
+}
+
+.last-updated {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+
+.last-updated .update-time {
+    font-family: var(--font-mono);
+    color: var(--text-secondary);
+}
+
+/* ============================================
+   Health Insights Panel
+   ============================================ */
+.health-insights-panel {
+    background: var(--bg-card);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    padding: var(--space-sm) var(--space-md);
+    margin-bottom: var(--space-md);
+}
+
+.health-insights-panel.status-healthy {
+    border-color: rgba(16, 185, 129, 0.3);
+    background: rgba(16, 185, 129, 0.05);
+}
+
+.health-insights-panel.status-warning {
+    border-color: rgba(245, 158, 11, 0.3);
+    background: rgba(245, 158, 11, 0.05);
+}
+
+.health-insights-panel.status-critical {
+    border-color: rgba(239, 68, 68, 0.3);
+    background: rgba(239, 68, 68, 0.05);
+}
+
+.insights-content {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+}
+
+.insight-items {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-sm);
+}
+
+.insight-item {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+    padding: var(--space-xs) var(--space-sm);
+    border-radius: var(--radius-sm);
+    font-size: 0.8rem;
+    font-weight: 500;
+}
+
+.insight-item::before {
+    content: '•';
+    font-size: 1.2rem;
+}
+
+.insight-item.insight-critical {
+    background: var(--status-critical-bg);
+    color: var(--status-critical);
+}
+
+.insight-item.insight-critical::before {
+    content: '⚠';
+    font-size: 0.9rem;
+}
+
+.insight-item.insight-warning {
+    background: var(--status-warning-bg);
+    color: var(--status-warning);
+}
+
+.insight-item.insight-info {
+    background: var(--status-info-bg);
+    color: var(--status-info);
+}
+
+/* ============================================
+   Info KPI Card Style
+   ============================================ */
+.kpi-card.info {
+    border-color: var(--status-info);
+    background: var(--status-info-bg);
+}
+
+.kpi-card.info::before {
+    background: var(--status-info);
+    opacity: 1;
+}
+
+/* ============================================
+   Stacked Bar Chart (Hourly Breakdown)
+   ============================================ */
+.single-chart {
+    grid-template-columns: 1fr;
+}
+
+.wide-chart {
+    grid-column: 1 / -1;
+}
+
+.stacked-bar-chart {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    height: 200px;
+    gap: 8px;
+    padding: var(--space-md) 0;
+}
+
+.stacked-bar-chart .bar-wrapper {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-xs);
+    max-width: 80px;
+}
+
+.stacked-bar-container {
+    width: 100%;
+    height: 170px;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+}
+
+.stacked-bar {
+    width: 100%;
+    min-height: 4px;
+    border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    overflow: hidden;
+}
+
+.bar-segment {
+    width: 100%;
+    min-height: 2px;
+    transition: all var(--transition-fast);
+}
+
+.bar-segment.iis {
+    background: #ef4444;
+}
+
+.bar-segment.auth {
+    background: #f59e0b;
+}
+
+.bar-segment.windows {
+    background: #3b82f6;
+}
+
+.bar-segment.router {
+    background: #8b5cf6;
+}
+
+.bar-total {
+    position: absolute;
+    top: 2px;
+    left: 50%;
+    transform: translateX(-50%);
+    color: var(--text-primary);
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+}
+
+.chart-legend {
+    display: flex;
+    justify-content: center;
+    gap: var(--space-lg);
+    padding-top: var(--space-md);
+    border-top: 1px solid var(--border-subtle);
+    margin-top: var(--space-md);
+}
+
+.legend-item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+.legend-color {
+    width: 12px;
+    height: 12px;
+    border-radius: 2px;
+}
+
+/* ============================================
+   Responsive adjustments for new components
+   ============================================ */
+@media (max-width: 900px) {
+    .header-status {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: var(--space-sm);
+    }
+
+    .chart-legend {
+        flex-wrap: wrap;
+        gap: var(--space-sm);
+    }
+}
+
+@media (max-width: 600px) {
+    .health-score {
+        padding: var(--space-xs) var(--space-sm);
+    }
+
+    .health-score .health-label {
+        display: none;
+    }
+
+    .stacked-bar-chart {
+        height: 150px;
+    }
+
+    .stacked-bar-container {
+        height: 120px;
+    }
+}
