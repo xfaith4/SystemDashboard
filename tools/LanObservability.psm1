@@ -54,11 +54,16 @@ function Get-RouterClientListViaHttp {
     param(
         [Parameter(Mandatory)][string]$RouterIP,
         [Parameter()][string]$Username = 'xfaith',
-        [PSCredential] $Password = $env:Router_Password,
+        [string] $Password = $env:ASUS_ROUTER_PASSWORD,
         [Parameter()][int]$TimeoutSeconds = 30
     )
 
     $clients = @()
+
+    if (-not $Password) {
+        Write-Warning "Router password not provided for HTTP polling."
+        return @()
+    }
 
     try {
         # Build authentication header
@@ -127,13 +132,18 @@ function Get-RouterClientListViaSsh {
     param(
         [Parameter(Mandatory)][string]$RouterIP,
         [Parameter()][string]$Username = 'xfaith',
-        [Parameter()][PSCredential] $Password = $env:Router_Password,
+        [Parameter()][string] $Password = $env:ASUS_ROUTER_PASSWORD,
         [Parameter()][int]$TimeoutSeconds = 30,
         [Parameter()][int]$Port = 1099
     )
 
     $clients = @()
     $staticLeases = @{}
+
+    if (-not $Password) {
+        Write-Warning "Router SSH password not provided."
+        return @()
+    }
 
     function Parse-StaticLeases {
         param([string[]]$Lines)
@@ -292,15 +302,34 @@ function Invoke-RouterClientPoll {
         [Parameter(Mandatory)][hashtable]$Config
     )
 
-    $routerIP = $Config.Service.Asus.Uri -replace '^https?://([^/]+).*$', '$1'
-    if (-not $routerIP) {
-        $routerIP = $Config.RouterIP
+    $getValue = {
+        param($obj, [string]$name)
+        if ($null -eq $obj) { return $null }
+        if ($obj -is [System.Collections.IDictionary]) { return $obj[$name] }
+        $prop = $obj.PSObject.Properties[$name]
+        if ($prop) { return $prop.Value }
+        return $null
     }
 
-    $username = $Config.Service.Asus.Username
-    $password = if ($Config.Service.Asus.PasswordSecret) {
-        Resolve-SystemDashboardSecret -Secret $Config.Service.Asus.PasswordSecret
-    } else {
+    $serviceConfig = (& $getValue $Config 'Service') ?? @{}
+    $asusConfig = (& $getValue $serviceConfig 'Asus') ?? @{}
+
+    $routerUri = & $getValue $asusConfig 'Uri'
+    $routerIP = if ($routerUri) { $routerUri -replace '^https?://([^/]+).*$', '$1' } else { $null }
+    if (-not $routerIP) {
+        $routerIP = & $getValue $Config 'RouterIP'
+    }
+
+    $username = & $getValue $asusConfig 'Username'
+    $passwordSecret = & $getValue $asusConfig 'PasswordSecret'
+    $passwordPlain = & $getValue $asusConfig 'Password'
+    $password = if ($passwordSecret) {
+        Resolve-SystemDashboardSecret -Secret $passwordSecret
+    }
+    elseif ($passwordPlain) {
+        $passwordPlain
+    }
+    else {
         $env:ASUS_ROUTER_PASSWORD
     }
 
@@ -312,10 +341,11 @@ function Invoke-RouterClientPoll {
     $clients = @()
 
     # Try SSH first if enabled
-    if ($Config.Service.Asus.SSH.Enabled -eq $true) {
+    $sshConfig = & $getValue $asusConfig 'SSH'
+    if ((& $getValue $sshConfig 'Enabled') -eq $true) {
         Write-Verbose "Attempting to fetch clients via SSH"
-        $sshHost = $Config.Service.Asus.SSH.Host
-        $sshPort = $Config.Service.Asus.SSH.Port
+        $sshHost = ((& $getValue $sshConfig 'Host') ?? (& $getValue $sshConfig 'HostName')) ?? $routerIP
+        $sshPort = & $getValue $sshConfig 'Port'
         $clients = Get-RouterClientListViaSsh -RouterIP $sshHost -Username $username -Password $password -Port $sshPort
         if ($null -eq $clients) { $clients = @() }
     }

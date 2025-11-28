@@ -591,10 +591,10 @@ function Invoke-AsusWifiClientScan {
                 # In real implementation, this would execute SSH commands
                 $output = Invoke-SSHCommand -ComputerName $routerIP -Username $username -Password $securePassword -Command $command
 
-                if ($output -and $output.Length -gt 0) {
+                if ($output -and $output.Length -gt 0 -and $command -like "*assoclist*") {
                     $wifiEvent = [pscustomobject]@{
                         ReceivedUtc    = $timestamp
-                        EventUtc       = $timestamp
+                        EventUtc       = $timestamp # Assuming the output doesn't contain a specific timestamp for each client
                         SourceHost     = $routerIP
                         AppName        = 'asus-wifi-scan'
                         Facility       = 16  # local0
@@ -604,6 +604,32 @@ function Invoke-AsusWifiClientScan {
                         RemoteEndpoint = "ssh://${routerIP}"
                         Source         = 'asus-wifi'
                         Command        = $command
+                    }
+                    $events += $wifiEvent
+                }
+                elseif ($output -and $output.Length -gt 0 -and ($command -like "*arp -a*" -or $command -like "*proc/net/arp*")) {
+                    # Process ARP output to extract IP and MAC addresses
+                    # This is a simplified example, actual parsing might be more complex
+                    $arpEntries = $output -split "`n" | Where-Object { $_ -match '\S' }
+                    foreach ($entry in $arpEntries) {
+                        # Example: "router (192.168.50.1) at 00:11:22:33:44:55 [ether] on br0"
+                        if ($entry -match '\((?<ip>\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\)\s+at\s+(?<mac>([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2})') {
+                            $ip = $Matches['ip']
+                            $mac = $Matches['mac']
+                            $arpEvent = [pscustomobject]@{
+                                ReceivedUtc    = $timestamp
+                                EventUtc       = $timestamp
+                                SourceHost     = $routerIP
+                                AppName        = 'asus-arp-scan'
+                                Facility       = 16  # local0
+                                Severity       = 6   # info
+                                Message        = "ARP entry: IP=$ip, MAC=$mac"
+                                RawMessage     = $entry
+                                RemoteEndpoint = "ssh://${routerIP}"
+                                Source         = 'asus-arp'
+                            }
+                            $events += $arpEvent
+                        }
                     }
                     $events += $wifiEvent
                 }

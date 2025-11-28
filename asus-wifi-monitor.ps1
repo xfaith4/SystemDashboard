@@ -3,7 +3,7 @@
 
 param(
     [string]$RouterIP = "192.168.50.1",
-    [string]$Username = "admin",
+    [string]$Username = "xfaith",
     [string]$Password,
     [switch]$ShowCommands,
     [switch]$TestConnection

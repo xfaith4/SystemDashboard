@@ -32,9 +32,9 @@
       "DownloadPath": "./var/asus",
       "StatePath": "./var/asus/state.json",
       "SSH": {
-        "Enabled": false,
-        "Host": "192.168.50.1",
-        "Username": "xfaith",
+        "Enabled": true,
+        "Host": "",
+        "Username": "",
         "PasswordSecret": "env:ASUS_ROUTER_PASSWORD",
         "Port": 1099,
         "TimeoutSeconds": 30
@@ -47,4 +47,3 @@
     }
   }
 }
-
