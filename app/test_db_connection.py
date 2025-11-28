@@ -38,26 +38,17 @@ def check_database_connection(verbose: bool = True):
     if verbose:
         print(f"Config from file: {db_config}")
 
-    # Set environment variables like the service script does
-    os.environ['DASHBOARD_DB_HOST'] = db_config.get('Host', 'localhost')
-    os.environ['DASHBOARD_DB_PORT'] = str(db_config.get('Port', 5432))
-    os.environ['DASHBOARD_DB_NAME'] = db_config.get('Database', 'system_dashboard')
-    os.environ['DASHBOARD_DB_USER'] = 'sysdash_reader'
+    # Check if SQLite is configured
+    db_type = db_config.get('Type', '').lower()
+    if db_type != 'sqlite':
+        message = "Database type is not SQLite; skipping connection test"
+        if verbose:
+            print(f"⚠️  {message}")
+        return 'skip', message
 
-    # Try to get the reader password
-    reader_password = os.environ.get('SYSTEMDASHBOARD_DB_READER_PASSWORD')
-    if not reader_password:
-        reader_password = os.environ.get('SYSTEMDASHBOARD_DB_PASSWORD', 'GeneratedPassword123!').replace('123!', '456!')
-
-    os.environ['DASHBOARD_DB_PASSWORD'] = reader_password
-
+    db_path = db_config.get('Path', './var/system_dashboard.db')
     if verbose:
-        print("Environment variables set:")
-        print(f"  DASHBOARD_DB_HOST: {os.environ.get('DASHBOARD_DB_HOST')}")
-        print(f"  DASHBOARD_DB_PORT: {os.environ.get('DASHBOARD_DB_PORT')}")
-        print(f"  DASHBOARD_DB_NAME: {os.environ.get('DASHBOARD_DB_NAME')}")
-        print(f"  DASHBOARD_DB_USER: {os.environ.get('DASHBOARD_DB_USER')}")
-        print(f"  DASHBOARD_DB_PASSWORD: {'*' * len(reader_password)}")
+        print(f"  Database path: {db_path}")
 
     try:
         from app import get_db_settings, get_db_connection
@@ -91,17 +82,19 @@ def check_database_connection(verbose: bool = True):
     try:
         if verbose:
             print("✅ Database connection successful!")
-        with conn:
-            with conn.cursor() as cur:
-                cur.execute("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'telemetry'")
-                count = cur.fetchone()[0]
-                if verbose:
-                    print(f"✅ Found {count} telemetry tables")
+        cur = conn.cursor()
+        
+        # Count tables in SQLite
+        cur.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table'")
+        count = cur.fetchone()[0]
+        if verbose:
+            print(f"✅ Found {count} tables in database")
 
-                cur.execute("SELECT COUNT(*) FROM telemetry.syslog_recent")
-                syslog_count = cur.fetchone()[0]
-                if verbose:
-                    print(f"✅ Found {syslog_count} records in syslog_recent")
+        # Check syslog_messages table
+        cur.execute("SELECT COUNT(*) FROM syslog_messages")
+        syslog_count = cur.fetchone()[0]
+        if verbose:
+            print(f"✅ Found {syslog_count} records in syslog_messages")
     except Exception as exc:
         message = f"Error during verification queries: {exc}"
         if verbose:

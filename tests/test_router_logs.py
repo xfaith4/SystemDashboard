@@ -6,11 +6,10 @@ import tempfile
 import subprocess
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
 # Add app directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent / 'app'))
-
-from app import get_router_logs
 
 
 def create_test_router_logs():
@@ -41,37 +40,41 @@ def test_router_log_parsing():
         # Set environment variable
         os.environ['ROUTER_LOG_PATH'] = log_file
         
-        # Test log retrieval
-        logs = get_router_logs(max_lines=20)
-        
-        print(f"Retrieved {len(logs)} log entries")
-        
-        # Validate log structure
-        assert len(logs) > 0, "Should retrieve log entries"
-        
-        # Check first log entry
-        first_log = logs[0]
-        assert 'time' in first_log, "Log should have time field"
-        assert 'level' in first_log, "Log should have level field"  
-        assert 'message' in first_log, "Log should have message field"
-        
-        print("First log entry:")
-        print(f"  Time: {first_log['time']}")
-        print(f"  Level: {first_log['level']}")
-        print(f"  Message: {first_log['message']}")
-        
-        # Validate specific entries
-        dhcp_logs = [log for log in logs if 'DHCP' in log['message']]
-        assert len(dhcp_logs) > 0, "Should find DHCP logs"
-        
-        error_logs = [log for log in logs if log['level'] == 'ERROR']
-        assert len(error_logs) > 0, "Should find ERROR logs"
-        
-        # Test filtering by number of lines
-        limited_logs = get_router_logs(max_lines=5)
-        assert len(limited_logs) <= 5, "Should respect max_lines parameter"
-        
-        print("✓ Router log parsing test passed")
+        # Mock get_db_connection to return None to force file-based logs
+        with patch('app.get_db_connection', return_value=None):
+            from app import get_router_logs
+            
+            # Test log retrieval with ascending order to match original expectations
+            logs = get_router_logs(max_lines=20, sort_dir='asc')
+            
+            print(f"Retrieved {len(logs)} log entries")
+            
+            # Validate log structure
+            assert len(logs) > 0, "Should retrieve log entries"
+            
+            # Check first log entry
+            first_log = logs[0]
+            assert 'time' in first_log, "Log should have time field"
+            assert 'level' in first_log, "Log should have level field"  
+            assert 'message' in first_log, "Log should have message field"
+            
+            print("First log entry:")
+            print(f"  Time: {first_log['time']}")
+            print(f"  Level: {first_log['level']}")
+            print(f"  Message: {first_log['message']}")
+            
+            # Validate specific entries
+            dhcp_logs = [log for log in logs if 'DHCP' in log['message']]
+            assert len(dhcp_logs) > 0, "Should find DHCP logs"
+            
+            error_logs = [log for log in logs if log['level'] == 'ERROR']
+            assert len(error_logs) > 0, "Should find ERROR logs"
+            
+            # Test filtering by number of lines
+            limited_logs = get_router_logs(max_lines=5)
+            assert len(limited_logs) <= 5, "Should respect max_lines parameter"
+            
+            print("✓ Router log parsing test passed")
         
     finally:
         # Cleanup
@@ -97,14 +100,18 @@ Incomplete line without timestamp
     try:
         os.environ['ROUTER_LOG_PATH'] = log_file
         
-        logs = get_router_logs()
-        print(f"Edge case test: Retrieved {len(logs)} log entries")
-        
-        # Find the incomplete line
-        incomplete_lines = [log for log in logs if log['time'] == '' and log['level'] == '']
-        assert len(incomplete_lines) > 0, "Should handle incomplete lines"
-        
-        print("✓ Router log edge cases test passed")
+        # Mock get_db_connection to return None to force file-based logs
+        with patch('app.get_db_connection', return_value=None):
+            from app import get_router_logs
+            
+            logs = get_router_logs()
+            print(f"Edge case test: Retrieved {len(logs)} log entries")
+            
+            # Find the incomplete line
+            incomplete_lines = [log for log in logs if log['time'] == '' and log['level'] == '']
+            assert len(incomplete_lines) > 0, "Should handle incomplete lines"
+            
+            print("✓ Router log edge cases test passed")
         
     finally:
         os.unlink(log_file)
@@ -117,9 +124,13 @@ def test_missing_router_log_file():
     os.environ['ROUTER_LOG_PATH'] = '/nonexistent/path/router.log'
     
     try:
-        logs = get_router_logs()
-        assert logs == [], "Should return empty list for missing file"
-        print("✓ Missing router log file test passed")
+        # Mock get_db_connection to return None to force file-based logs
+        with patch('app.get_db_connection', return_value=None):
+            from app import get_router_logs
+            
+            logs = get_router_logs()
+            assert logs == [], "Should return empty list for missing file"
+            print("✓ Missing router log file test passed")
         
     finally:
         if 'ROUTER_LOG_PATH' in os.environ:
