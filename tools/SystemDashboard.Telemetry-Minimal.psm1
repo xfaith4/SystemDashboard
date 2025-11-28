@@ -86,6 +86,36 @@ function Start-TelemetryService {
     try {
         # Load configuration
         $config = Read-SystemDashboardConfig -ConfigPath $ConfigPath
+        if (-not $config) { throw "Config load returned null" }
+
+        if (-not ($config | Get-Member -Name Service -ErrorAction SilentlyContinue)) {
+            $config | Add-Member -NotePropertyName Service -NotePropertyValue (@{}) -Force
+        } elseif (-not $config.Service) {
+            $config.Service = @{}
+        }
+        if (-not ($config | Get-Member -Name Database -ErrorAction SilentlyContinue)) {
+            $config | Add-Member -NotePropertyName Database -NotePropertyValue (@{}) -Force
+        } elseif (-not $config.Database) {
+            $config.Database = @{}
+        }
+        if (-not ($config | Get-Member -Name Logging -ErrorAction SilentlyContinue)) {
+            $config | Add-Member -NotePropertyName Logging -NotePropertyValue (@{}) -Force
+        } elseif (-not $config.Logging) {
+            $config.Logging = @{}
+        }
+        if ($config.Logging -is [System.Collections.IDictionary]) {
+            if (-not $config.Logging.Contains('LogLevel')) { $config.Logging['LogLevel'] = $null }
+        }
+        elseif (-not ($config.Logging | Get-Member -Name LogLevel -ErrorAction SilentlyContinue)) {
+            $config.Logging | Add-Member -NotePropertyName LogLevel -NotePropertyValue $null -Force
+        }
+        if ($config.Service -is [System.Collections.IDictionary]) {
+            if (-not $config.Service.Contains('LogLevel')) { $config.Service['LogLevel'] = $null }
+        }
+        elseif (-not ($config.Service | Get-Member -Name LogLevel -ErrorAction SilentlyContinue)) {
+            $config.Service | Add-Member -NotePropertyName LogLevel -NotePropertyValue $null -Force
+        }
+
         $logPath = $config.Service.LogPath
 
         $effectiveLogLevel = $env:SYSTEMDASHBOARD_LOG_LEVEL ?? $config.Logging.LogLevel ?? $config.Service.LogLevel ?? 'INFO'
