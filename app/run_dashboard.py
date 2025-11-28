@@ -6,12 +6,7 @@ Flask App Wrapper - Sets database environment variables explicitly
 import os
 import sys
 
-# Set database environment variables explicitly
-os.environ.setdefault('DASHBOARD_DB_HOST', 'localhost')
-os.environ.setdefault('DASHBOARD_DB_PORT', '5432')
-os.environ.setdefault('DASHBOARD_DB_NAME', 'system_dashboard')
-os.environ.setdefault('DASHBOARD_DB_USER', 'sysdash_reader')
-os.environ.setdefault('DASHBOARD_DB_PASSWORD', 'ReaderPassword456!')
+# Set database environment variables explicitly (SQLite uses file path)
 os.environ.setdefault('FLASK_ENV', 'production')
 os.environ.setdefault('DASHBOARD_LOG_LEVEL', 'INFO')
 
