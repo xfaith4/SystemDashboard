@@ -6,13 +6,8 @@
   "PingTarget": "1.1.1.1",
   "RouterIP": "192.168.50.1",
   "Database": {
-    "Host": "127.0.0.1",
-    "Port": 5432,
-    "Database": "system_dashboard",
-    "Username": "postgres",
-    "PasswordSecret": "env:SYSTEM_DASHBOARD_DB_PASSWORD",
-    "Schema": "telemetry",
-    "PsqlPath": "C:/Program Files/PostgreSQL/18/bin/psql.exe"
+    "Type": "sqlite",
+    "Path": "./var/system_dashboard.db"
   },
   "Service": {
     "LogPath": "./var/log/telemetry-service.log",

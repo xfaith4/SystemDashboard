@@ -1,5 +1,4 @@
 flask
-psycopg2-binary
 pytest
 requests
 mac-vendor-lookup

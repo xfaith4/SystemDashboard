@@ -14,6 +14,12 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'app'))
 import app as flask_app
 
 
+class MockRow(dict):
+    """Mock SQLite Row that supports dict access."""
+    def __getitem__(self, key):
+        return super().get(key)
+
+
 @pytest.fixture
 def client():
     """Create a test client for the Flask app."""
@@ -88,15 +94,11 @@ class TestAIFeedbackEndpoints:
     @patch('app.get_db_connection')
     def test_create_feedback_success(self, mock_db, client):
         """Test successfully creating feedback entry."""
-        # Mock database connection and cursor
+        # Mock database connection and cursor for SQLite style
         mock_conn = MagicMock()
         mock_cursor = MagicMock()
-        mock_cursor.fetchone.return_value = {
-            'id': 1,
-            'created_at': '2024-01-01T12:00:00+00:00',
-            'updated_at': '2024-01-01T12:00:00+00:00'
-        }
-        mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
+        mock_cursor.lastrowid = 1
+        mock_conn.cursor.return_value = mock_cursor
         mock_db.return_value = mock_conn
         
         response = client.post('/api/ai/feedback',
@@ -133,12 +135,12 @@ class TestAIFeedbackEndpoints:
     @patch('app.get_db_connection')
     def test_list_feedback_success(self, mock_db, client):
         """Test successfully listing feedback entries."""
-        # Mock database connection and cursor
+        # Mock database connection and cursor for SQLite style
         mock_conn = MagicMock()
         mock_cursor = MagicMock()
-        mock_cursor.fetchone.return_value = {'count': 2}
+        mock_cursor.fetchone.return_value = MockRow({'count': 2})
         mock_cursor.fetchall.return_value = [
-            {
+            MockRow({
                 'id': 1,
                 'event_id': 1001,
                 'event_source': 'Application Error',
@@ -150,8 +152,8 @@ class TestAIFeedbackEndpoints:
                 'review_status': 'Viewed',
                 'created_at': '2024-01-01T12:00:00+00:00',
                 'updated_at': '2024-01-01T12:00:00+00:00'
-            },
-            {
+            }),
+            MockRow({
                 'id': 2,
                 'event_id': 2001,
                 'event_source': 'System',
@@ -163,9 +165,9 @@ class TestAIFeedbackEndpoints:
                 'review_status': 'Pending',
                 'created_at': '2024-01-01T13:00:00+00:00',
                 'updated_at': '2024-01-01T13:00:00+00:00'
-            }
+            })
         ]
-        mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
+        mock_conn.cursor.return_value = mock_cursor
         mock_db.return_value = mock_conn
         
         response = client.get('/api/ai/feedback?limit=10')
@@ -182,9 +184,9 @@ class TestAIFeedbackEndpoints:
         """Test listing feedback with status filter."""
         mock_conn = MagicMock()
         mock_cursor = MagicMock()
-        mock_cursor.fetchone.return_value = {'count': 1}
+        mock_cursor.fetchone.return_value = MockRow({'count': 1})
         mock_cursor.fetchall.return_value = [
-            {
+            MockRow({
                 'id': 1,
                 'event_id': 1001,
                 'event_source': 'Application Error',
@@ -196,9 +198,9 @@ class TestAIFeedbackEndpoints:
                 'review_status': 'Resolved',
                 'created_at': '2024-01-01T12:00:00+00:00',
                 'updated_at': '2024-01-01T14:00:00+00:00'
-            }
+            })
         ]
-        mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
+        mock_conn.cursor.return_value = mock_cursor
         mock_db.return_value = mock_conn
         
         response = client.get('/api/ai/feedback?status=Resolved')
@@ -243,8 +245,8 @@ class TestAIFeedbackEndpoints:
         """Test updating non-existent feedback entry returns 404."""
         mock_conn = MagicMock()
         mock_cursor = MagicMock()
-        mock_cursor.fetchone.return_value = None
-        mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
+        mock_cursor.rowcount = 0  # No rows affected
+        mock_conn.cursor.return_value = mock_cursor
         mock_db.return_value = mock_conn
         
         response = client.patch('/api/ai/feedback/999/status',
@@ -259,12 +261,8 @@ class TestAIFeedbackEndpoints:
         """Test successfully updating feedback status."""
         mock_conn = MagicMock()
         mock_cursor = MagicMock()
-        mock_cursor.fetchone.return_value = {
-            'id': 1,
-            'review_status': 'Resolved',
-            'updated_at': '2024-01-01T15:00:00+00:00'
-        }
-        mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
+        mock_cursor.rowcount = 1  # One row affected
+        mock_conn.cursor.return_value = mock_cursor
         mock_db.return_value = mock_conn
         
         response = client.patch('/api/ai/feedback/1/status',
@@ -283,12 +281,8 @@ class TestAIFeedbackEndpoints:
         """Test status workflow: Pending -> Viewed."""
         mock_conn = MagicMock()
         mock_cursor = MagicMock()
-        mock_cursor.fetchone.return_value = {
-            'id': 1,
-            'review_status': 'Viewed',
-            'updated_at': '2024-01-01T15:00:00+00:00'
-        }
-        mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
+        mock_cursor.rowcount = 1
+        mock_conn.cursor.return_value = mock_cursor
         mock_db.return_value = mock_conn
         
         response = client.patch('/api/ai/feedback/1/status',
@@ -304,12 +298,8 @@ class TestAIFeedbackEndpoints:
         """Test status workflow: Viewed -> Resolved."""
         mock_conn = MagicMock()
         mock_cursor = MagicMock()
-        mock_cursor.fetchone.return_value = {
-            'id': 1,
-            'review_status': 'Resolved',
-            'updated_at': '2024-01-01T15:00:00+00:00'
-        }
-        mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
+        mock_cursor.rowcount = 1
+        mock_conn.cursor.return_value = mock_cursor
         mock_db.return_value = mock_conn
         
         response = client.patch('/api/ai/feedback/1/status',
@@ -328,20 +318,14 @@ class TestAIFeedbackIntegration:
     def test_complete_feedback_workflow(self, mock_db, client):
         """Test complete workflow: create feedback, list it, update status."""
         mock_conn = MagicMock()
+        mock_cursor = MagicMock()
         
-        # Mock create feedback
-        mock_cursor_create = MagicMock()
-        mock_cursor_create.fetchone.return_value = {
-            'id': 1,
-            'created_at': '2024-01-01T12:00:00+00:00',
-            'updated_at': '2024-01-01T12:00:00+00:00'
-        }
-        
-        # Mock list feedback
-        mock_cursor_list = MagicMock()
-        mock_cursor_list.fetchone.return_value = {'count': 1}
-        mock_cursor_list.fetchall.return_value = [
-            {
+        # Configure cursor for different operations
+        mock_cursor.lastrowid = 1
+        mock_cursor.rowcount = 1
+        mock_cursor.fetchone.return_value = MockRow({'count': 1})
+        mock_cursor.fetchall.return_value = [
+            MockRow({
                 'id': 1,
                 'event_id': 1001,
                 'event_source': 'Application Error',
@@ -353,20 +337,10 @@ class TestAIFeedbackIntegration:
                 'review_status': 'Viewed',
                 'created_at': '2024-01-01T12:00:00+00:00',
                 'updated_at': '2024-01-01T12:00:00+00:00'
-            }
+            })
         ]
         
-        # Mock update status
-        mock_cursor_update = MagicMock()
-        mock_cursor_update.fetchone.return_value = {
-            'id': 1,
-            'review_status': 'Resolved',
-            'updated_at': '2024-01-01T15:00:00+00:00'
-        }
-        
-        # Setup mock to return different cursors for each call
-        cursors = [mock_cursor_create, mock_cursor_list, mock_cursor_update]
-        mock_conn.cursor.return_value.__enter__.side_effect = cursors
+        mock_conn.cursor.return_value = mock_cursor
         mock_db.return_value = mock_conn
         
         # Step 1: Create feedback
