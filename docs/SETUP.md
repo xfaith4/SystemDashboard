@@ -5,7 +5,6 @@ This guide covers installation, configuration, and permanent setup of the System
 ## Prerequisites
 
 - PowerShell 7+
-- PostgreSQL 15/16 (or Docker for PostgreSQL)
 - Python 3.10+
 - Git
 
@@ -18,15 +17,14 @@ git clone https://github.com/xfaith4/SystemDashboard.git
 cd SystemDashboard
 ```
 
-### 2. Set Up Environment Variables
+### 2. Set Up Environment Variables (Optional)
 
 ```powershell
-# Database credentials
-$env:SYSTEMDASHBOARD_DB_PASSWORD = "your_ingest_password"
-$env:SYSTEMDASHBOARD_DB_READER_PASSWORD = "your_reader_password"
-
-# Router credentials (optional)
+# Router credentials (optional - for ASUS router monitoring)
 $env:ASUS_ROUTER_PASSWORD = "your_router_password"
+
+# OpenAI API key (optional - for AI-powered explanations)
+$env:OPENAI_API_KEY = "your_api_key"
 
 # Make permanent
 .\setup-environment.ps1
@@ -34,21 +32,16 @@ $env:ASUS_ROUTER_PASSWORD = "your_router_password"
 
 ### 3. Set Up Database
 
-**Option A: Docker (Recommended)**
-```powershell
-.\setup-database-docker.ps1
-```
+The System Dashboard uses SQLite for simple, file-based storage. Initialize the database:
 
-**Option B: Local PostgreSQL**
 ```powershell
-.\setup-database.ps1
+python scripts/init_db.py
 ```
 
 This creates:
-- Database: `system_dashboard`
-- Schema: `telemetry` with partitioned tables
-- Users: `sysdash_ingest` (write), `sysdash_reader` (read-only)
-- Required functions and views
+- Database file: `var/system_dashboard.db`
+- All required tables for telemetry, LAN observability, and AI feedback
+- Views for efficient querying
 
 ### 4. Install the Service
 
@@ -118,35 +111,34 @@ Get-Content ".\var\log\webui-service.log" -Tail 20
 
 ### Database Management
 ```powershell
-# Docker PostgreSQL
-docker start postgres-container
-docker stop postgres-container
-docker logs postgres-container
+# Verify database exists and has correct schema
+python scripts/init_db.py --verify
 
-# Connect to database
-docker exec -it postgres-container psql -U sysdash_reader -d system_dashboard
+# Recreate database (WARNING: deletes all data)
+python scripts/init_db.py --force
 
-# Create monthly partition
-psql -h localhost -U sysdash_ingest -d system_dashboard -c "SELECT telemetry.ensure_syslog_partition(CURRENT_DATE);"
+# Connect with SQLite (direct query)
+sqlite3 var/system_dashboard.db ".tables"
+sqlite3 var/system_dashboard.db "SELECT COUNT(*) FROM syslog_messages;"
 ```
 
 ## Troubleshooting
 
 ### Service Won't Start
 1. Check logs in `var/log/` directory
-2. Verify PostgreSQL is running and accessible
+2. Verify database file exists at `var/system_dashboard.db`
 3. Ensure environment variables are set
-4. Check that `psql` is in PATH
+4. Run `python scripts/init_db.py --verify` to check database
 
 ### No Data Appearing
-1. Verify current month's partition exists
-2. Check service has INSERT permissions
+1. Verify database is initialized: `python scripts/init_db.py --verify`
+2. Check service is running and collecting data
 3. Confirm syslog sources are sending data
 4. Generate test data: `.\test-data-collection.ps1`
 
 ### Dashboard Shows Errors
-1. Verify Flask app environment variables are set
-2. Check database reader permissions
+1. Verify Flask app can access the database file
+2. Check database path in `config.json`
 3. Test connection: http://localhost:5000/health
 4. Check browser console for JavaScript errors
 
@@ -159,10 +151,10 @@ psql -h localhost -U sysdash_ingest -d system_dashboard -c "SELECT telemetry.ens
 ## Security Notes
 
 - Dashboard runs on `localhost` by default (not exposed to network)
-- Uses separate database users with least privilege
+- SQLite database file stored locally
 - Credentials stored in environment variables only
 - Services run as SYSTEM account
-- No external internet access required
+- No external internet access required (except optional OpenAI API)
 
 ## Next Steps
 
@@ -171,6 +163,5 @@ After installation:
 2. Configure router to send syslog to this machine
 3. Set up LAN observability if needed (see [LAN-OBSERVABILITY-README.md](LAN-OBSERVABILITY-README.md))
 4. Customize alert thresholds in the Flask app
-5. Set up scheduled partition creation (monthly)
 
 For advanced features, see [ADVANCED-FEATURES.md](ADVANCED-FEATURES.md).
