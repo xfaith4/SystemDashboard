@@ -406,6 +406,141 @@ class TestAPIEndpoints:
         assert isinstance(data['router'], list)
         assert isinstance(data['syslog'], list)
 
+    def test_api_dashboard_summary_has_enhanced_metrics(self, client):
+        """Test dashboard summary API includes new enhanced metrics."""
+        response = client.get('/api/dashboard/summary')
+        assert response.status_code == 200
+        
+        data = json.loads(response.data)
+        
+        # Check for new timestamp field
+        assert 'timestamp' in data
+        
+        # Check for new health score
+        assert 'health' in data
+        assert 'score' in data['health']
+        assert 'status' in data['health']
+        assert 'factors' in data['health']
+        assert isinstance(data['health']['score'], int)
+        assert data['health']['status'] in ['healthy', 'warning', 'critical']
+        assert isinstance(data['health']['factors'], list)
+        
+        # Check for new LAN metrics
+        assert 'lan' in data
+        assert 'total_devices' in data['lan']
+        assert 'active_devices' in data['lan']
+        assert 'new_devices_24h' in data['lan']
+        
+        # Check for new hourly breakdown
+        assert 'hourly_breakdown' in data
+        assert isinstance(data['hourly_breakdown'], list)
+        if len(data['hourly_breakdown']) > 0:
+            hour = data['hourly_breakdown'][0]
+            assert 'hour' in hour
+            assert 'iis_errors' in hour
+            assert 'auth_failures' in hour
+            assert 'windows_errors' in hour
+            assert 'router_alerts' in hour
+        
+        # Check for error rate in IIS
+        assert 'error_rate' in data['iis']
+
+
+class TestHealthScoreCalculation:
+    """Test health score calculation logic."""
+    
+    def test_health_score_healthy(self):
+        """Test health score with no issues returns healthy status."""
+        summary = {
+            'iis': {'current_errors': 0, 'spike': False},
+            'auth': [],
+            'windows': [],
+            'router': []
+        }
+        score, status, factors = flask_app._calculate_health_score(summary)
+        assert score == 100
+        assert status == 'healthy'
+        assert len(factors) == 0
+    
+    def test_health_score_with_spike(self):
+        """Test health score with IIS spike."""
+        summary = {
+            'iis': {'current_errors': 20, 'spike': True},
+            'auth': [],
+            'windows': [],
+            'router': []
+        }
+        score, status, factors = flask_app._calculate_health_score(summary)
+        assert score < 100
+        assert any('spike' in f['message'].lower() for f in factors)
+    
+    def test_health_score_with_auth_failures(self):
+        """Test health score with auth failures."""
+        summary = {
+            'iis': {'current_errors': 0, 'spike': False},
+            'auth': [{'client_ip': '1.2.3.4', 'count': 15}],
+            'windows': [],
+            'router': []
+        }
+        score, status, factors = flask_app._calculate_health_score(summary)
+        assert score < 100
+        assert any('auth' in f['message'].lower() for f in factors)
+    
+    def test_health_score_with_critical_windows_event(self):
+        """Test health score with critical Windows events."""
+        summary = {
+            'iis': {'current_errors': 0, 'spike': False},
+            'auth': [],
+            'windows': [{'level': 'Critical', 'message': 'Test'}],
+            'router': []
+        }
+        score, status, factors = flask_app._calculate_health_score(summary)
+        assert score < 100
+        assert any('critical' in f['message'].lower() for f in factors)
+    
+    def test_health_score_critical_status(self):
+        """Test that multiple issues result in critical status."""
+        summary = {
+            'iis': {'current_errors': 20, 'spike': True},
+            'auth': [
+                {'client_ip': '1.2.3.4', 'count': 15},
+                {'client_ip': '1.2.3.5', 'count': 12},
+                {'client_ip': '1.2.3.6', 'count': 10},
+                {'client_ip': '1.2.3.7', 'count': 8}
+            ],
+            'windows': [
+                {'level': 'Critical', 'message': 'Test1'},
+                {'level': 'Critical', 'message': 'Test2'}
+            ],
+            'router': [
+                {'severity': 'Error', 'message': 'WAN down'},
+                {'severity': 'Error', 'message': 'DHCP fail'},
+                {'severity': 'Error', 'message': 'Auth fail'}
+            ]
+        }
+        score, status, factors = flask_app._calculate_health_score(summary)
+        assert score <= 50
+        assert status == 'critical'
+
+
+class TestErrorRateCalculation:
+    """Test error rate calculation."""
+    
+    def test_error_rate_with_zero_total(self):
+        """Test error rate with zero total returns 0."""
+        result = flask_app._calculate_error_rate(0, 0)
+        assert result == 0.0
+    
+    def test_error_rate_calculation(self):
+        """Test error rate calculation accuracy."""
+        result = flask_app._calculate_error_rate(12, 4200)
+        assert result == 0.29  # 12/4200 * 100 = 0.2857... rounded to 0.29
+    
+    def test_error_rate_full_failure(self):
+        """Test error rate with all errors."""
+        result = flask_app._calculate_error_rate(100, 100)
+        assert result == 100.0
+
 
 class TestLANDeviceTagging:
     """Test LAN device tagging functionality."""
