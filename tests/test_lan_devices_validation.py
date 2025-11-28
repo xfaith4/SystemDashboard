@@ -21,6 +21,14 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'app'))
 import app as flask_app
 
 
+@pytest.fixture(autouse=True)
+def reset_db_path():
+    """Ensure _DB_PATH is reset after each test to avoid test pollution."""
+    original_path = flask_app._DB_PATH
+    yield
+    flask_app._DB_PATH = original_path
+
+
 @pytest.fixture
 def test_db():
     """Create a temporary SQLite database for testing with proper schema."""
@@ -67,7 +75,8 @@ def populated_db(test_db):
     one_hour_ago = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
     one_day_ago = (datetime.now(UTC) - timedelta(days=1)).isoformat()
     
-    # Insert devices (as if collected from ASUS router at 192.168.50.1)
+    # Insert devices (simulating data collected from ASUS router via SSH)
+    # Router IP is configured in config.json as 192.168.50.1
     devices_data = [
         # (mac_address, primary_ip, hostname, vendor, first_seen, last_seen, is_active, tags, network_type)
         ('AA:BB:CC:DD:EE:01', '192.168.50.101', 'laptop-work', 'Dell Inc.', one_day_ago, now, 1, 'workstation', 'main'),
@@ -171,17 +180,20 @@ class TestDatabaseConnectionValidation:
     def test_database_connection_succeeds(self, test_db):
         """Verify database connection is established successfully."""
         flask_app._DB_PATH = test_db
-        conn = flask_app.get_db_connection()
-        assert conn is not None
-        
-        # Verify we can query
-        cursor = conn.cursor()
-        cursor.execute("SELECT 1")
-        result = cursor.fetchone()
-        assert result[0] == 1
-        
-        conn.close()
-        flask_app._DB_PATH = None
+        conn = None
+        try:
+            conn = flask_app.get_db_connection()
+            assert conn is not None
+            
+            # Verify we can query
+            cursor = conn.cursor()
+            cursor.execute("SELECT 1")
+            result = cursor.fetchone()
+            assert result[0] == 1
+        finally:
+            if conn:
+                conn.close()
+            flask_app._DB_PATH = None
     
     def test_database_schema_has_devices_table(self, test_db):
         """Verify the devices table exists with correct columns."""
@@ -238,12 +250,16 @@ class TestDatabaseConnectionValidation:
         
         required_views = ['devices_online', 'device_alerts_active', 'lan_summary_stats']
         
-        for view_name in required_views:
-            cursor.execute(f"SELECT name FROM sqlite_master WHERE type='view' AND name='{view_name}'")
-            result = cursor.fetchone()
-            assert result is not None, f"View {view_name} should exist"
-        
-        conn.close()
+        try:
+            for view_name in required_views:
+                cursor.execute(
+                    "SELECT name FROM sqlite_master WHERE type='view' AND name=?",
+                    (view_name,)
+                )
+                result = cursor.fetchone()
+                assert result is not None, f"View {view_name} should exist"
+        finally:
+            conn.close()
 
 
 class TestLanDevicesApiEndpoints:
