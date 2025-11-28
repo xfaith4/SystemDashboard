@@ -7,8 +7,25 @@
             <h1>Operations Overview</h1>
             <p class="subtitle">Real-time monitoring of your home infrastructure</p>
         </div>
+        <div class="header-status">
+            <div id="health-score" class="health-score" style="display: none;">
+                <span class="health-label">System Health</span>
+                <span class="health-value">--</span>
+            </div>
+            <div id="last-updated" class="last-updated">
+                <span class="update-label">Last updated:</span>
+                <span class="update-time">--</span>
+            </div>
+        </div>
         <div id="mock-notice" class="notice" style="display: none;">Sample data displayed — database connection unavailable</div>
     </header>
+
+    <!-- Health Insights Panel -->
+    <section id="health-insights" class="health-insights-panel" style="display: none;">
+        <div class="insights-content">
+            <div class="insight-items" id="health-factors"></div>
+        </div>
+    </section>
 
     <!-- Primary KPI Cards -->
     <div class="kpi-grid">
@@ -17,6 +34,7 @@
             <p class="metric" id="iis-metric">Loading...</p>
             <p class="detail">Last 5 minutes</p>
             <p class="detail" id="iis-baseline">Baseline: ...</p>
+            <p class="detail" id="iis-rate" style="display: none;">Error rate: <span>--</span></p>
             <p class="alert-text" id="iis-alert" style="display: none;">Spike detected — investigate immediately</p>
         </article>
         
@@ -40,7 +58,31 @@
             <p class="detail">WAN/DHCP/Auth issues</p>
             <p class="detail">Recent window</p>
         </article>
+
+        <article class="kpi-card" id="lan-card">
+            <h2>LAN Devices</h2>
+            <p class="metric" id="lan-metric">Loading...</p>
+            <p class="detail" id="lan-active">Active: --</p>
+            <p class="detail" id="lan-new">New (24h): --</p>
+        </article>
     </div>
+
+    <!-- Hourly Breakdown Chart -->
+    <section class="trends-section">
+        <h2>Last 6 Hours Activity</h2>
+        <div class="charts-grid single-chart">
+            <article class="chart-card wide-chart">
+                <h3>Hourly Breakdown</h3>
+                <div id="hourlyChart" class="chart-placeholder stacked-chart">Loading chart...</div>
+                <div class="chart-legend">
+                    <span class="legend-item"><span class="legend-color" style="background: #ef4444;"></span> IIS Errors</span>
+                    <span class="legend-item"><span class="legend-color" style="background: #f59e0b;"></span> Auth Failures</span>
+                    <span class="legend-item"><span class="legend-color" style="background: #3b82f6;"></span> Windows Errors</span>
+                    <span class="legend-item"><span class="legend-color" style="background: #8b5cf6;"></span> Router Alerts</span>
+                </div>
+            </article>
+        </div>
+    </section>
 
     <!-- 7-Day Trend Charts -->
     <section class="trends-section">
@@ -113,6 +155,17 @@
         return text.length > maxLength ? text.substring(0, maxLength) + '...' : text;
     }
 
+    // Helper function to format time
+    function formatTime(isoString) {
+        if (!isoString) return '--';
+        try {
+            const date = new Date(isoString);
+            return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+        } catch (e) {
+            return isoString;
+        }
+    }
+
     // Load dashboard summary data
     async function loadDashboardSummary() {
         try {
@@ -126,6 +179,39 @@
             if (summary.using_mock) {
                 document.getElementById('mock-notice').style.display = 'block';
             }
+
+            // Update last updated timestamp
+            if (summary.timestamp) {
+                const updateTime = document.querySelector('#last-updated .update-time');
+                if (updateTime) {
+                    const date = new Date(summary.timestamp);
+                    updateTime.textContent = date.toLocaleTimeString('en-US', { 
+                        hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false 
+                    });
+                }
+            }
+
+            // Update health score
+            if (summary.health) {
+                const healthEl = document.getElementById('health-score');
+                const healthValue = healthEl.querySelector('.health-value');
+                healthEl.style.display = 'flex';
+                healthValue.textContent = summary.health.score;
+                healthEl.className = 'health-score health-' + summary.health.status;
+                
+                // Show health insights if there are factors
+                const insightsPanel = document.getElementById('health-insights');
+                const factorsEl = document.getElementById('health-factors');
+                if (summary.health.factors && summary.health.factors.length > 0) {
+                    insightsPanel.style.display = 'block';
+                    insightsPanel.className = 'health-insights-panel status-' + summary.health.status;
+                    factorsEl.innerHTML = summary.health.factors.map(f => 
+                        `<span class="insight-item insight-${f.type}">${escapeHtml(f.message)}</span>`
+                    ).join('');
+                } else {
+                    insightsPanel.style.display = 'none';
+                }
+            }
             
             // Update IIS card
             const iisCard = document.getElementById('iis-card');
@@ -133,9 +219,19 @@
             document.getElementById('iis-baseline').textContent = 
                 `Baseline: ${summary.iis.baseline_avg} ± ${summary.iis.baseline_std}`;
             
+            // Show error rate if available
+            if (summary.iis.error_rate !== undefined) {
+                const rateEl = document.getElementById('iis-rate');
+                rateEl.style.display = 'block';
+                rateEl.querySelector('span').textContent = summary.iis.error_rate + '%';
+            }
+            
             if (summary.iis.spike) {
                 iisCard.classList.add('alert');
                 document.getElementById('iis-alert').style.display = 'block';
+            } else {
+                iisCard.classList.remove('alert');
+                document.getElementById('iis-alert').style.display = 'none';
             }
             
             // Update Auth Failures card
@@ -143,6 +239,8 @@
             document.getElementById('auth-metric').textContent = summary.auth.length;
             if (summary.auth.length > 0) {
                 authCard.classList.add('warning');
+            } else {
+                authCard.classList.remove('warning');
             }
             
             // Update Windows Events card
@@ -150,6 +248,8 @@
             document.getElementById('windows-metric').textContent = summary.windows.length;
             if (summary.windows.length > 3) {
                 windowsCard.classList.add('warning');
+            } else {
+                windowsCard.classList.remove('warning');
             }
             
             // Update Router Alerts card
@@ -157,6 +257,27 @@
             document.getElementById('router-metric').textContent = summary.router.length;
             if (summary.router.length > 3) {
                 routerCard.classList.add('warning');
+            } else {
+                routerCard.classList.remove('warning');
+            }
+
+            // Update LAN Devices card
+            if (summary.lan) {
+                document.getElementById('lan-metric').textContent = summary.lan.total_devices;
+                document.getElementById('lan-active').textContent = `Active: ${summary.lan.active_devices}`;
+                document.getElementById('lan-new').textContent = `New (24h): ${summary.lan.new_devices_24h}`;
+                
+                const lanCard = document.getElementById('lan-card');
+                if (summary.lan.new_devices_24h > 0) {
+                    lanCard.classList.add('info');
+                } else {
+                    lanCard.classList.remove('info');
+                }
+            }
+
+            // Update Hourly Breakdown chart
+            if (summary.hourly_breakdown && summary.hourly_breakdown.length > 0) {
+                createHourlyChart('hourlyChart', summary.hourly_breakdown);
             }
             
             // Update Authentication Bursts panel
@@ -261,11 +382,56 @@
             document.getElementById('auth-metric').textContent = 'Error';
             document.getElementById('windows-metric').textContent = 'Error';
             document.getElementById('router-metric').textContent = 'Error';
+            document.getElementById('lan-metric').textContent = 'Error';
             document.getElementById('auth-panel-content').innerHTML = '<p class="empty">Failed to load data</p>';
             document.getElementById('windows-panel-content').innerHTML = '<p class="empty">Failed to load data</p>';
             document.getElementById('router-panel-content').innerHTML = '<p class="empty">Failed to load data</p>';
             document.getElementById('syslog-panel-content').innerHTML = '<p class="empty">Failed to load data</p>';
         }
+    }
+
+    // Create hourly stacked bar chart
+    function createHourlyChart(containerId, data) {
+        const container = document.getElementById(containerId);
+        if (!container || !data || data.length === 0) return;
+
+        // Find max value for scaling
+        const maxValue = Math.max(...data.map(d => 
+            (d.iis_errors || 0) + (d.auth_failures || 0) + (d.windows_errors || 0) + (d.router_alerts || 0)
+        ), 1);
+
+        const chartHTML = `
+            <div class="stacked-bar-chart">
+                ${data.map(d => {
+                    const total = (d.iis_errors || 0) + (d.auth_failures || 0) + (d.windows_errors || 0) + (d.router_alerts || 0);
+                    const height = Math.max((total / maxValue) * 100, 3);
+                    const hourLabel = formatTime(d.hour);
+                    
+                    // Calculate segment heights proportionally
+                    const iisHeight = total > 0 ? ((d.iis_errors || 0) / total) * height : 0;
+                    const authHeight = total > 0 ? ((d.auth_failures || 0) / total) * height : 0;
+                    const winHeight = total > 0 ? ((d.windows_errors || 0) / total) * height : 0;
+                    const routerHeight = total > 0 ? ((d.router_alerts || 0) / total) * height : 0;
+                    
+                    return `
+                        <div class="bar-wrapper" title="IIS: ${d.iis_errors}, Auth: ${d.auth_failures}, Win: ${d.windows_errors}, Router: ${d.router_alerts}">
+                            <div class="stacked-bar-container">
+                                <div class="stacked-bar" style="height: ${height}%;">
+                                    ${d.router_alerts > 0 ? `<div class="bar-segment router" style="height: ${routerHeight / height * 100}%;"></div>` : ''}
+                                    ${d.windows_errors > 0 ? `<div class="bar-segment windows" style="height: ${winHeight / height * 100}%;"></div>` : ''}
+                                    ${d.auth_failures > 0 ? `<div class="bar-segment auth" style="height: ${authHeight / height * 100}%;"></div>` : ''}
+                                    ${d.iis_errors > 0 ? `<div class="bar-segment iis" style="height: ${iisHeight / height * 100}%;"></div>` : ''}
+                                    <span class="bar-total">${total}</span>
+                                </div>
+                            </div>
+                            <div class="bar-label">${hourLabel}</div>
+                        </div>
+                    `;
+                }).join('')}
+            </div>
+        `;
+
+        container.innerHTML = chartHTML;
     }
 
     // Load trend charts
