@@ -64,22 +64,21 @@ For complete documentation, see [docs/LAN-OBSERVABILITY-README.md](docs/LAN-OBSE
 1. **Install prerequisites**
    - PowerShell 7+
    - Python 3.10+ (for the Flask UI and database initialization)
-   - Python 3.10+ (for the Flask UI)
    - Git
 2. **Clone the repository**
    ```powershell
    git clone https://github.com/your-org/SystemDashboard.git
    cd SystemDashboard
    ```
-3. **Configure secrets**
-   - Set `SYSTEMDASHBOARD_DB_PASSWORD` in the environment (the service reads it at runtime).
+3. **Configure secrets** (optional)
    - Set `ASUS_ROUTER_PASSWORD` if your router requires authentication.
-4. **Review `config.json`** – update SQLite host, database, user, and the ASUS router endpoint if needed. Paths can be relative to the repo root.
-5. **Provision the schema**
+   - Set `OPENAI_API_KEY` for AI-powered explanations.
+4. **Review `config.json`** – update the ASUS router endpoint if needed. Paths can be relative to the repo root.
+5. **Initialize the database**
    ```powershell
-   python scripts/init_db.py -h <host> -U <user> -d system_dashboard -f .\tools\schema.sql
+   python scripts/init_db.py
    ```
-   Optionally call `SELECT telemetry.ensure_syslog_partition(CURRENT_DATE);` to create the current month’s partition.
+   This creates the SQLite database at `var/system_dashboard.db` with all required tables and views.
 6. **Install and register the service**
    ```powershell
    pwsh -File .\Install.ps1
