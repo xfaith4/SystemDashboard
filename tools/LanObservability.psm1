@@ -60,68 +60,6 @@ function Get-RouterClientListViaHttp {
     Write-Warning "HTTP polling is disabled. Enable Service.Asus.SSH.Enabled to collect clients via SSH."
     Write-Output -NoEnumerate @()
     return
-
-    $clients = @()
-
-    if (-not $Password) {
-        Write-Warning "Router password not provided for HTTP polling."
-        return @()
-    }
-
-    try {
-        # Build authentication header
-        $base64Auth = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("${Username}:${Password}"))
-        $headers = @{
-            'Authorization' = "Basic $base64Auth"
-        }
-
-        # Try to fetch client list data
-        # Note: Actual endpoint may vary by firmware version; adjust as needed
-        $url = "http://${RouterIP}:8443/update_clients.asp"
-
-        Write-Host "Fetching client list from $url"
-
-        $response = Invoke-WebRequest -Uri $url -Headers $headers -TimeoutSec $TimeoutSeconds -UseBasicParsing -ErrorAction Stop
-
-        # Parse response - the format varies by router firmware
-        # This is a simplified parser; actual implementation may need adjustment based on firmware
-        $content = $response.Content
-
-        # Look for client data in JavaScript object format
-        if ($content -match 'originData\s*=\s*(\{.*?\});') {
-            $jsonData = $matches[1]
-            $data = $jsonData | ConvertFrom-Json
-
-            # Parse client entries (format varies, this is an example)
-            foreach ($clientKey in $data.PSObject.Properties.Name) {
-                $client = $data.$clientKey
-
-                $clientInfo = [PSCustomObject]@{
-                    MacAddress = $clientKey
-                    IpAddress = $client.ip
-                    Hostname = $client.name
-                    Vendor = $client.vendor
-                    Interface = $client.isWL -eq '1' ? 'wireless' : 'wired'
-                    Rssi = if ($client.rssi) { [int]$client.rssi } else { $null }
-                    TxRate = if ($client.txRate) { [decimal]$client.txRate } else { $null }
-                    RxRate = if ($client.rxRate) { [decimal]$client.rxRate } else { $null }
-                    IsOnline = $true
-                }
-
-                $clients += $clientInfo
-            }
-        }
-        else {
-            Write-Warning "Could not parse client data from router response"
-        }
-    }
-    catch {
-        Write-Warning "Failed to fetch client list via HTTP: $_"
-        Write-Output -NoEnumerate @()
-        return
-    }
-
-    Write-Output -NoEnumerate $clients
 }
 
 function Get-RouterClientListViaSsh {
