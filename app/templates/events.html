@@ -1,0 +1,46 @@
+{% extends 'base.html' %}
+{% block content %}
+<h1>System Events</h1>
+
+<div class="toolbar">
+  <input id="searchInput" type="search" placeholder="Search messages, sources..." />
+  <select id="levelFilter">
+    <option value="">All Levels</option>
+    <option>Error</option>
+    <option>Warning</option>
+    <option>Info</option>
+  </select>
+  <button id="refreshBtn">Refresh</button>
+</div>
+
+<div id="insights" class="insights"></div>
+
+<table class="data-table" id="eventsTable">
+    <thead><tr><th>Time</th><th>Level</th><th>Source</th><th>Message</th><th>Actions</th></tr></thead>
+    <tbody>
+    {% for e in events %}
+        <tr>
+            <td>{{ e.time }}</td>
+            <td>{{ e.level }}</td>
+            <td>{{ e.source }}</td>
+            <td class="wrap">{{ e.message }}</td>
+            <td>
+              <button class="aiSuggestBtn" data-source="{{ e.source }}" data-id="{{ e.id }}" data-message="{{ e.message | e }}">Ask AI</button>
+            </td>
+        </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+
+<div id="aiResult" class="modal" hidden>
+  <div class="modal-content">
+    <button id="closeModal" class="close">×</button>
+    <h3>AI Suggestion</h3>
+    <pre id="aiText"></pre>
+  </div>
+</div>
+
+<script>
+  window.__INITIAL_EVENTS__ = {{ events | tojson }};
+</script>
+{% endblock %}

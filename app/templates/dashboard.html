@@ -1,0 +1,202 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="dashboard">
+    <header class="dashboard-header">
+        <h1>Operations Telemetry Overview</h1>
+        {% if summary.using_mock %}
+        <p class="notice">Displaying sample data because the database connection could not be established.</p>
+        {% endif %}
+    </header>
+
+    <!-- 7-Day Trend Graphs Section -->
+    <section class="trends-section">
+        <h2>7-Day Trend Analysis</h2>
+        <div class="charts-grid">
+            <article class="chart-card">
+                <h3>IIS 5xx Errors</h3>
+                <div id="iisErrorsChart" class="chart-placeholder">Loading...</div>
+            </article>
+            <article class="chart-card">
+                <h3>Authentication Failures</h3>
+                <div id="authFailuresChart" class="chart-placeholder">Loading...</div>
+            </article>
+            <article class="chart-card">
+                <h3>Windows Critical/Error Events</h3>
+                <div id="windowsErrorsChart" class="chart-placeholder">Loading...</div>
+            </article>
+            <article class="chart-card">
+                <h3>Router Alerts</h3>
+                <div id="routerAlertsChart" class="chart-placeholder">Loading...</div>
+            </article>
+        </div>
+    </section>
+
+    <div class="kpi-grid">
+        <article class="kpi-card{% if summary.iis.spike %} alert{% endif %}">
+            <h2>IIS 5xx (last 5 min)</h2>
+            <p class="metric">{{ summary.iis.current_errors }}</p>
+            <p class="detail">Baseline {{ summary.iis.baseline_avg }} ± {{ summary.iis.baseline_std }}</p>
+            <p class="detail">Total requests {{ summary.iis.total_requests }}</p>
+            {% if summary.iis.spike %}
+            <p class="alert-text">Spike detected &mdash; investigate immediately.</p>
+            {% endif %}
+        </article>
+        <article class="kpi-card">
+            <h2>Auth Bursts (15 min)</h2>
+            <p class="metric">{{ summary.auth|length }}</p>
+            <p class="detail">Threshold ≥ {{ auth_threshold }} failures per client</p>
+        </article>
+        <article class="kpi-card">
+            <h2>Critical Windows Events</h2>
+            <p class="metric">{{ summary.windows|length }}</p>
+            <p class="detail">Evaluated across the last 10 minutes</p>
+        </article>
+        <article class="kpi-card">
+            <h2>Router Alerts</h2>
+            <p class="metric">{{ summary.router|length }}</p>
+            <p class="detail">ASUS WAN/DHCP/auth anomalies</p>
+        </article>
+    </div>
+</section>
+
+<section class="panel-grid">
+    <article class="panel">
+        <h2>Authentication Bursts (15 min window)</h2>
+        {% if summary.auth %}
+        <table class="data-table">
+            <thead>
+                <tr><th>Client IP</th><th>Failures</th><th>Last Seen</th></tr>
+            </thead>
+            <tbody>
+                {% for item in summary.auth %}
+                <tr>
+                    <td>{{ item.client_ip }}</td>
+                    <td>{{ item.count }}</td>
+                    <td>{{ item.last_seen }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="empty">No authentication storms detected in the last 15 minutes.</p>
+        {% endif %}
+    </article>
+    <article class="panel">
+        <h2>Windows Critical/Error Events (last 10 min)</h2>
+        {% if summary.windows %}
+        <table class="data-table">
+            <thead>
+                <tr><th>Time</th><th>Source</th><th>Level</th><th>ID</th><th>Message</th></tr>
+            </thead>
+            <tbody>
+                {% for evt in summary.windows %}
+                <tr>
+                    <td>{{ evt.time }}</td>
+                    <td>{{ evt.source }}</td>
+                    <td>{{ evt.level }}</td>
+                    <td>{{ evt.id }}</td>
+                    <td class="wrap">{{ evt.message }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="empty">No critical or error-level Windows events detected in the last ten minutes.</p>
+        {% endif %}
+    </article>
+</section>
+
+<section class="panel">
+    <h2>ASUS Router Alerts</h2>
+    {% if summary.router %}
+    <table class="data-table">
+        <thead>
+            <tr><th>Time</th><th>Severity</th><th>Message</th><th>Host</th></tr>
+        </thead>
+        <tbody>
+            {% for log in summary.router %}
+            <tr>
+                <td>{{ log.time }}</td>
+                <td>{{ log.severity }}</td>
+                <td class="wrap">{{ log.message }}</td>
+                <td>{{ log.host }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="empty">No router anomalies captured in the recent window.</p>
+    {% endif %}
+</section>
+
+<section class="panel">
+    <h2>Latest Syslog Entries</h2>
+    {% if summary.syslog %}
+    <table class="data-table">
+        <thead>
+            <tr><th>Time</th><th>Source</th><th>Severity</th><th>Message</th></tr>
+        </thead>
+        <tbody>
+            {% for entry in summary.syslog %}
+            <tr>
+                <td>{{ entry.time }}</td>
+                <td>{{ entry.source }}</td>
+                <td>{{ entry.severity }}</td>
+                <td class="wrap">{{ entry.message }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="empty">No recent syslog messages captured yet.</p>
+    {% endif %}
+</section>
+
+<script>
+// Initialize charts with trend data using CSS-based visualization
+(async function() {
+    try {
+        const response = await fetch('/api/trends');
+        const data = await response.json();
+        
+        function createBarChart(containerId, values, color) {
+            const container = document.getElementById(containerId);
+            if (!container) return;
+            
+            // Use Math.max.apply for safer max calculation
+            const maxValue = Math.max.apply(Math, values.concat([1]));
+            
+            const chartHTML = `
+                <div class="bar-chart">
+                    ${data.dates.map((date, i) => {
+                        const height = (values[i] / maxValue) * 100;
+                        // Extract MM-DD from YYYY-MM-DD format
+                        const shortDate = date.substring(5);
+                        return `
+                            <div class="bar-wrapper">
+                                <div class="bar-container">
+                                    <div class="bar" style="height: ${height}%; background-color: ${color};" title="${date}: ${values[i]}">
+                                        <span class="bar-value">${values[i]}</span>
+                                    </div>
+                                </div>
+                                <div class="bar-label">${shortDate}</div>
+                            </div>
+                        `;
+                    }).join('')}
+                </div>
+            `;
+            
+            container.innerHTML = chartHTML;
+        }
+        
+        createBarChart('iisErrorsChart', data.iis_errors, '#e74c3c');
+        createBarChart('authFailuresChart', data.auth_failures, '#f5a623');
+        createBarChart('windowsErrorsChart', data.windows_errors, '#4e9af1');
+        createBarChart('routerAlertsChart', data.router_alerts, '#9b59b6');
+        
+    } catch (error) {
+        console.error('Failed to load trend data:', error);
+    }
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,21 @@
+{% extends 'base.html' %}
+{% block content %}
+<h1>Wi-Fi Clients</h1>
+{% if clients %}
+<table class="data-table">
+    <thead><tr><th>MAC</th><th>Hostname</th><th>IP</th><th>Packets</th></tr></thead>
+    <tbody>
+    {% for c in clients %}
+        <tr class="{% if c.packets > threshold %}chatty{% endif %}">
+            <td>{{ c.mac }}</td>
+            <td>{{ c.hostname }}</td>
+            <td>{{ c.ip }}</td>
+            <td>{{ c.packets }}</td>
+        </tr>
+    {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p>No Wi-Fi clients found.</p>
+{% endif %}
+{% endblock %}
