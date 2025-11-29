@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # IDE / tooling
 .vs/
 .vscode/
@@ -38,3 +39,82 @@ var/
 # Repo-specific archives
 SystemDashboard-1.zip
 SystemDashboard.zip
+=======
+# Python virtual environment
+.venv/
+venv/
+env/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/**
+!var/
+!var/**/
+!var/**/*.gitkeep
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+
+# Flask instance folder
+instance/
+
+# Environments
+.env
+.venv
+ENV/
+env/
+venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# PowerShell
+*.tmp
+
+# Logs
+logs/
+*.log
+# But allow sample files
+!sample-*.log
+>>>>>>> 7b56c8a6e4bc5c9c145d426fd33c74dd97862afa

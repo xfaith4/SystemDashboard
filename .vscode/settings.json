@@ -1,0 +1,6 @@
+{
+    "powershell.powerShellAdditionalExePaths": {
+        "Powershell 7": "C:\\Program Files\\PowerShell\\7\\pwsh.exe"
+    },
+    "powershell.powerShellDefaultVersion": "C:\\Program Files\\PowerShell\\7\\pwsh.exe"
+}

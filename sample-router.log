@@ -1,0 +1,15 @@
+2024-01-15 08:30:15 INFO DHCP assigned IP 192.168.1.100 to MAC 00:11:22:33:44:55
+2024-01-15 08:30:45 WARN Failed login attempt from 192.168.1.50
+2024-01-15 08:31:00 INFO Firewall blocked connection to port 22 from 10.0.0.5
+2024-01-15 08:31:30 ERROR WAN connection lost - attempting reconnection
+2024-01-15 08:31:45 INFO WAN connection restored
+2024-01-15 08:32:00 INFO Wireless client connected: 192.168.1.101 (aa:bb:cc:dd:ee:ff)
+2024-01-15 08:32:15 WARN High bandwidth usage detected from 192.168.1.100
+2024-01-15 08:32:30 INFO Automatic firmware update available
+2024-01-15 08:32:45 ERROR DNS resolution failed for external.domain.com
+2024-01-15 08:33:00 INFO Port forwarding rule activated for 192.168.1.105:8080
+2024-01-15 08:33:15 INFO Client disconnected: 192.168.1.101
+2024-01-15 08:33:30 WARN Multiple failed authentication attempts detected
+2024-01-15 08:33:45 INFO VPN connection established from 203.0.113.25
+2024-01-15 08:34:00 ERROR Memory usage critical - 95% utilized
+2024-01-15 08:34:15 INFO Scheduled backup completed successfully
