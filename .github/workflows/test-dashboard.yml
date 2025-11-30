@@ -23,7 +23,7 @@ jobs:
           # Wait for the HTTP endpoint to come up
           $maxAttempts = 15
           $attempt = 0
-          $uri = 'http://localhost:8899/'
+          $uri = 'http://localhost:15000/'
           
           Write-Host "Polling for dashboard readiness..."
           while ($attempt -lt $maxAttempts) {
