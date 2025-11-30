@@ -52,7 +52,7 @@ Get-ScheduledTaskInfo -TaskName "SystemDashboard-Telemetry"
 
 4. Check environment variables:
    ```powershell
-   [Environment]::GetEnvironmentVariable("SYSTEMDASHBOARD_DB_PASSWORD", "User")
+   [Environment]::GetEnvironmentVariable("ASUS_ROUTER_PASSWORD", "User")
    ```
 
 5. Reinstall scheduled tasks:
@@ -63,81 +63,71 @@ Get-ScheduledTaskInfo -TaskName "SystemDashboard-Telemetry"
 
 ## Database Issues
 
-### Connection Failed
+### Database Connection Failed
 
 **Symptoms:**
-- "Connection refused" or "could not connect to server"
+- Dashboard shows "Database unavailable" or errors
 - Flask app shows database errors
 
 **Solutions:**
-1. Verify PostgreSQL is running:
+1. Verify database file exists:
    ```powershell
-   # For Docker
-   docker ps | Select-String postgres
-   docker start postgres-container
-   
-   # For local PostgreSQL
-   Get-Service -Name postgresql*
+   Test-Path ".\var\system_dashboard.db"
    ```
 
-2. Test connection:
+2. Initialize database if needed:
    ```powershell
-   docker exec -it postgres-container psql -U postgres -d system_dashboard -c "SELECT 1;"
+   python scripts/init_db.py
    ```
 
-3. Check connection settings in `config.json`:
-   - Hostname (default: `localhost`)
-   - Port (default: `5432`)
-   - Database name (default: `system_dashboard`)
+3. Verify database integrity:
+   ```powershell
+   python scripts/init_db.py --verify
+   ```
 
-### Missing Partition
+4. Check database path in `config.json`:
+   ```json
+   "Database": {
+     "Type": "sqlite",
+     "Path": "./var/system_dashboard.db"
+   }
+   ```
+
+### Database Schema Missing
 
 **Symptoms:**
-- "No partition of relation" error in logs
-- Data not being inserted
+- "no such table" errors in logs
+- Queries fail with missing tables/views
 
 **Solutions:**
-1. Create partition for current month:
-   ```sql
-   SELECT telemetry.ensure_syslog_partition(CURRENT_DATE);
-   ```
-
-2. Verify partitions exist:
-   ```sql
-   SELECT tablename FROM pg_tables 
-   WHERE schemaname = 'telemetry' 
-   AND tablename LIKE 'syslog_generic_%';
-   ```
-
-3. Automate partition creation (add to monthly scheduled task):
+1. Initialize the schema:
    ```powershell
-   $query = "SELECT telemetry.ensure_syslog_partition(CURRENT_DATE);"
-   docker exec postgres-container psql -U sysdash_ingest -d system_dashboard -c $query
+   python scripts/init_db.py --force
    ```
 
-### Permission Denied
+2. Verify tables exist:
+   ```bash
+   sqlite3 var/system_dashboard.db ".tables"
+   ```
+
+3. Check views are created:
+   ```bash
+   sqlite3 var/system_dashboard.db ".schema syslog_recent"
+   ```
+
+### Database Permission Issues
 
 **Symptoms:**
-- "permission denied for schema telemetry"
-- INSERT/SELECT failures
+- "database is locked" errors
+- Write operations fail
 
 **Solutions:**
-1. Grant appropriate permissions:
-   ```sql
-   -- For ingest user
-   GRANT USAGE ON SCHEMA telemetry TO sysdash_ingest;
-   GRANT INSERT, SELECT ON ALL TABLES IN SCHEMA telemetry TO sysdash_ingest;
-   
-   -- For reader user
-   GRANT USAGE ON SCHEMA telemetry TO sysdash_reader;
-   GRANT SELECT ON ALL TABLES IN SCHEMA telemetry TO sysdash_reader;
-   ```
-
-2. Check current permissions:
-   ```sql
-   SELECT grantee, privilege_type 
-   FROM information_schema.role_table_grants 
-   WHERE table_schema = 'telemetry';
+1. Ensure only one process writes at a time
+2. Check file permissions on the database file
+3. Close any SQLite browser tools that may have a lock
+4. Verify the var/ directory is writable:
+   ```powershell
+   Test-Path ".\var" -PathType Container
    ```
 
 ## Data Collection Issues
@@ -294,9 +284,9 @@ Get-ScheduledTaskInfo -TaskName "SystemDashboard-Telemetry"
 **Solutions:**
 1. Check LAN collector service logs
 
-2. Verify LAN schema is applied:
-   ```powershell
-   .\apply-lan-schema.ps1
+2. Verify database schema includes device tables:
+   ```bash
+   sqlite3 var/system_dashboard.db ".tables" | grep devices
    ```
 
 3. Test router connection:
@@ -304,9 +294,9 @@ Get-ScheduledTaskInfo -TaskName "SystemDashboard-Telemetry"
    .\asus-wifi-monitor.ps1 -TestConnection
    ```
 
-4. Check device snapshots partition exists:
-   ```sql
-   SELECT telemetry.ensure_device_snapshot_partition(CURRENT_DATE);
+4. Check device data in database:
+   ```bash
+   sqlite3 var/system_dashboard.db "SELECT COUNT(*) FROM devices;"
    ```
 
 ### Syslog Events Not Correlating
@@ -317,10 +307,8 @@ Get-ScheduledTaskInfo -TaskName "SystemDashboard-Telemetry"
 
 **Solutions:**
 1. Enable correlation in settings:
-   ```sql
-   UPDATE telemetry.lan_settings 
-   SET setting_value = 'true' 
-   WHERE setting_key = 'syslog_correlation_enabled';
+   ```bash
+   sqlite3 var/system_dashboard.db "UPDATE lan_settings SET setting_value = 'true' WHERE setting_key = 'syslog_correlation_enabled';"
    ```
 
 2. Manually trigger correlation:
@@ -330,8 +318,8 @@ Get-ScheduledTaskInfo -TaskName "SystemDashboard-Telemetry"
    ```
 
 3. Check correlation table:
-   ```sql
-   SELECT COUNT(*) FROM telemetry.syslog_device_links;
+   ```bash
+   sqlite3 var/system_dashboard.db "SELECT COUNT(*) FROM syslog_device_links;"
    ```
 
 ## Environment Issues
