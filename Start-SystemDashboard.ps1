@@ -14,6 +14,9 @@ try {
     } else {
         Write-Verbose "Module '$moduleName' already loaded; skipping Import-Module to avoid nested imports."
     }
+    
+    # Start the dashboard listener
+    Start-SystemDashboard -ConfigPath $ConfigPath
 } catch {    
     Write-Error "Failed to start dashboard: $_"
 }
