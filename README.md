@@ -167,6 +167,7 @@ For detailed troubleshooting, see [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING
 
 ## Documentation
 
+- **[Roadmap](ROADMAP.md)** - **Next steps for hardening and UI polish** - Production readiness plan
 - **[Help Guide](docs/HELP.md)** - **Dashboard user guide** - How to use the dashboard, interpret metrics, and troubleshoot issues
 - **[Setup Guide](docs/SETUP.md)** - Complete installation and configuration instructions
 - **[Troubleshooting](docs/TROUBLESHOOTING.md)** - Common issues and solutions
@@ -174,6 +175,7 @@ For detailed troubleshooting, see [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING
 - **[Advanced Features](docs/ADVANCED-FEATURES.md)** - Router monitoring, scaling, and maintenance
 - **[Data Sources](docs/DATA-SOURCES.md)** - Configuring Windows Events, router logs, and system metrics
 - **[Security Summary](docs/SECURITY-SUMMARY.md)** - Security analysis and recommendations
+- **[Implementation Guide](docs/IMPLEMENTATION-GUIDE.md)** - Code examples for roadmap items
 - **[Changelog](docs/CHANGELOG.md)** - Version history
 
 ## Tests

@@ -2,6 +2,12 @@
 
 This directory contains all documentation for the System Dashboard project.
 
+## Planning & Development
+
+- **[Roadmap](../ROADMAP.md)** - **Production readiness plan** - Feature hardening and UI polish roadmap
+- **[Roadmap Quick Reference](ROADMAP-QUICK-REFERENCE.md)** - Condensed roadmap overview
+- **[Implementation Guide](IMPLEMENTATION-GUIDE.md)** - Code examples and best practices for roadmap items
+
 ## Getting Started
 
 - **[Setup Guide](SETUP.md)** - Complete installation and configuration instructions
