@@ -92,16 +92,16 @@ Make SystemDashboard **production-ready** with:
 
 These are small but impactful improvements:
 
-1. ✅ Add favicons (professional branding)
-2. ✅ Loading skeletons (not "Loading..." text)
-3. ✅ Toast notifications (corner popups)
-4. ✅ Hover states on all interactive elements
-5. ✅ Empty states with actionable messages
-6. ✅ Status badges (colored, rounded)
-7. ✅ Tooltips for abbreviations
-8. ✅ Consistent button styles (primary/secondary)
-9. ✅ Footer with version + links
-10. ✅ Focus indicators for keyboard nav
+1. [ ] Add favicons (professional branding)
+2. [ ] Loading skeletons (not "Loading..." text)
+3. [ ] Toast notifications (corner popups)
+4. [ ] Hover states on all interactive elements
+5. [ ] Empty states with actionable messages
+6. [ ] Status badges (colored, rounded)
+7. [ ] Tooltips for abbreviations
+8. [ ] Consistent button styles (primary/secondary)
+9. [ ] Footer with version + links
+10. [ ] Focus indicators for keyboard nav
 
 ---
 
