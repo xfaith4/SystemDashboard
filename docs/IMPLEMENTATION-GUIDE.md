@@ -120,21 +120,25 @@ def check_services_health():
     
     try:
         import subprocess
-        result = subprocess.run(
-            ['powershell', '-Command', 'Get-Service SystemDashboard* | Select-Object Name, Status | ConvertTo-Json'],
-            capture_output=True, text=True, timeout=5
-        )
-        services = json.loads(result.stdout) if result.stdout else []
+        # Check specific service names from the project
+        service_names = ['SystemDashboardTelemetry']  # Add actual service names here
+        services_status = []
         
-        # Ensure services is a list
-        if isinstance(services, dict):
-            services = [services]
+        for service_name in service_names:
+            result = subprocess.run(
+                ['powershell', '-Command', 
+                 f'Get-Service -Name {service_name} -ErrorAction SilentlyContinue | Select-Object Name, Status | ConvertTo-Json'],
+                capture_output=True, text=True, timeout=5
+            )
+            if result.stdout:
+                service = json.loads(result.stdout)
+                services_status.append(service)
         
-        stopped = [s['Name'] for s in services if s.get('Status') != 'Running']
+        stopped = [s['Name'] for s in services_status if s.get('Status') != 'Running']
         if stopped:
             return {'status': 'warning', 'message': f'Services stopped: {", ".join(stopped)}'}
         
-        return {'status': 'ok', 'running_services': len(services)}
+        return {'status': 'ok', 'running_services': len(services_status)}
     except Exception as e:
         return {'status': 'error', 'message': str(e)}
 
@@ -405,6 +409,17 @@ const Toast = {
 
 ```powershell
 # Create certificate generation script: scripts/generate-cert.ps1
+param(
+    [string]$CertPassword
+)
+
+# Prompt for password if not provided
+if (-not $CertPassword) {
+    $securePassword = Read-Host "Enter password for certificate" -AsSecureString
+} else {
+    $securePassword = ConvertTo-SecureString -String $CertPassword -Force -AsPlainText
+}
+
 $certParams = @{
     DnsName = "localhost", "systemdashboard.local"
     CertStoreLocation = "Cert:\LocalMachine\My"
@@ -420,13 +435,12 @@ $cert = New-SelfSignedCertificate @certParams
 
 # Export certificate
 $certPath = ".\certs\systemdashboard.pfx"
-$certPassword = ConvertTo-SecureString -String "YourSecurePassword" -Force -AsPlainText
-
 New-Item -ItemType Directory -Force -Path ".\certs"
-Export-PfxCertificate -Cert $cert -FilePath $certPath -Password $certPassword
+Export-PfxCertificate -Cert $cert -FilePath $certPath -Password $securePassword
 
 Write-Host "Certificate created and exported to $certPath"
 Write-Host "Thumbprint: $($cert.Thumbprint)"
+Write-Host "IMPORTANT: Save the certificate password securely!"
 ```
 
 **Configure Flask for HTTPS**:
@@ -519,23 +533,30 @@ def validate_date_range(start_date, end_date=None):
         raise ValidationError(f"Invalid date format: {e}")
 
 def validate_request(validators):
-    """Decorator for endpoint input validation."""
+    """Decorator for endpoint input validation.
+    
+    Note: This validates but doesn't mutate request.args/request.json
+    since they're immutable. Instead, validated values are passed to
+    the view function via kwargs or must be re-validated inside.
+    """
     def decorator(f):
         @wraps(f)
         def wrapper(*args, **kwargs):
             try:
                 # Validate request parameters
+                validated_params = {}
                 for param_name, validator_func in validators.items():
+                    value = None
                     if param_name in request.args:
                         value = request.args.get(param_name)
-                        validated = validator_func(value)
-                        request.args = request.args.copy()
-                        request.args[param_name] = validated
-                    elif param_name in request.json:
+                    elif request.is_json and param_name in request.json:
                         value = request.json.get(param_name)
-                        validated = validator_func(value)
-                        request.json[param_name] = validated
+                    
+                    if value is not None:
+                        validated_params[param_name] = validator_func(value)
                 
+                # Pass validated params to view function
+                kwargs.update(validated_params)
                 return f(*args, **kwargs)
             except ValidationError as e:
                 return jsonify({'error': str(e)}), 400
@@ -544,8 +565,12 @@ def validate_request(validators):
 
 # Usage example:
 @app.route('/api/lan/device/<mac>')
-@validate_request({'mac': validate_mac_address})
 def api_lan_device_detail(mac):
+    # Validate mac in the function
+    try:
+        mac = validate_mac_address(mac)
+    except ValidationError as e:
+        return jsonify({'error': str(e)}), 400
     # mac is now validated
     pass
 ```
