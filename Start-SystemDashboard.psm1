@@ -1,10 +1,10 @@
 ### BEGIN FILE: SystemDashboard Listener
 #requires -Version 7
-<# 
-.SYNOPSIS 
+<#
+.SYNOPSIS
     HTTP-based system metrics endpoint with extended telemetry.
-.DESCRIPTION 
-    Exposes CPU, memory, disk, events, network, uptime, processes, and latency. 
+.DESCRIPTION
+    Exposes CPU, memory, disk, events, network, uptime, processes, and latency.
     Provides a Start-SystemDashboardListener function used by tests.
 #>
 Set-StrictMode -Version Latest
@@ -13,18 +13,18 @@ $ErrorActionPreference = 'Stop'
 # Determine config path with fallback for empty $PSScriptRoot
 # In some contexts (e.g., pwsh -Command), $PSScriptRoot may be empty
 # Use $PSCommandPath as fallback, then Get-Location as last resort
-$script:ModuleRoot = if ($PSScriptRoot) { 
-    $PSScriptRoot 
-} elseif ($PSCommandPath) { 
-    Split-Path -Parent $PSCommandPath 
-} else { 
-    Get-Location 
+$script:ModuleRoot = if ($PSScriptRoot) {
+    $PSScriptRoot
+} elseif ($PSCommandPath) {
+    Split-Path -Parent $PSCommandPath
+} else {
+    Get-Location
 }
 
-$ConfigPath = if ($env:SYSTEMDASHBOARD_CONFIG) { 
-    $env:SYSTEMDASHBOARD_CONFIG 
-} else { 
-    Join-Path $script:ModuleRoot 'config.json' 
+$ConfigPath = if ($env:SYSTEMDASHBOARD_CONFIG) {
+    $env:SYSTEMDASHBOARD_CONFIG
+} else {
+    Join-Path $script:ModuleRoot 'config.json'
 }
 
 # Configuration is already set by the importing script via $env:SYSTEMDASHBOARD_CONFIG
@@ -53,19 +53,19 @@ function Write-Log {
 function Get-MockSystemMetrics {
     [CmdletBinding()]
     param()
-    
+
     Write-Log -Level 'INFO' -Message "Generating mock system metrics for demonstration purposes"
-    
+
     $nowUtc = (Get-Date).ToUniversalTime()
     $computerName = if ($env:COMPUTERNAME) { $env:COMPUTERNAME } else { "MockHost" }
-    
+
     # Mock CPU, Memory, Disk data
     $cpuPct = Get-Random -Minimum 5 -Maximum 85
     $totalMemGB = 16.0
     $usedMemGB = Get-Random -Minimum 4.0 -Maximum 12.0
     $freeMemGB = $totalMemGB - $usedMemGB
     $memPct = [math]::Round(($usedMemGB / $totalMemGB), 4)
-    
+
     $disks = @(
         [pscustomobject]@{
             Drive = "C"
@@ -80,44 +80,44 @@ function Get-MockSystemMetrics {
             UsedPct = 0.4
         }
     )
-    
+
     # Mock uptime
     $uptime = @{
         Days = Get-Random -Minimum 0 -Maximum 30
         Hours = Get-Random -Minimum 0 -Maximum 23
         Minutes = Get-Random -Minimum 0 -Maximum 59
     }
-    
+
     # Mock events
     $warnSources = @('Application Error', 'System', 'DNS Client', 'Service Control Manager')
     $errSources = @('Application Error', 'System', 'DCOM')
-    $warnSummary = $warnSources | ForEach-Object { 
-        [pscustomobject]@{ Source=$_; Count=(Get-Random -Minimum 1 -Maximum 10) } 
+    $warnSummary = $warnSources | ForEach-Object {
+        [pscustomobject]@{ Source=$_; Count=(Get-Random -Minimum 1 -Maximum 10) }
     }
-    $errSummary = $errSources | ForEach-Object { 
-        [pscustomobject]@{ Source=$_; Count=(Get-Random -Minimum 1 -Maximum 5) } 
+    $errSummary = $errSources | ForEach-Object {
+        [pscustomobject]@{ Source=$_; Count=(Get-Random -Minimum 1 -Maximum 5) }
     }
-    
+
     # Mock network
     $netUsage = @(
-        [pscustomobject]@{ 
-            Adapter="Ethernet"; 
-            BytesSentPerSec=(Get-Random -Minimum 1000 -Maximum 50000); 
-            BytesRecvPerSec=(Get-Random -Minimum 5000 -Maximum 100000) 
+        [pscustomobject]@{
+            Adapter="Ethernet";
+            BytesSentPerSec=(Get-Random -Minimum 1000 -Maximum 50000);
+            BytesRecvPerSec=(Get-Random -Minimum 5000 -Maximum 100000)
         }
     )
     $latencyMs = Get-Random -Minimum 1 -Maximum 100
-    
+
     # Mock processes
     $processNames = @('explorer', 'chrome', 'code', 'powershell', 'svchost')
-    $topProcs = $processNames | ForEach-Object { 
-        [pscustomobject]@{ 
-            Name=$_; 
-            CPU=([math]::Round((Get-Random -Minimum 0.1 -Maximum 25.5), 2)); 
-            Id=(Get-Random -Minimum 1000 -Maximum 9999) 
-        } 
+    $topProcs = $processNames | ForEach-Object {
+        [pscustomobject]@{
+            Name=$_;
+            CPU=([math]::Round((Get-Random -Minimum 0.1 -Maximum 25.5), 2));
+            Id=(Get-Random -Minimum 1000 -Maximum 9999)
+        }
     }
-    
+
     return [pscustomobject]@{
         Time          = $nowUtc
         ComputerName  = $computerName
@@ -187,22 +187,22 @@ function Ensure-UrlAcl {
     param([Parameter(Mandatory)][string] $Prefix)
     if (-not $IsWindows) { return }
     try {
-        $exists = netsh http show urlacl | Select-String -SimpleMatch $Prefix -Quiet    
-        if (-not $exists) {      
-            $user = "$env:USERDOMAIN\$env:USERNAME"      
-            Start-Process -FilePath netsh -ArgumentList @('http','add','urlacl',"url=$Prefix",("user={0}" -f $user)) -Wait -WindowStyle Hidden | Out-Null    
-        }  
+        $exists = netsh http show urlacl | Select-String -SimpleMatch $Prefix -Quiet
+        if (-not $exists) {
+            $user = "$env:USERDOMAIN\$env:USERNAME"
+            Start-Process -FilePath netsh -ArgumentList @('http','add','urlacl',"url=$Prefix",("user={0}" -f $user)) -Wait -WindowStyle Hidden | Out-Null
+        }
     } catch {
         Write-Log -Level 'WARN' -Message "Ensure-UrlAcl failed: $_"
     }
 }
 
-function Remove-UrlAcl {  
-    [CmdletBinding()]  
-    param([Parameter(Mandatory)][string] $Prefix)  
-    if (-not $IsWindows) { return }  
-    try {    
-        Start-Process -FilePath netsh -ArgumentList @('http','delete','urlacl',"url=$Prefix") -Wait -WindowStyle Hidden | Out-Null  
+function Remove-UrlAcl {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string] $Prefix)
+    if (-not $IsWindows) { return }
+    try {
+        Start-Process -FilePath netsh -ArgumentList @('http','delete','urlacl',"url=$Prefix") -Wait -WindowStyle Hidden | Out-Null
     } catch {
         Write-Log -Level 'WARN' -Message "Remove-UrlAcl failed: $_"
     }
@@ -275,64 +275,64 @@ function Start-SystemDashboardListener {
                     if (-not $IsWindows) {
                         throw "Non-Windows platform detected"
                     }
-                    
+
                     $nowUtc = (Get-Date).ToUniversalTime().ToString('o')
-                    $computerName = $env:COMPUTERNAME        
-                    # CPU        
-                    $cpuPct = 0        
-                    try { $cpuPct = [math]::Round((Get-Counter '\\Processor(_Total)\\% Processor Time').CounterSamples.CookedValue, 2) } catch { $cpuPct = -1 }        
-                    # Memory        
-                    $os = Get-CimInstance Win32_OperatingSystem        
-                    $totalMemGB = [math]::Round($os.TotalVisibleMemorySize / 1MB, 2)        
-                    $freeMemGB  = [math]::Round($os.FreePhysicalMemory / 1MB, 2)        
-                    $usedMemGB  = $totalMemGB - $freeMemGB        
-                    $memPct     = if ($totalMemGB -gt 0) { [math]::Round(($usedMemGB / $totalMemGB), 4) } else { 0 }        
-                    # Disks        
-                    $fixedDrives = Get-CimInstance Win32_LogicalDisk -Filter "DriveType=3"        
-                    $disks = $fixedDrives | ForEach-Object {          
-                        $sizeGB = [math]::Round($_.Size / 1GB, 2)          
-                        $freeGB = [math]::Round($_.FreeSpace / 1GB, 2)          
-                        [pscustomobject]@{            
-                            Drive = $_.DeviceID.TrimEnd(':')            
-                            TotalGB = $sizeGB            
-                            UsedGB  = $sizeGB - $freeGB            
-                            UsedPct = if ($sizeGB -gt 0) { [math]::Round((($sizeGB - $freeGB) / $sizeGB), 4) } else { 0 }          
-                        }        
-                    }        
-                    # Uptime        
-                    $bootTime = (Get-CimInstance Win32_OperatingSystem).LastBootUpTime        
-                    $uptime   = (Get-Date) - $bootTime        
-                    # Events last hour        
-                    $startTime = (Get-Date).AddHours(-1)        
-                    $warns = Get-WinEvent -FilterHashtable @{LogName='System','Application'; Level=3; StartTime=$startTime} -ErrorAction SilentlyContinue        
-                    $errs  = Get-WinEvent -FilterHashtable @{LogName='System','Application'; Level=2; StartTime=$startTime} -ErrorAction SilentlyContinue        
-                    $warnSummary = $warns | Group-Object ProviderName | ForEach-Object { [pscustomobject]@{ Source=$_.Name; Count=$_.Count } }        
-                    $errSummary  = $errs  | Group-Object ProviderName | ForEach-Object { [pscustomobject]@{ Source=$_.Name; Count=$_.Count } }        
-                    # Network usage delta        
-                    $netUsage = @()        
-                    try {          
-                        Get-NetAdapter | Where-Object Status -eq 'Up' | ForEach-Object {            
-                            $name  = $_.Name            
-                            $stats = Get-NetAdapterStatistics -Name $name            
-                            $prev  = $prevNet[$name]            
-                            if ($prev) {              
-                                $sentBps = [math]::Round((($stats.OutboundBytes - $prev.OutboundBytes)), 2)              
-                                $recvBps = [math]::Round((($stats.InboundBytes  - $prev.InboundBytes)), 2)              
-                                $netUsage += [pscustomobject]@{ Adapter=$name; BytesSentPerSec=$sentBps; BytesRecvPerSec=$recvBps }            
-                            }            
-                            $prevNet[$name] = $stats          
-                        }        
-                    } catch {}        
-                    # Ping latency        
-                    $latencyMs = -1        
-                    try {          
-                        $ping = Test-Connection -ComputerName $PingTarget -Count 1 -ErrorAction Stop          
-                        if ($ping) { $latencyMs = [int]($ping | Select-Object -First 1).ResponseTime }        
-                    } catch {}        
-                    # Top processes        
-                    $topProcs = Get-Process | Sort-Object CPU -Descending | Select-Object -First 5 | ForEach-Object {          
-                        [pscustomobject]@{ Name=$_.ProcessName; CPU=$([math]::Round($_.CPU,2)); Id=$_.Id }        
-                    }        
+                    $computerName = $env:COMPUTERNAME
+                    # CPU
+                    $cpuPct = 0
+                    try { $cpuPct = [math]::Round((Get-Counter '\\Processor(_Total)\\% Processor Time').CounterSamples.CookedValue, 2) } catch { $cpuPct = -1 }
+                    # Memory
+                    $os = Get-CimInstance Win32_OperatingSystem
+                    $totalMemGB = [math]::Round($os.TotalVisibleMemorySize / 1MB, 2)
+                    $freeMemGB  = [math]::Round($os.FreePhysicalMemory / 1MB, 2)
+                    $usedMemGB  = $totalMemGB - $freeMemGB
+                    $memPct     = if ($totalMemGB -gt 0) { [math]::Round(($usedMemGB / $totalMemGB), 4) } else { 0 }
+                    # Disks
+                    $fixedDrives = Get-CimInstance Win32_LogicalDisk -Filter "DriveType=3"
+                    $disks = $fixedDrives | ForEach-Object {
+                        $sizeGB = [math]::Round($_.Size / 1GB, 2)
+                        $freeGB = [math]::Round($_.FreeSpace / 1GB, 2)
+                        [pscustomobject]@{
+                            Drive = $_.DeviceID.TrimEnd(':')
+                            TotalGB = $sizeGB
+                            UsedGB  = $sizeGB - $freeGB
+                            UsedPct = if ($sizeGB -gt 0) { [math]::Round((($sizeGB - $freeGB) / $sizeGB), 4) } else { 0 }
+                        }
+                    }
+                    # Uptime
+                    $bootTime = (Get-CimInstance Win32_OperatingSystem).LastBootUpTime
+                    $uptime   = (Get-Date) - $bootTime
+                    # Events last hour
+                    $startTime = (Get-Date).AddHours(-1)
+                    $warns = Get-WinEvent -FilterHashtable @{LogName='System','Application'; Level=3; StartTime=$startTime} -ErrorAction SilentlyContinue
+                    $errs  = Get-WinEvent -FilterHashtable @{LogName='System','Application'; Level=2; StartTime=$startTime} -ErrorAction SilentlyContinue
+                    $warnSummary = $warns | Group-Object ProviderName | ForEach-Object { [pscustomobject]@{ Source=$_.Name; Count=$_.Count } }
+                    $errSummary  = $errs  | Group-Object ProviderName | ForEach-Object { [pscustomobject]@{ Source=$_.Name; Count=$_.Count } }
+                    # Network usage delta
+                    $netUsage = @()
+                    try {
+                        Get-NetAdapter | Where-Object Status -eq 'Up' | ForEach-Object {
+                            $name  = $_.Name
+                            $stats = Get-NetAdapterStatistics -Name $name
+                            $prev  = $prevNet[$name]
+                            if ($prev) {
+                                $sentBps = [math]::Round((($stats.OutboundBytes - $prev.OutboundBytes)), 2)
+                                $recvBps = [math]::Round((($stats.InboundBytes  - $prev.InboundBytes)), 2)
+                                $netUsage += [pscustomobject]@{ Adapter=$name; BytesSentPerSec=$sentBps; BytesRecvPerSec=$recvBps }
+                            }
+                            $prevNet[$name] = $stats
+                        }
+                    } catch {}
+                    # Ping latency
+                    $latencyMs = -1
+                    try {
+                        $ping = Test-Connection -ComputerName $PingTarget -Count 1 -ErrorAction Stop
+                        if ($ping) { $latencyMs = [int]($ping | Select-Object -First 1).ResponseTime }
+                    } catch {}
+                    # Top processes
+                    $topProcs = Get-Process | Sort-Object CPU -Descending | Select-Object -First 5 | ForEach-Object {
+                        [pscustomobject]@{ Name=$_.ProcessName; CPU=$([math]::Round($_.CPU,2)); Id=$_.Id }
+                    }
                     $metrics = [pscustomobject]@{
                         Time          = $nowUtc
                         ComputerName  = $computerName
@@ -440,7 +440,7 @@ function Start-SystemDashboard {
 function Scan-ConnectedClients {
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory)][ValidatePattern('^(?:\d{1,3}\.){3}\d{1,3}$')]
+        [Parameter()][ValidatePattern('^(?:\d{1,3}\.){3}\d{1,3}$')]
         [string]$NetworkPrefix = '192.168.1'  # e.g. '192.168.1' for /24
     )
 
@@ -622,7 +622,7 @@ function Get-SystemLogs {
                 Message     = "Mock information event - DNS resolution completed successfully"
             }
         )
-        
+
         # Filter by minimum level if needed
         $levelMap = @{
             'Critical'    = 1
@@ -631,7 +631,7 @@ function Get-SystemLogs {
             'Information' = 4
         }
         $minLevelNum = $levelMap[$MinimumLevel]
-        
+
         return $mockEvents | Where-Object { $levelMap[$_.Level] -le $minLevelNum } | Select-Object -First $MaxEvents
     }
 
@@ -650,7 +650,7 @@ function Get-SystemLogs {
         # Loop through each requested log
         $allLogs = foreach ($log in $LogName) {
             Write-Log -Level 'INFO' -Message "Retrieving up to $MaxEvents entries from '$log' where Level ≥ $MinimumLevel..."
-            
+
             # Query the log with filters applied
             Get-WinEvent `
                 -LogName $log `

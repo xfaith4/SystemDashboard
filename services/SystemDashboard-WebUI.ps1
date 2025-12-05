@@ -73,10 +73,15 @@ function Start-WebUIService {
         Write-ServiceLog "Using known working reader password"
     }
 
-    $env:DASHBOARD_DB_PASSWORD = $readerPassword
-    # Allow caller to override; default to 5001
-    if (-not $env:DASHBOARD_PORT) { $env:DASHBOARD_PORT = "5001" }
+$env:DASHBOARD_DB_PASSWORD = $readerPassword
+    # HTTPS defaults
+    if (-not $env:DASHBOARD_PORT) { $env:DASHBOARD_PORT = "5443" }
     $env:FLASK_ENV = "production"
+    $env:DASHBOARD_CERT_FILE = $env:DASHBOARD_CERT_FILE ?? (Join-Path $RootPath "var\ssl\dashboard.crt")
+    $env:DASHBOARD_KEY_FILE = $env:DASHBOARD_KEY_FILE ?? (Join-Path $RootPath "var\ssl\dashboard.key")
+
+    $certDir = Split-Path $env:DASHBOARD_CERT_FILE -Parent
+    if (-not (Test-Path $certDir)) { New-Item -ItemType Directory -Path $certDir -Force | Out-Null }
 
     $desiredLogLevel = $env:SYSTEMDASHBOARD_LOG_LEVEL
     if (-not $desiredLogLevel -and $config -and $config.Logging -and $config.Logging.LogLevel) {
