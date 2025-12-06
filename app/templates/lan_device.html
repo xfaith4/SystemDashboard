@@ -2,6 +2,23 @@
 {% block title %}NOC Dashboard - Device Details{% endblock %}
 {% block content %}
 <section class="page-container">
+    <nav class="breadcrumb" aria-label="Breadcrumb">
+        <div class="breadcrumb-item">
+            <a href="/" class="breadcrumb-link">Home</a>
+            <span class="breadcrumb-separator">/</span>
+        </div>
+        <div class="breadcrumb-item">
+            <a href="/lan" class="breadcrumb-link">LAN Overview</a>
+            <span class="breadcrumb-separator">/</span>
+        </div>
+        <div class="breadcrumb-item">
+            <a href="/lan/devices" class="breadcrumb-link">Devices</a>
+            <span class="breadcrumb-separator">/</span>
+        </div>
+        <div class="breadcrumb-item">
+            <span class="breadcrumb-current" id="breadcrumb-device">Device</span>
+        </div>
+    </nav>
     <header class="dashboard-header">
         <div>
             <h1 id="device-title">Device Details</h1>
