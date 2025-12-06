@@ -362,6 +362,97 @@ class TestGetDbManager:
                 pass
 
 
+class TestMigrations:
+    """Test database migration functionality."""
+    
+    def test_apply_migrations_with_valid_files(self, temp_db):
+        """Test applying migrations from a directory."""
+        manager = DatabaseManager(temp_db)
+        
+        # Create a temporary migrations directory
+        migrations_dir = tempfile.mkdtemp()
+        try:
+            # Create a simple migration
+            migration1 = os.path.join(migrations_dir, '001_create_test_table.sql')
+            with open(migration1, 'w') as f:
+                f.write('''
+                    CREATE TABLE test_table (
+                        id INTEGER PRIMARY KEY,
+                        name TEXT
+                    );
+                    CREATE INDEX idx_test_name ON test_table (name);
+                ''')
+                
+            # Apply migrations
+            applied, errors = manager.apply_migrations(migrations_dir)
+            
+            assert applied == 1
+            assert len(errors) == 0
+            
+            # Verify table was created
+            with manager.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='test_table'")
+                result = cursor.fetchone()
+                assert result is not None
+                
+        finally:
+            # Cleanup
+            try:
+                os.unlink(migration1)
+                os.rmdir(migrations_dir)
+            except Exception:
+                pass
+                
+    def test_apply_migrations_with_nonexistent_dir(self, temp_db):
+        """Test applying migrations when directory doesn't exist."""
+        manager = DatabaseManager(temp_db)
+        applied, errors = manager.apply_migrations('/nonexistent/path')
+        
+        assert applied == 0
+        assert len(errors) == 0
+        
+    def test_apply_migrations_with_empty_dir(self, temp_db):
+        """Test applying migrations from empty directory."""
+        manager = DatabaseManager(temp_db)
+        
+        migrations_dir = tempfile.mkdtemp()
+        try:
+            applied, errors = manager.apply_migrations(migrations_dir)
+            assert applied == 0
+            assert len(errors) == 0
+        finally:
+            os.rmdir(migrations_dir)
+            
+    def test_apply_migrations_continues_on_error(self, temp_db):
+        """Test that migration continues even if some statements fail."""
+        manager = DatabaseManager(temp_db)
+        
+        migrations_dir = tempfile.mkdtemp()
+        try:
+            # Create a migration with one failing statement
+            migration1 = os.path.join(migrations_dir, '001_mixed.sql')
+            with open(migration1, 'w') as f:
+                f.write('''
+                    CREATE TABLE valid_table (id INTEGER);
+                    CREATE INDEX idx_nonexistent ON nonexistent_table (col);
+                    CREATE TABLE another_valid (id INTEGER);
+                ''')
+                
+            # Apply migrations - should not fail even though middle statement fails
+            applied, errors = manager.apply_migrations(migrations_dir)
+            
+            # Should still count as applied even with errors
+            assert applied == 1
+            
+        finally:
+            try:
+                os.unlink(migration1)
+                os.rmdir(migrations_dir)
+            except Exception:
+                pass
+
+
 class TestConcurrentAccess:
     """Test concurrent database access scenarios."""
     

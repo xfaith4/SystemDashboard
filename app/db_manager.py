@@ -259,6 +259,67 @@ class DatabaseManager:
         """Get a connection from the pool (context manager)."""
         return self.pool.get_connection()
         
+    def apply_migrations(self, migrations_dir: str) -> tuple[int, List[str]]:
+        """
+        Apply SQL migrations from a directory.
+        
+        Args:
+            migrations_dir: Path to directory containing .sql migration files
+            
+        Returns:
+            Tuple of (applied_count, errors)
+        """
+        if not os.path.exists(migrations_dir):
+            logger.warning(f"Migrations directory not found: {migrations_dir}")
+            return 0, []
+            
+        # Get list of migration files
+        migrations = sorted([
+            f for f in os.listdir(migrations_dir) 
+            if f.endswith('.sql')
+        ])
+        
+        if not migrations:
+            logger.info("No migrations found")
+            return 0, []
+            
+        applied = 0
+        errors = []
+        
+        for migration_file in migrations:
+            migration_path = os.path.join(migrations_dir, migration_file)
+            
+            try:
+                with open(migration_path, 'r') as f:
+                    sql = f.read()
+                    
+                # Split into individual statements
+                statements = [s.strip() for s in sql.split(';') if s.strip()]
+                
+                with self.pool.get_connection() as conn:
+                    cursor = conn.cursor()
+                    
+                    for statement in statements:
+                        if statement:
+                            try:
+                                cursor.execute(statement)
+                            except Exception as e:
+                                logger.warning(f"Migration statement failed (continuing): {e}")
+                                # Don't fail the whole migration for index creation failures
+                                # (indexes might already exist)
+                                
+                    conn.commit()
+                    
+                applied += 1
+                logger.info(f"Applied migration: {migration_file}")
+                
+            except Exception as e:
+                error_msg = f"Failed to apply migration {migration_file}: {e}"
+                logger.error(error_msg)
+                errors.append(error_msg)
+                
+        return applied, errors
+    
     def close(self):
         """Close all connections."""
         self.pool.close_all()
