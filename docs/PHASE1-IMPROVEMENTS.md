@@ -487,6 +487,282 @@ If validation is too strict:
 2. Adjust max limits (pagination, date ranges)
 3. Add custom validation functions if needed
 
+## Health Monitoring (`app/health_check.py`)
+
+Comprehensive health checks for production monitoring:
+
+### Basic Health Endpoint
+
+```python
+# Simple health check (backward compatible)
+GET /health
+# Returns: "ok" (200) or "unhealthy" (503)
+```
+
+### Detailed Health Endpoint
+
+```python
+# Comprehensive health with subsystem details
+GET /health/detailed
+
+# Example response:
+{
+  "timestamp": "2025-12-06T02:45:00.000Z",
+  "overall_status": "healthy",
+  "subsystems": {
+    "database": {
+      "status": "healthy",
+      "message": "Database responding normally",
+      "response_time_ms": 12.5
+    },
+    "schema": {
+      "status": "healthy",
+      "message": "Schema is valid",
+      "missing_tables": [],
+      "missing_views": []
+    },
+    "data_freshness": {
+      "status": "healthy",
+      "message": "Data is fresh",
+      "checks": {
+        "device_snapshots": {
+          "status": "healthy",
+          "age_minutes": 2.3,
+          "message": "Latest snapshot 2.3 minutes ago"
+        },
+        "syslog": {
+          "status": "healthy",
+          "age_minutes": 0.5,
+          "count": 1234,
+          "message": "1234 entries, latest 0.5 minutes ago"
+        }
+      }
+    }
+  }
+}
+```
+
+### Health Check Functions
+
+```python
+from app.health_check import (
+    check_database_health,
+    check_data_freshness,
+    check_schema_integrity,
+    get_comprehensive_health
+)
+
+# Check database connectivity
+db_health = check_database_health('/path/to/database.db')
+
+# Check data freshness (default 60 minutes)
+freshness = check_data_freshness('/path/to/database.db', max_age_minutes=30)
+
+# Check schema integrity
+schema = check_schema_integrity('/path/to/database.db')
+
+# Get comprehensive report
+report, http_code = get_comprehensive_health('/path/to/database.db')
+```
+
+## Rate Limiting (`app/rate_limiter.py`)
+
+Per-client API rate limiting to prevent abuse:
+
+### Using the Decorator
+
+```python
+from app.rate_limiter import rate_limit
+
+@app.route('/api/expensive-operation')
+@rate_limit(max_requests=10, window_seconds=60)
+def expensive_operation():
+    # This endpoint allows 10 requests per minute per client
+    return jsonify({'result': 'ok'})
+
+# Default limits (100 requests per 60 seconds)
+@app.route('/api/standard-endpoint')
+@rate_limit()
+def standard_endpoint():
+    return jsonify({'result': 'ok'})
+```
+
+### Rate Limit Headers
+
+Responses include rate limit information:
+
+```
+X-RateLimit-Limit: 10
+X-RateLimit-Remaining: 7
+X-RateLimit-Reset: 1701820800
+```
+
+### Rate Limit Exceeded Response
+
+When limit is exceeded, returns 429 Too Many Requests:
+
+```json
+{
+  "error": "Rate limit exceeded",
+  "message": "Too many requests. Please try again in 45 seconds.",
+  "limit": 10,
+  "window_seconds": 60,
+  "reset_time": 1701820800
+}
+```
+
+Headers:
+```
+Retry-After: 45
+X-RateLimit-Limit: 10
+X-RateLimit-Remaining: 0
+X-RateLimit-Reset: 1701820800
+```
+
+### Manual Rate Limit Check
+
+```python
+from app.rate_limiter import check_rate_limit
+
+# Check without recording a request
+allowed, info = check_rate_limit(max_requests=10, window_seconds=60)
+
+if not allowed:
+    print(f"Rate limit would be exceeded. Try again in {info['reset'] - time.time()} seconds")
+```
+
+### Rate Limiter Statistics
+
+```python
+from app.rate_limiter import get_rate_limiter
+
+limiter = get_rate_limiter()
+stats = limiter.get_stats()
+
+print(f"Active clients: {stats['active_clients']}")
+print(f"Total requests in window: {stats['total_requests_in_window']}")
+```
+
+## Graceful Shutdown (`app/graceful_shutdown.py`)
+
+Clean application shutdown with cleanup handlers:
+
+### Installing Handlers
+
+```python
+from app.graceful_shutdown import install_handlers
+
+# Install SIGTERM and SIGINT handlers
+install_handlers(timeout=30)
+```
+
+### Registering Cleanup Functions
+
+```python
+from app.graceful_shutdown import register_cleanup
+
+def cleanup_database():
+    print("Closing database connections...")
+    db.close_all()
+    print("Database closed")
+
+def cleanup_cache():
+    print("Clearing cache...")
+    cache.clear()
+    print("Cache cleared")
+
+# Register cleanup functions
+register_cleanup(cleanup_database, name="database")
+register_cleanup(cleanup_cache, name="cache")
+```
+
+### Using Factory Functions
+
+```python
+from app.graceful_shutdown import (
+    register_cleanup,
+    create_db_cleanup,
+    create_cache_cleanup,
+    create_state_persistence_cleanup
+)
+
+# Database cleanup
+register_cleanup(create_db_cleanup(db_manager), name="database")
+
+# Cache cleanup
+register_cleanup(create_cache_cleanup(my_cache_dict), name="response_cache")
+
+# State persistence
+def save_state(state):
+    with open('state.json', 'w') as f:
+        json.dump(state, f)
+
+register_cleanup(
+    create_state_persistence_cleanup(app_state, save_state),
+    name="app_state"
+)
+```
+
+### Checking Shutdown State
+
+```python
+from app.graceful_shutdown import is_shutting_down
+
+def long_running_task():
+    for i in range(1000):
+        if is_shutting_down():
+            print("Shutdown requested, aborting task")
+            break
+        
+        # Do work...
+        process_item(i)
+```
+
+## Testing
+
+All new features have comprehensive test coverage:
+
+```bash
+# Run all Phase 1 tests
+pytest tests/test_health_check.py      # 12 tests
+pytest tests/test_rate_limiter.py      # 12 tests
+pytest tests/test_graceful_shutdown.py # 18 tests
+
+# Total: 42 new tests, all passing
+```
+
+## Integration Example
+
+```python
+from flask import Flask
+from app.health_check import get_comprehensive_health
+from app.rate_limiter import rate_limit
+from app.graceful_shutdown import install_handlers, register_cleanup
+
+app = Flask(__name__)
+
+# Install graceful shutdown handlers
+install_handlers(timeout=30)
+
+# Register cleanups
+register_cleanup(lambda: print("Cleaning up..."), name="app_cleanup")
+
+# Health check endpoint
+@app.route('/health/detailed')
+def health_detailed():
+    report, http_code = get_comprehensive_health('./var/system_dashboard.db')
+    return jsonify(report), http_code
+
+# Rate-limited API endpoint
+@app.route('/api/data')
+@rate_limit(max_requests=100, window_seconds=60)
+def get_data():
+    return jsonify({'data': 'example'})
+
+if __name__ == '__main__':
+    app.run(debug=True, host='0.0.0.0', port=5000)
+```
+
 ## Next Steps
 
 Phase 1 completion enables:
