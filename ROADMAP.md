@@ -39,10 +39,23 @@ This roadmap focuses on **hardening existing features** and delivering a **profe
   - ✅ Returns detailed list of missing objects
 
 ### Service Reliability
-- [ ] **Service heartbeat**: Add health check endpoints that verify database connectivity and data freshness
-- [ ] **Graceful shutdown**: Ensure services close connections and flush buffers on stop
+- [x] **Service heartbeat**: Add health check endpoints that verify database connectivity and data freshness
+  - ✅ Implemented comprehensive health check module (`app/health_check.py`)
+  - ✅ `/health/detailed` endpoint with JSON response
+  - ✅ Database connectivity, schema integrity, and data freshness checks
+  - ✅ Returns healthy/degraded/unhealthy status with details
+- [x] **Graceful shutdown**: Ensure services close connections and flush buffers on stop
+  - ✅ Implemented graceful shutdown module (`app/graceful_shutdown.py`)
+  - ✅ SIGTERM and SIGINT signal handlers
+  - ✅ Cleanup function registration system
+  - ✅ Timeout-based cleanup with threading
+- [x] **Rate limiting**: Prevent API abuse and ensure fair resource usage
+  - ✅ Implemented rate limiter module (`app/rate_limiter.py`)
+  - ✅ Per-client rate limiting with sliding window algorithm
+  - ✅ `@rate_limit` decorator for Flask routes
+  - ✅ X-RateLimit-* response headers
+  - ✅ 429 Too Many Requests responses with Retry-After
 - [ ] **Error recovery**: Automatic restart logic for critical background tasks
-- [ ] **Rate limiting**: Prevent collection services from overwhelming the router or database
 - [ ] **Backpressure handling**: Queue management when ingestion can't keep up with collection
 - [ ] **State persistence**: Ensure state files (like `asus/state.json`) are atomic writes
 
@@ -62,7 +75,10 @@ This roadmap focuses on **hardening existing features** and delivering a **profe
   - ✅ Created api_utils.py with error_response() and success_response()
   - ✅ Standardized format with timestamp and status code
   - ✅ @handle_api_errors decorator for consistent exception handling
-- [ ] **Rate limiting**: Per-client API rate limits for public-facing endpoints
+- [x] **Rate limiting**: Per-client API rate limits for public-facing endpoints
+  - ✅ Sliding window algorithm implementation
+  - ✅ Decorator-based rate limiting for easy application
+  - ✅ Configurable limits per endpoint
 - [x] **CORS headers**: Proper CORS configuration if serving UI from different origin
   - ✅ @with_cors decorator for adding CORS headers
   - ✅ Handles preflight OPTIONS requests
