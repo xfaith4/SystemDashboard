@@ -180,4 +180,28 @@ For detailed troubleshooting, see [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING
 
 ## Tests
 
-Pester tests for the legacy listener are under `tests/`. Run `pwsh -NoLogo -NoProfile -Command "Invoke-Pester -Path tests"` on Windows.
+Python tests use pytest:
+```bash
+# Run all Python tests
+pytest tests/
+
+# Run specific test suites
+pytest tests/test_health_check.py
+pytest tests/test_rate_limiter.py
+pytest tests/test_graceful_shutdown.py
+```
+
+Pester tests for PowerShell modules:
+```powershell
+pwsh -NoLogo -NoProfile -Command "Invoke-Pester -Path tests"
+```
+
+## Phase 1 Production Features
+
+The dashboard now includes production-ready reliability features:
+
+- **Health Monitoring** (`/health/detailed`) - Comprehensive health checks with database connectivity, schema integrity, and data freshness monitoring
+- **Rate Limiting** - Per-client API rate limiting to prevent abuse (configurable per endpoint)
+- **Graceful Shutdown** - Clean shutdown with signal handlers and cleanup functions
+
+See [Phase 1 Improvements](docs/PHASE1-IMPROVEMENTS.md) for detailed documentation and usage examples.

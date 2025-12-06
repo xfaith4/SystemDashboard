@@ -54,9 +54,8 @@ class TestRateLimiter:
                 window_seconds=60
             )
             
-            if i < 10:
-                assert allowed is True
-                assert info['remaining'] >= 0
+            assert allowed is True
+            assert info['remaining'] >= 0
     
     def test_blocks_requests_over_limit(self, limiter):
         """Test requests over limit are blocked."""
