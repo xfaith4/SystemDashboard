@@ -65,6 +65,49 @@ const Toast = {
 // Make Toast available globally
 window.Toast = Toast;
 
+// Relative time formatting utility
+const RelativeTime = {
+  format(dateString) {
+    if (!dateString) return '--';
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffMs = now - date;
+    const diffSec = Math.floor(diffMs / 1000);
+    const diffMin = Math.floor(diffSec / 60);
+    const diffHour = Math.floor(diffMin / 60);
+    const diffDay = Math.floor(diffHour / 24);
+
+    if (diffSec < 60) return 'just now';
+    if (diffMin < 60) return `${diffMin} minute${diffMin !== 1 ? 's' : ''} ago`;
+    if (diffHour < 24) return `${diffHour} hour${diffHour !== 1 ? 's' : ''} ago`;
+    if (diffDay < 7) return `${diffDay} day${diffDay !== 1 ? 's' : ''} ago`;
+    
+    // For older dates, show the actual date
+    return date.toLocaleDateString('en-US', { 
+      timeZone: 'America/New_York', 
+      month: 'short', 
+      day: 'numeric',
+      year: diffDay > 365 ? 'numeric' : undefined
+    });
+  },
+
+  // Format with tooltip showing absolute time
+  formatWithTooltip(dateString) {
+    if (!dateString) return '<span>--</span>';
+    const date = new Date(dateString);
+    const relative = this.format(dateString);
+    const absolute = date.toLocaleString('en-US', { 
+      timeZone: 'America/New_York',
+      dateStyle: 'medium',
+      timeStyle: 'short'
+    });
+    return `<span data-tooltip="${absolute}">${relative}</span>`;
+  }
+};
+
+// Make RelativeTime available globally
+window.RelativeTime = RelativeTime;
+
 (() => {
   function qs(sel, root=document){ return root.querySelector(sel); }
   function qsa(sel, root=document){ return Array.from(root.querySelectorAll(sel)); }
