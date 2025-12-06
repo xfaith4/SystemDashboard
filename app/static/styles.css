@@ -239,6 +239,98 @@ main {
 }
 
 /* ============================================
+   System Status Banner
+   ============================================ */
+.system-banner {
+    position: fixed;
+    top: 60px;
+    left: 0;
+    right: 0;
+    z-index: 1000;
+    background: var(--status-warning-bg);
+    border-bottom: 2px solid var(--status-warning);
+    padding: var(--space-md) var(--space-lg);
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+    animation: slide-down 0.3s ease;
+}
+
+.system-banner.error {
+    background: var(--status-critical-bg);
+    border-bottom-color: var(--status-critical);
+}
+
+.system-banner.info {
+    background: var(--status-info-bg);
+    border-bottom-color: var(--status-info);
+}
+
+@keyframes slide-down {
+    from {
+        transform: translateY(-100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+.system-banner-icon {
+    flex-shrink: 0;
+    width: 24px;
+    height: 24px;
+}
+
+.system-banner.warning .system-banner-icon {
+    color: var(--status-warning);
+}
+
+.system-banner.error .system-banner-icon {
+    color: var(--status-critical);
+}
+
+.system-banner.info .system-banner-icon {
+    color: var(--status-info);
+}
+
+.system-banner-content {
+    flex: 1;
+}
+
+.system-banner-title {
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: var(--space-xs);
+}
+
+.system-banner-message {
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+}
+
+.system-banner-close {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: var(--space-xs);
+    border-radius: var(--radius-sm);
+    transition: all var(--transition-fast);
+}
+
+.system-banner-close:hover {
+    background: rgba(0, 0, 0, 0.2);
+    color: var(--text-primary);
+}
+
+.system-banner-close:focus-visible {
+    outline: 2px solid var(--accent-primary);
+    outline-offset: 2px;
+}
+
+/* ============================================
    Breadcrumbs
    ============================================ */
 .breadcrumb {
@@ -769,6 +861,12 @@ Buttons
     box-shadow: var(--shadow-glow);
 }
 
+.btn-refresh:focus-visible,
+.btn-primary:focus-visible {
+    outline: 2px solid var(--accent-primary);
+    outline-offset: 2px;
+}
+
 .btn-back,
 .btn-secondary {
     display: inline-flex;
@@ -791,6 +889,12 @@ Buttons
     background: var(--bg-card-hover);
     color: var(--text-primary);
     border-color: var(--border-accent);
+}
+
+.btn-back:focus-visible,
+.btn-secondary:focus-visible {
+    outline: 2px solid var(--accent-primary);
+    outline-offset: 2px;
 }
 
 .btn-link {

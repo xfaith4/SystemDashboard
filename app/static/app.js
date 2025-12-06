@@ -108,6 +108,84 @@ const RelativeTime = {
 // Make RelativeTime available globally
 window.RelativeTime = RelativeTime;
 
+// System Status Banner
+const SystemBanner = {
+  show(message, type = 'warning', title = null, persistent = false) {
+    // Remove existing banner if any
+    this.hide();
+
+    const banner = document.createElement('div');
+    banner.id = 'system-banner';
+    banner.className = `system-banner ${type}`;
+    
+    const icons = {
+      warning: '<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
+      error: '<circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/>',
+      info: '<circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>'
+    };
+
+    banner.innerHTML = `
+      <svg class="system-banner-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        ${icons[type] || icons.warning}
+      </svg>
+      <div class="system-banner-content">
+        ${title ? `<div class="system-banner-title">${title}</div>` : ''}
+        <div class="system-banner-message">${message}</div>
+      </div>
+      ${!persistent ? `
+        <button class="system-banner-close" aria-label="Dismiss banner">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      ` : ''}
+    `;
+
+    if (!persistent) {
+      const closeBtn = banner.querySelector('.system-banner-close');
+      closeBtn.onclick = () => this.hide();
+    }
+
+    document.body.insertBefore(banner, document.body.firstChild);
+    
+    // Adjust main content padding to account for banner
+    const mainContent = document.querySelector('.main-content');
+    if (mainContent) {
+      mainContent.style.marginTop = '60px';
+    }
+
+    return banner;
+  },
+
+  hide() {
+    const banner = document.getElementById('system-banner');
+    if (banner) {
+      banner.remove();
+      
+      // Reset main content padding
+      const mainContent = document.querySelector('.main-content');
+      if (mainContent) {
+        mainContent.style.marginTop = '';
+      }
+    }
+  },
+
+  warning(message, title = 'Warning') {
+    return this.show(message, 'warning', title);
+  },
+
+  error(message, title = 'System Error') {
+    return this.show(message, 'error', title);
+  },
+
+  info(message, title = null) {
+    return this.show(message, 'info', title);
+  }
+};
+
+// Make SystemBanner available globally
+window.SystemBanner = SystemBanner;
+
 (() => {
   function qs(sel, root=document){ return root.querySelector(sel); }
   function qsa(sel, root=document){ return Array.from(root.querySelectorAll(sel)); }
