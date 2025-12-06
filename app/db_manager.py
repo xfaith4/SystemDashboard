@@ -14,7 +14,7 @@ import time
 import logging
 from contextlib import contextmanager
 from threading import Lock
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -207,7 +207,7 @@ class DatabaseManager:
         # If we get here, all retries failed
         raise last_error
         
-    def validate_schema(self) -> tuple[bool, List[str]]:
+    def validate_schema(self) -> Tuple[bool, List[str]]:
         """
         Validate that all required tables and views exist.
         
@@ -259,7 +259,7 @@ class DatabaseManager:
         """Get a connection from the pool (context manager)."""
         return self.pool.get_connection()
         
-    def apply_migrations(self, migrations_dir: str) -> tuple[int, List[str]]:
+    def apply_migrations(self, migrations_dir: str) -> Tuple[int, List[str]]:
         """
         Apply SQL migrations from a directory.
         
