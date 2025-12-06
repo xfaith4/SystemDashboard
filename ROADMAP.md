@@ -19,12 +19,24 @@ This roadmap focuses on **hardening existing features** and delivering a **profe
 ## 📋 Phase 1: Core Stability & Error Handling
 
 ### Database & Data Layer
-- [ ] **Connection pooling**: Implement proper SQLite connection management to prevent "database is locked" errors
-- [ ] **Query optimization**: Add indexes for frequently-queried columns (timestamps, MAC addresses, severity levels)
-- [ ] **Transaction safety**: Wrap multi-statement operations in transactions
-- [ ] **Connection retry logic**: Exponential backoff for transient database failures
-- [ ] **Query timeouts**: Set appropriate timeouts to prevent hanging queries
-- [ ] **Schema validation**: Add startup check to ensure all required tables and views exist
+- [x] **Connection pooling**: Implement proper SQLite connection management to prevent "database is locked" errors
+  - ✅ Implemented ConnectionPool class with WAL mode and thread-safe access
+  - ✅ Configurable max connections and automatic connection reuse
+- [x] **Query optimization**: Add indexes for frequently-queried columns (timestamps, MAC addresses, severity levels)
+  - ✅ Created migration system with 001_add_performance_indexes.sql
+  - ✅ Added indexes on timestamps, MAC addresses, severity, device_id, status
+- [x] **Transaction safety**: Wrap multi-statement operations in transactions
+  - ✅ Automatic rollback on errors in DatabaseManager
+  - ✅ Context manager pattern ensures proper cleanup
+- [x] **Connection retry logic**: Exponential backoff for transient database failures
+  - ✅ execute_with_retry() method with configurable retries
+  - ✅ Exponential backoff for "database is locked" errors
+- [x] **Query timeouts**: Set appropriate timeouts to prevent hanging queries
+  - ✅ 10-second default timeout on all connections
+  - ✅ Configurable busy_timeout pragma
+- [x] **Schema validation**: Add startup check to ensure all required tables and views exist
+  - ✅ validate_schema() method checks required tables and views
+  - ✅ Returns detailed list of missing objects
 
 ### Service Reliability
 - [ ] **Service heartbeat**: Add health check endpoints that verify database connectivity and data freshness
@@ -35,12 +47,25 @@ This roadmap focuses on **hardening existing features** and delivering a **profe
 - [ ] **State persistence**: Ensure state files (like `asus/state.json`) are atomic writes
 
 ### API Endpoints
-- [ ] **Input validation**: Strict validation for all query parameters (dates, MAC addresses, IP addresses)
-- [ ] **Pagination limits**: Enforce maximum page sizes to prevent memory exhaustion
-- [ ] **Response caching**: Cache expensive queries (e.g., 24-hour summaries) with appropriate TTLs
-- [ ] **Error responses**: Consistent JSON error format across all endpoints
+- [x] **Input validation**: Strict validation for all query parameters (dates, MAC addresses, IP addresses)
+  - ✅ Created validators.py with comprehensive validation functions
+  - ✅ MAC address validation and normalization
+  - ✅ IP address validation with private IP detection
+  - ✅ Date range validation, pagination, severity, tags, and more
+- [x] **Pagination limits**: Enforce maximum page sizes to prevent memory exhaustion
+  - ✅ validate_pagination() enforces configurable max limits
+  - ✅ Automatically caps excessive limit values
+- [x] **Response caching**: Cache expensive queries (e.g., 24-hour summaries) with appropriate TTLs
+  - ✅ @cache_response decorator with configurable TTL
+  - ✅ Automatic cache cleanup of expired entries
+- [x] **Error responses**: Consistent JSON error format across all endpoints
+  - ✅ Created api_utils.py with error_response() and success_response()
+  - ✅ Standardized format with timestamp and status code
+  - ✅ @handle_api_errors decorator for consistent exception handling
 - [ ] **Rate limiting**: Per-client API rate limits for public-facing endpoints
-- [ ] **CORS headers**: Proper CORS configuration if serving UI from different origin
+- [x] **CORS headers**: Proper CORS configuration if serving UI from different origin
+  - ✅ @with_cors decorator for adding CORS headers
+  - ✅ Handles preflight OPTIONS requests
 
 ---
 
