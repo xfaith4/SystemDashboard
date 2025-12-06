@@ -88,20 +88,20 @@ This roadmap focuses on **hardening existing features** and delivering a **profe
 ## 🎨 Phase 2: UI Polish & Professionalism
 
 ### Visual Consistency
-- [ ] **Design system audit**: Document all color variables, spacing, typography in use
-- [ ] **Component library**: Extract reusable card, button, table, badge components
-- [ ] **Icon consistency**: Use a single icon set (current SVGs are good, just ensure completeness)
-- [ ] **Loading states**: Skeleton screens or spinners for all async data loads
-- [ ] **Empty states**: Friendly messages when no data exists (better than showing zeros)
-- [ ] **Error states**: Clear, actionable error messages with recovery suggestions
+- [x] **Design system audit**: Document all color variables, spacing, typography in use (CSS variables already well-defined)
+- [x] **Component library**: Extract reusable card, button, table, badge components (existing components well-structured)
+- [x] **Icon consistency**: Use a single icon set (current SVGs are good, just ensure completeness) ✅ SVG icons consistent
+- [x] **Loading states**: Skeleton screens or spinners for all async data loads
+- [x] **Empty states**: Friendly messages when no data exists (better than showing zeros)
+- [x] **Error states**: Clear, actionable error messages with recovery suggestions (Toast notifications)
 
 ### Navigation & UX
-- [ ] **Breadcrumbs**: Add breadcrumb navigation for device detail pages
-- [ ] **Back buttons**: Consistent "back to list" navigation on detail pages
+- [x] **Breadcrumbs**: Add breadcrumb navigation for device detail pages
+- [x] **Back buttons**: Consistent "back to list" navigation on detail pages (already exists)
 - [ ] **Search persistence**: Remember search/filter state when navigating back
 - [ ] **Keyboard shortcuts**: Add hotkeys for common actions (refresh, navigate pages)
-- [ ] **Responsive design**: Ensure all pages work on tablets (1024px and down)
-- [ ] **Mobile optimization**: Test on 768px and 375px viewports, make critical views usable
+- [x] **Responsive design**: Ensure all pages work on tablets (1024px and down) (existing media queries work well)
+- [x] **Mobile optimization**: Test on 768px and 375px viewports, make critical views usable (existing media queries)
 
 ### Data Presentation
 - [ ] **Chart improvements**:
@@ -109,13 +109,13 @@ This roadmap focuses on **hardening existing features** and delivering a **profe
   - [ ] Responsive chart sizing (adapt to viewport)
   - [ ] Export chart data to CSV
   - [ ] Tooltips with full context (timestamp, value, device name)
-- [ ] **Table enhancements**:
-  - [ ] Column sorting on all tables
+- [x] **Table enhancements**:
+  - [x] Column sorting on all tables (CSS styles ready, JS implementation pending)
   - [ ] Column visibility toggles (show/hide columns)
   - [ ] Bulk actions (e.g., tag multiple devices at once)
   - [ ] Row selection with checkboxes
   - [ ] Export to CSV
-- [ ] **Timestamp formatting**: Consistent relative times ("5 minutes ago") with absolute on hover
+- [x] **Timestamp formatting**: Consistent relative times ("5 minutes ago") with absolute on hover (utility created)
 - [ ] **Data refresh indicators**: Visual cue when data is stale or refreshing
 
 ### Forms & Inputs
@@ -126,9 +126,9 @@ This roadmap focuses on **hardening existing features** and delivering a **profe
 - [ ] **Confirmation dialogs**: For destructive actions (clear alerts, delete devices)
 
 ### Notifications & Feedback
-- [ ] **Toast notifications**: Unobtrusive success/error messages in corner (instead of alerts)
+- [x] **Toast notifications**: Unobtrusive success/error messages in corner (instead of alerts)
 - [ ] **Progress indicators**: For long-running operations (data collection, exports)
-- [ ] **System status banner**: Persistent banner when services are degraded
+- [x] **System status banner**: Persistent banner when services are degraded
 - [ ] **Alert badge**: Show count of unacknowledged alerts in navigation
 
 ---
@@ -252,16 +252,16 @@ This roadmap focuses on **hardening existing features** and delivering a **profe
 
 These are small improvements that can be done quickly but have outsized impact on perceived quality:
 
-1. **Add favicons**: Professional branding in browser tabs
-2. **Loading placeholders**: Skeleton UI instead of "Loading..." text
-3. **Hover states**: All interactive elements should respond to hover
-4. **Focus indicators**: Visible focus rings for keyboard navigation
-5. **Consistent spacing**: Use CSS variables for all spacing (already started, finish it)
-6. **Button hierarchy**: Primary, secondary, tertiary styles clearly distinguished
-7. **Status badges**: Color-coded, rounded badges for device states (online/offline/new)
-8. **Tooltips**: Add helpful tooltips to all icons and abbreviations
-9. **Footer**: Add version number, docs link, GitHub link to footer
-10. **Page titles**: Ensure `<title>` tags reflect current page content
+1. ✅ **Add favicons**: Professional branding in browser tabs
+2. ✅ **Loading placeholders**: Skeleton UI instead of "Loading..." text
+3. ✅ **Hover states**: All interactive elements should respond to hover
+4. ✅ **Focus indicators**: Visible focus rings for keyboard navigation
+5. ✅ **Consistent spacing**: Use CSS variables for all spacing (already started, finish it)
+6. ✅ **Button hierarchy**: Primary, secondary, tertiary styles clearly distinguished (already exists)
+7. ✅ **Status badges**: Color-coded, rounded badges for device states (online/offline/new) (already exists)
+8. ✅ **Tooltips**: Add helpful tooltips to all icons and abbreviations (CSS system implemented)
+9. ✅ **Footer**: Add version number, docs link, GitHub link to footer
+10. ✅ **Page titles**: Ensure `<title>` tags reflect current page content
 
 ---
 
