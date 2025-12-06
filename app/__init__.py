@@ -1,0 +1,1 @@
+"""SystemDashboard Flask application package."""

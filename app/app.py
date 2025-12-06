@@ -11,6 +11,20 @@ from decimal import Decimal
 import zoneinfo
 import logging
 import sqlite3
+import sys
+
+# Add app directory to path for imports
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+try:
+    from health_check import get_comprehensive_health, HealthStatus
+    from rate_limiter import rate_limit, get_rate_limiter
+    from graceful_shutdown import install_handlers, register_cleanup, create_cache_cleanup
+    PHASE1_FEATURES_AVAILABLE = True
+except ImportError:
+    PHASE1_FEATURES_AVAILABLE = False
+    app_logger = logging.getLogger(__name__)
+    app_logger.warning("Phase 1 features (health_check, rate_limiter, graceful_shutdown) not available")
 
 try:
     from mac_vendor_lookup import MacLookup
@@ -1883,6 +1897,12 @@ def api_ai_feedback_update_status(feedback_id):
 
 @app.route('/health')
 def health():
+    """
+    Health check endpoint with detailed subsystem status.
+    
+    Returns simple 'ok' by default for backward compatibility.
+    Use /health/detailed for comprehensive health information.
+    """
     # Check database connection instead of backend service
     conn = get_db_connection()
     if conn:
@@ -1904,6 +1924,35 @@ def health():
         pass
 
     return 'unhealthy', 503
+
+
+@app.route('/health/detailed')
+def health_detailed():
+    """
+    Comprehensive health check with detailed subsystem information.
+    
+    Returns JSON with:
+    - overall_status: 'healthy', 'degraded', or 'unhealthy'
+    - timestamp: ISO format timestamp
+    - subsystems: Detailed status of database, schema, and data freshness
+    """
+    if not PHASE1_FEATURES_AVAILABLE:
+        return jsonify({
+            'error': 'Detailed health check not available',
+            'message': 'Phase 1 features not installed'
+        }), 501
+    
+    db_path = _get_db_path()
+    if not db_path or not os.path.exists(db_path):
+        return jsonify({
+            'overall_status': HealthStatus.UNHEALTHY,
+            'timestamp': datetime.datetime.now(datetime.UTC).isoformat(),
+            'error': 'Database not found',
+            'db_path': db_path
+        }), 503
+    
+    report, http_code = get_comprehensive_health(db_path)
+    return jsonify(report), http_code
 
 
 # LAN Observability API Endpoints
@@ -2716,6 +2765,22 @@ def api_lan_devices_enrich_vendors():
 
 
 if __name__ == '__main__':
+    # Install graceful shutdown handlers if available
+    if PHASE1_FEATURES_AVAILABLE:
+        install_handlers(timeout=30)
+        app.logger.info("Graceful shutdown handlers installed")
+        
+        # Register cleanup for caches if using caching
+        try:
+            from api_utils import _response_cache
+            register_cleanup(
+                create_cache_cleanup(_response_cache),
+                name="response_cache"
+            )
+            app.logger.info("Response cache cleanup registered")
+        except (ImportError, AttributeError):
+            pass
+    
     # Enable debug for development convenience
     port = int(os.environ.get('DASHBOARD_PORT', '5000'))
     app.run(debug=True, host='0.0.0.0', port=port)
