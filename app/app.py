@@ -2258,7 +2258,7 @@ def api_lan_device_update(device_id):
         # Manual CSRF check for this endpoint
         csrf = get_csrf_protection()
         token = request.headers.get('X-CSRF-Token')
-        if not token and request.is_json:
+        if not token and request.is_json and request.json:
             token = request.json.get('_csrf')
         cookie_token = request.cookies.get('csrf_token')
         if not csrf.validate_token(token, cookie_token):
