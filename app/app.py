@@ -1184,6 +1184,7 @@ def dashboard():
 
 
 @app.route('/api/dashboard/summary')
+@rate_limit(max_requests=60, window_seconds=60)
 def api_dashboard_summary():
     """API endpoint to get dashboard summary data."""
     return jsonify(get_dashboard_summary())
@@ -1201,6 +1202,7 @@ def router():
 
 
 @app.route('/api/router/logs')
+@rate_limit(max_requests=60, window_seconds=60)
 def api_router_logs():
     """Return recent router/syslog entries with pagination, sorting, and filtering support.
 
@@ -1253,6 +1255,7 @@ def api_router_logs():
 
 
 @app.route('/api/router/summary')
+@rate_limit(max_requests=30, window_seconds=60)
 def api_router_summary():
     """Return parsed trend summary for router/syslog entries."""
     limit = int(request.args.get('limit', '500'))
@@ -1267,6 +1270,7 @@ def wifi():
 
 @app.route('/api/events')
 @app.route('/api/events/logs')
+@rate_limit(max_requests=60, window_seconds=60)
 def api_events():
     """Return recent Windows event log entries.
 
@@ -1296,6 +1300,7 @@ def api_events():
 
 
 @app.route('/api/events/summary')
+@rate_limit(max_requests=30, window_seconds=60)
 def api_events_summary():
     """
     Retrieve and summarize Windows Event Log data.
@@ -1468,6 +1473,7 @@ def get_trend_data():
 
 
 @app.route('/api/trends')
+@rate_limit(max_requests=30, window_seconds=60)
 def api_trends():
     """API endpoint to get 7-day trend data."""
     return jsonify(get_trend_data())
@@ -1516,6 +1522,7 @@ def call_openai_chat(prompt: str):
 
 
 @app.route('/api/ai/suggest', methods=['POST'])
+@rate_limit(max_requests=10, window_seconds=60)
 def api_ai_suggest():
     data = request.get_json(silent=True) or {}
     message = (data.get('message') or '')[:8000]
@@ -1535,6 +1542,7 @@ def api_ai_suggest():
 
 
 @app.route('/api/ai/explain', methods=['POST'])
+@rate_limit(max_requests=10, window_seconds=60)
 def api_ai_explain():
     """
     AI explanation endpoint for logs, events, and charts.
@@ -1706,6 +1714,7 @@ def api_ai_explain():
 
 
 @app.route('/api/ai/feedback', methods=['POST'])
+@rate_limit(max_requests=30, window_seconds=60)
 def api_ai_feedback_create():
     """Create a new AI feedback entry when AI explains an event."""
     data = request.get_json(silent=True) or {}
@@ -1764,6 +1773,7 @@ def api_ai_feedback_create():
 
 
 @app.route('/api/ai/feedback', methods=['GET'])
+@rate_limit(max_requests=60, window_seconds=60)
 def api_ai_feedback_list():
     """Retrieve AI feedback entries with optional filtering."""
     # Parse query parameters
@@ -1863,6 +1873,7 @@ def api_ai_feedback_list():
 
 
 @app.route('/api/ai/feedback/<int:feedback_id>/status', methods=['PATCH'])
+@rate_limit(max_requests=30, window_seconds=60)
 def api_ai_feedback_update_status(feedback_id):
     """Update the review status of an AI feedback entry."""
     data = request.get_json(silent=True) or {}
@@ -1971,6 +1982,7 @@ def health_detailed():
 # Performance Monitoring API Endpoints
 
 @app.route('/api/performance/queries')
+@rate_limit(max_requests=30, window_seconds=60)
 def api_performance_queries():
     """
     Get query performance statistics.
@@ -1999,6 +2011,7 @@ def api_performance_queries():
 
 
 @app.route('/api/performance/resources')
+@rate_limit(max_requests=30, window_seconds=60)
 def api_performance_resources():
     """
     Get system resource usage (memory, disk space).
@@ -2027,6 +2040,7 @@ def api_performance_resources():
 
 
 @app.route('/api/performance/query-plan', methods=['POST'])
+@rate_limit(max_requests=10, window_seconds=60)
 def api_performance_query_plan():
     """
     Analyze query execution plan.
@@ -2124,6 +2138,7 @@ def _mock_lan_devices():
 
 
 @app.route('/api/lan/stats')
+@rate_limit(max_requests=60, window_seconds=60)
 def api_lan_stats():
     """Get LAN overview statistics."""
     conn = get_db_connection()
@@ -2149,6 +2164,7 @@ def api_lan_stats():
 
 
 @app.route('/api/lan/devices')
+@rate_limit(max_requests=60, window_seconds=60)
 def api_lan_devices():
     """List all LAN devices with optional filtering."""
     state = request.args.get('state')  # 'active', 'inactive', or None for all
@@ -2243,6 +2259,7 @@ def api_lan_devices():
 
 
 @app.route('/api/lan/devices/online')
+@rate_limit(max_requests=60, window_seconds=60)
 def api_lan_devices_online():
     """List currently online devices."""
     conn = get_db_connection()
@@ -2285,6 +2302,7 @@ def api_lan_devices_online():
 
 
 @app.route('/api/lan/device/<device_id>')
+@rate_limit(max_requests=60, window_seconds=60)
 def api_lan_device_detail(device_id):
     """Get detailed information for a specific device."""
     conn = get_db_connection()
@@ -2350,6 +2368,7 @@ def api_lan_device_detail(device_id):
 
 
 @app.route('/api/lan/device/<device_id>/update', methods=['POST', 'PATCH'])
+@rate_limit(max_requests=30, window_seconds=60)
 def api_lan_device_update(device_id):
     """Update nickname/location/tags/network_type for a device."""
     # Apply CSRF protection if Phase 3 is available
@@ -2428,6 +2447,7 @@ def api_lan_device_update(device_id):
 
 
 @app.route('/api/lan/device/<device_id>/timeline')
+@rate_limit(max_requests=30, window_seconds=60)
 def api_lan_device_timeline(device_id):
     """Get time-series data for a device."""
     hours = int(request.args.get('hours', '24'))
@@ -2481,6 +2501,7 @@ def api_lan_device_timeline(device_id):
 
 
 @app.route('/api/lan/device/<device_id>/events')
+@rate_limit(max_requests=60, window_seconds=60)
 def api_lan_device_events(device_id):
     """Get syslog events associated with a device."""
     limit = int(request.args.get('limit', '50'))
@@ -2539,6 +2560,7 @@ def api_lan_device_events(device_id):
 
 
 @app.route('/api/lan/device/<device_id>/connection-events')
+@rate_limit(max_requests=60, window_seconds=60)
 def api_lan_device_connection_events(device_id):
     """Get connection/disconnection event timeline for a device."""
     limit = int(request.args.get('limit', '50'))
@@ -2619,6 +2641,7 @@ def lan_device_detail(device_id):
 
 
 @app.route('/api/lan/alerts')
+@rate_limit(max_requests=60, window_seconds=60)
 def api_lan_alerts():
     """Get active LAN device alerts."""
     limit = int(request.args.get('limit', '50'))
@@ -2716,6 +2739,7 @@ def api_lan_alerts():
 
 
 @app.route('/api/lan/alerts/<alert_id>/acknowledge', methods=['POST'])
+@rate_limit(max_requests=30, window_seconds=60)
 def api_lan_alert_acknowledge(alert_id):
     """Acknowledge an alert."""
     payload = request.get_json(silent=True) or {}
@@ -2749,6 +2773,7 @@ def api_lan_alert_acknowledge(alert_id):
 
 
 @app.route('/api/lan/alerts/<alert_id>/resolve', methods=['POST'])
+@rate_limit(max_requests=30, window_seconds=60)
 def api_lan_alert_resolve(alert_id):
     """Resolve an alert."""
     conn = get_db_connection()
@@ -2778,6 +2803,7 @@ def api_lan_alert_resolve(alert_id):
 
 
 @app.route('/api/lan/alerts/stats')
+@rate_limit(max_requests=60, window_seconds=60)
 def api_lan_alerts_stats():
     """Get alert statistics."""
     conn = get_db_connection()
@@ -2811,6 +2837,7 @@ def api_lan_alerts_stats():
 
 
 @app.route('/api/lan/device/<device_id>/lookup-vendor', methods=['POST'])
+@rate_limit(max_requests=10, window_seconds=60)
 def api_lan_device_lookup_vendor(device_id):
     """Look up and update vendor information for a device based on MAC address."""
     conn = get_db_connection()
@@ -2855,6 +2882,7 @@ def api_lan_device_lookup_vendor(device_id):
 
 
 @app.route('/api/lan/devices/enrich-vendors', methods=['POST'])
+@rate_limit(max_requests=5, window_seconds=60)
 def api_lan_devices_enrich_vendors():
     """Enrich all devices without vendor information by looking up their MAC addresses."""
     conn = get_db_connection()
