@@ -323,7 +323,7 @@ def csrf_protect(f: Callable) -> Callable:
         token = request.headers.get(csrf._header_name)
         if not token and request.form:
             token = request.form.get(csrf._field_name)
-        if not token and request.is_json:
+        if not token and request.is_json and request.json:
             token = request.json.get(csrf._field_name)
         
         # Get token from cookie
@@ -419,8 +419,8 @@ def sanitize_path(path: str, base_dir: Optional[str] = None) -> Optional[str]:
         # If base_dir specified, ensure path is within it
         if base_dir:
             base_abs = os.path.abspath(base_dir)
-            # Check if path starts with base directory
-            if not abs_path.startswith(base_abs + os.sep) and abs_path != base_abs:
+            # Check if path starts with base directory or is exactly the base directory
+            if abs_path != base_abs and not abs_path.startswith(base_abs + os.sep):
                 logger.warning(f"Path traversal attempt detected: {path}")
                 return None
         
