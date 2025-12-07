@@ -98,8 +98,8 @@ This roadmap focuses on **hardening existing features** and delivering a **profe
 ### Navigation & UX
 - [x] **Breadcrumbs**: Add breadcrumb navigation for device detail pages
 - [x] **Back buttons**: Consistent "back to list" navigation on detail pages (already exists)
-- [ ] **Search persistence**: Remember search/filter state when navigating back
-- [ ] **Keyboard shortcuts**: Add hotkeys for common actions (refresh, navigate pages)
+- [x] **Search persistence**: Remember search/filter state when navigating back ✅ LocalStorage-based state persistence
+- [x] **Keyboard shortcuts**: Add hotkeys for common actions (refresh, navigate pages) ✅ Global shortcuts with help dialog
 - [x] **Responsive design**: Ensure all pages work on tablets (1024px and down) (existing media queries work well)
 - [x] **Mobile optimization**: Test on 768px and 375px viewports, make critical views usable (existing media queries)
 
@@ -110,20 +110,20 @@ This roadmap focuses on **hardening existing features** and delivering a **profe
   - [ ] Export chart data to CSV
   - [ ] Tooltips with full context (timestamp, value, device name)
 - [x] **Table enhancements**:
-  - [x] Column sorting on all tables (CSS styles ready, JS implementation pending)
+  - [x] Column sorting on all tables ✅ Client-side sorting implemented
   - [ ] Column visibility toggles (show/hide columns)
   - [ ] Bulk actions (e.g., tag multiple devices at once)
   - [ ] Row selection with checkboxes
-  - [ ] Export to CSV
+  - [x] Export to CSV ✅ TableExport utility with automatic filenames
 - [x] **Timestamp formatting**: Consistent relative times ("5 minutes ago") with absolute on hover (utility created)
-- [ ] **Data refresh indicators**: Visual cue when data is stale or refreshing
+- [x] **Data refresh indicators**: Visual cue when data is stale or refreshing ✅ Auto-refresh with visual indicators
 
 ### Forms & Inputs
-- [ ] **Form validation**: Real-time validation with clear error messages
-- [ ] **Input helpers**: Placeholder examples, format hints (e.g., "MAC: AA:BB:CC:DD:EE:FF")
-- [ ] **Autosave**: Device nickname/location changes save automatically with "Saved" indicator
+- [x] **Form validation**: Real-time validation with clear error messages ✅ FormValidator with multiple validators
+- [x] **Input helpers**: Placeholder examples, format hints (e.g., "MAC: AA:BB:CC:DD:EE:FF") ✅ Contextual hints added
+- [x] **Autosave**: Device nickname/location changes save automatically with "Saved" indicator ✅ AutoSave system implemented
 - [ ] **Undo functionality**: Allow reverting recent changes (especially for bulk edits)
-- [ ] **Confirmation dialogs**: For destructive actions (clear alerts, delete devices)
+- [x] **Confirmation dialogs**: For destructive actions (clear alerts, delete devices) ✅ ConfirmDialog framework ready
 
 ### Notifications & Feedback
 - [x] **Toast notifications**: Unobtrusive success/error messages in corner (instead of alerts)
