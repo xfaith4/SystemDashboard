@@ -1865,3 +1865,403 @@ Modal
     transform: translateY(-50%) translateX(-4px);
     margin-left: 4px;
 }
+
+/* ============================================
+   Form Validation & Autosave Styles
+   ============================================ */
+
+/* Validation Feedback */
+.validation-feedback {
+    margin-top: var(--space-xs);
+    font-size: 0.875rem;
+    line-height: 1.4;
+}
+
+.validation-error {
+    color: var(--status-critical);
+}
+
+.validation-success {
+    color: var(--status-healthy);
+}
+
+/* Input States */
+input.input-valid,
+textarea.input-valid,
+select.input-valid {
+    border-color: var(--status-healthy);
+}
+
+input.input-invalid,
+textarea.input-invalid,
+select.input-invalid {
+    border-color: var(--status-critical);
+}
+
+/* Input with icon */
+.input-with-icon {
+    position: relative;
+}
+
+.input-with-icon input {
+    padding-right: 2.5rem;
+}
+
+.input-icon {
+    position: absolute;
+    right: 0.75rem;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 1.25rem;
+    height: 1.25rem;
+    pointer-events: none;
+}
+
+.input-icon.icon-valid {
+    color: var(--status-healthy);
+}
+
+.input-icon.icon-invalid {
+    color: var(--status-critical);
+}
+
+/* Autosave Status */
+.autosave-status {
+    display: inline-flex;
+    align-items: center;
+    font-size: 0.875rem;
+    margin-left: var(--space-md);
+    transition: color var(--transition-fast);
+}
+
+.autosave-status.status-pending {
+    color: var(--text-muted);
+}
+
+.autosave-status.status-saving {
+    color: var(--status-info);
+}
+
+.autosave-status.status-success {
+    color: var(--status-healthy);
+}
+
+.autosave-status.status-error {
+    color: var(--status-critical);
+}
+
+/* Confirm Dialog Overlay */
+.confirm-dialog-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    animation: fadeIn var(--transition-fast);
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+/* Confirm Dialog */
+.confirm-dialog {
+    background: var(--bg-card);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-lg);
+    max-width: 480px;
+    width: calc(100% - 2rem);
+    animation: slideUp var(--transition-normal);
+}
+
+@keyframes slideUp {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.confirm-dialog-header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+    padding: var(--space-lg);
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+.confirm-dialog-icon {
+    width: 2rem;
+    height: 2rem;
+    flex-shrink: 0;
+}
+
+.confirm-dialog-warning .confirm-dialog-icon {
+    color: var(--status-warning);
+}
+
+.confirm-dialog-danger .confirm-dialog-icon {
+    color: var(--status-critical);
+}
+
+.confirm-dialog-info .confirm-dialog-icon {
+    color: var(--status-info);
+}
+
+.confirm-dialog-title {
+    font-size: 1.25rem;
+    font-weight: 600;
+    margin: 0;
+    color: var(--text-primary);
+}
+
+.confirm-dialog-body {
+    padding: var(--space-lg);
+}
+
+.confirm-dialog-message {
+    margin: 0;
+    color: var(--text-secondary);
+    line-height: 1.6;
+}
+
+.confirm-dialog-actions {
+    display: flex;
+    gap: var(--space-md);
+    padding: var(--space-lg);
+    border-top: 1px solid var(--border-subtle);
+    justify-content: flex-end;
+}
+
+.confirm-dialog-actions button {
+    min-width: 100px;
+}
+
+/* Input Helpers */
+.input-helper {
+    display: block;
+    margin-top: var(--space-xs);
+    font-size: 0.875rem;
+    color: var(--text-muted);
+    font-style: italic;
+}
+
+.input-helper::before {
+    content: '💡 ';
+}
+
+/* Form Group Enhancements */
+.form-group {
+    margin-bottom: var(--space-lg);
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: var(--space-sm);
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.form-group label.required::after {
+    content: ' *';
+    color: var(--status-critical);
+}
+
+.form-group input,
+.form-group textarea,
+.form-group select {
+    width: 100%;
+}
+
+/* Loading State for Forms */
+.form-group.loading input,
+.form-group.loading textarea,
+.form-group.loading select {
+    opacity: 0.5;
+    pointer-events: none;
+}
+
+/* Character Counter */
+.char-counter {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: var(--space-xs);
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.char-counter.near-limit {
+    color: var(--status-warning);
+}
+
+.char-counter.at-limit {
+    color: var(--status-critical);
+}
+
+/* ============================================
+   Keyboard Shortcuts Help Dialog
+   ============================================ */
+
+.keyboard-shortcuts-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    animation: fadeIn var(--transition-fast);
+}
+
+.keyboard-shortcuts-dialog {
+    background: var(--bg-card);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-lg);
+    max-width: 700px;
+    max-height: 80vh;
+    width: calc(100% - 2rem);
+    display: flex;
+    flex-direction: column;
+    animation: slideUp var(--transition-normal);
+}
+
+.keyboard-shortcuts-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--space-lg);
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+.keyboard-shortcuts-header h2 {
+    margin: 0;
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.keyboard-shortcuts-close {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: var(--space-xs);
+    width: 2rem;
+    height: 2rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-sm);
+    transition: all var(--transition-fast);
+}
+
+.keyboard-shortcuts-close:hover {
+    background: var(--bg-card-hover);
+    color: var(--text-primary);
+}
+
+.keyboard-shortcuts-close svg {
+    width: 1.25rem;
+    height: 1.25rem;
+}
+
+.keyboard-shortcuts-body {
+    padding: var(--space-lg);
+    overflow-y: auto;
+}
+
+.keyboard-shortcuts-category {
+    margin-bottom: var(--space-xl);
+}
+
+.keyboard-shortcuts-category:last-child {
+    margin-bottom: 0;
+}
+
+.keyboard-shortcuts-category h3 {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--accent-primary);
+    margin: 0 0 var(--space-md) 0;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.keyboard-shortcuts-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+}
+
+.keyboard-shortcut-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--space-sm);
+    background: var(--bg-elevated);
+    border-radius: var(--radius-sm);
+    gap: var(--space-lg);
+}
+
+.keyboard-shortcut-keys {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+    flex-shrink: 0;
+}
+
+.keyboard-shortcut-keys kbd {
+    display: inline-block;
+    padding: 0.25rem 0.5rem;
+    background: var(--bg-card);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-sm);
+    font-family: var(--font-mono);
+    font-size: 0.875rem;
+    color: var(--text-primary);
+    box-shadow: 0 2px 0 var(--border-subtle);
+    min-width: 2rem;
+    text-align: center;
+}
+
+.keyboard-shortcut-description {
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+    flex: 1;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .keyboard-shortcuts-dialog {
+        max-width: 100%;
+        max-height: 90vh;
+        width: 100%;
+        border-radius: 0;
+    }
+
+    .keyboard-shortcut-item {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: var(--space-sm);
+    }
+}
