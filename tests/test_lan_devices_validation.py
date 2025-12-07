@@ -58,11 +58,18 @@ def client_with_db(test_db):
     flask_app.app.config['TESTING'] = True
     flask_app._DB_PATH = test_db
     
+    # Disable CSRF protection for tests
+    os.environ['DASHBOARD_CSRF_ENABLED'] = 'false'
+    if flask_app.PHASE3_FEATURES_AVAILABLE:
+        from security import get_csrf_protection
+        get_csrf_protection().set_enabled(False)
+    
     with flask_app.app.test_client() as client:
         yield client
     
     # Reset the cached db path
     flask_app._DB_PATH = None
+    os.environ.pop('DASHBOARD_CSRF_ENABLED', None)
 
 
 @pytest.fixture

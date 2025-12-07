@@ -18,8 +18,20 @@ import app as flask_app
 def client():
     """Create a test client for the Flask app."""
     flask_app.app.config['TESTING'] = True
+    
+    # Disable CSRF protection for tests
+    os.environ['DASHBOARD_CSRF_ENABLED'] = 'false'
+    
+    # Reload CSRF protection if Phase 3 features available
+    if flask_app.PHASE3_FEATURES_AVAILABLE:
+        from security import get_csrf_protection
+        get_csrf_protection().set_enabled(False)
+    
     with flask_app.app.test_client() as client:
         yield client
+    
+    # Re-enable CSRF after tests
+    os.environ.pop('DASHBOARD_CSRF_ENABLED', None)
 
 
 class TestFlaskRoutes:
