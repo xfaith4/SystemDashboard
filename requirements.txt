@@ -2,3 +2,4 @@ flask
 pytest
 requests
 mac-vendor-lookup
+psutil
