@@ -27,6 +27,19 @@ except ImportError:
     app_logger.warning("Phase 1 features (health_check, rate_limiter, graceful_shutdown) not available")
 
 try:
+    from security import (
+        configure_security_headers, get_api_key_auth, require_api_key,
+        configure_csrf_protection, get_csrf_protection, csrf_protect,
+        create_rate_limit_handler
+    )
+    from audit_logger import get_audit_trail, get_structured_logger
+    PHASE3_FEATURES_AVAILABLE = True
+except ImportError:
+    PHASE3_FEATURES_AVAILABLE = False
+    app_logger = logging.getLogger(__name__)
+    app_logger.warning("Phase 3 features (security, audit_logger) not available")
+
+try:
     from mac_vendor_lookup import MacLookup
     mac_lookup = MacLookup()
     # Lazy initialization - update_vendors() will be called on first lookup if needed
@@ -2240,6 +2253,18 @@ def api_lan_device_detail(device_id):
 @app.route('/api/lan/device/<device_id>/update', methods=['POST', 'PATCH'])
 def api_lan_device_update(device_id):
     """Update nickname/location/tags/network_type for a device."""
+    # Apply CSRF protection if Phase 3 is available
+    if PHASE3_FEATURES_AVAILABLE and get_csrf_protection().is_enabled():
+        # Manual CSRF check for this endpoint
+        csrf = get_csrf_protection()
+        token = request.headers.get('X-CSRF-Token')
+        if not token and request.is_json:
+            token = request.json.get('_csrf')
+        cookie_token = request.cookies.get('csrf_token')
+        if not csrf.validate_token(token, cookie_token):
+            app.logger.warning(f"CSRF validation failed from {request.remote_addr}")
+            return jsonify({'error': 'Forbidden', 'message': 'CSRF token validation failed'}), 403
+    
     payload = request.get_json(silent=True) or {}
     nickname = payload.get('nickname')
     location = payload.get('location')
@@ -2275,6 +2300,25 @@ def api_lan_device_update(device_id):
         if cur.rowcount == 0:
             return jsonify({'error': 'Device not found'}), 404
         conn.commit()
+        
+        # Log audit trail if Phase 3 is available
+        if PHASE3_FEATURES_AVAILABLE:
+            audit = get_audit_trail()
+            changes = {}
+            if nickname is not None:
+                changes['nickname'] = nickname
+            if location is not None:
+                changes['location'] = location
+            if tags is not None:
+                changes['tags'] = tags
+            if network_type is not None:
+                changes['network_type'] = network_type
+            audit.log_device_update(
+                device_id=device_id,
+                changes=changes,
+                ip_address=request.remote_addr
+            )
+        
         return jsonify({'status': 'ok'})
     except Exception as exc:
         app.logger.debug('Device update failed: %s', exc)
@@ -2765,6 +2809,27 @@ def api_lan_devices_enrich_vendors():
 
 
 if __name__ == '__main__':
+    # Configure Phase 3 security features if available
+    if PHASE3_FEATURES_AVAILABLE:
+        # Configure security headers
+        configure_security_headers(app)
+        app.logger.info("Security headers configured")
+        
+        # Configure CSRF protection
+        configure_csrf_protection(app)
+        app.logger.info("CSRF protection configured")
+        
+        # Configure rate limit error handler
+        create_rate_limit_handler(app)
+        
+        # Initialize audit trail
+        audit = get_audit_trail()
+        app.logger.info("Audit trail initialized")
+        
+        # Log startup
+        structured_logger = get_structured_logger('app')
+        structured_logger.info("SystemDashboard starting", version="1.0.0")
+    
     # Install graceful shutdown handlers if available
     if PHASE1_FEATURES_AVAILABLE:
         install_handlers(timeout=30)
