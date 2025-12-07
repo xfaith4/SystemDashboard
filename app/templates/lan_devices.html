@@ -73,6 +73,14 @@
 
     <!-- Devices Table -->
     <section class="panel">
+        <div class="table-toolbar">
+            <div class="table-toolbar-left">
+                <span id="device-count" style="color: var(--text-secondary);"></span>
+            </div>
+            <div class="table-toolbar-right" id="table-actions">
+                <!-- Export button and refresh indicator will be added here by JavaScript -->
+            </div>
+        </div>
         <div class="table-container">
             <table class="data-table" id="devices-table">
                 <thead>
@@ -158,6 +166,18 @@ function renderDevices() {
         );
     }
     
+    // Update device count
+    const countEl = document.getElementById('device-count');
+    if (countEl) {
+        const total = allDevices.length;
+        const shown = filteredDevices.length;
+        if (shown === total) {
+            countEl.textContent = `${total} device${total !== 1 ? 's' : ''}`;
+        } else {
+            countEl.textContent = `${shown} of ${total} device${total !== 1 ? 's' : ''}`;
+        }
+    }
+    
     if (filteredDevices.length === 0) {
         tbody.innerHTML = '<tr><td colspan="100%" class="empty">No devices found matching your criteria</td></tr>';
         return;
@@ -208,7 +228,43 @@ function applySearch() {
 
 document.addEventListener('DOMContentLoaded', () => {
     loadDevices();
+    setupTableEnhancements();
 });
+
+function setupTableEnhancements() {
+    // Add CSV export button
+    if (window.TableExport) {
+        TableExport.addExportButton('#devices-table', {
+            filename: `lan-devices-${new Date().toISOString().split('T')[0]}.csv`,
+            buttonText: 'Export CSV',
+            buttonClass: 'btn-secondary',
+            container: '#table-actions'
+        });
+    }
+
+    // Add data refresh indicator
+    if (window.DataRefreshIndicator) {
+        DataRefreshIndicator.create({
+            id: 'devices-refresh',
+            container: document.getElementById('table-actions'),
+            autoRefresh: true,
+            refreshInterval: 30000, // Refresh every 30 seconds
+            onRefresh: async () => {
+                await loadDevices();
+            },
+            showLastUpdate: true
+        });
+    }
+
+    // Make table sortable
+    if (window.TableSorting) {
+        TableSorting.makeSortable('#devices-table', {
+            onSort: (columnIndex, direction) => {
+                console.log(`Sorted column ${columnIndex} in ${direction} order`);
+            }
+        });
+    }
+}
 </script>
 
 <style>
