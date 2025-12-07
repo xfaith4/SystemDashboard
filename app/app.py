@@ -1968,6 +1968,105 @@ def health_detailed():
     return jsonify(report), http_code
 
 
+# Performance Monitoring API Endpoints
+
+@app.route('/api/performance/queries')
+def api_performance_queries():
+    """
+    Get query performance statistics.
+    
+    Returns statistics on query execution times, including slow queries.
+    """
+    try:
+        from performance_monitor import get_query_tracker
+        
+        tracker = get_query_tracker()
+        stats = tracker.get_statistics()
+        slow_queries = tracker.get_slow_queries(limit=10)
+        
+        return jsonify({
+            'total_queries': len(stats),
+            'slow_query_threshold_ms': tracker.slow_query_threshold_ms,
+            'statistics': stats,
+            'slowest_queries': slow_queries,
+            'timestamp': datetime.datetime.now(datetime.UTC).isoformat()
+        })
+    except ImportError:
+        return jsonify({
+            'error': 'Performance monitoring not available',
+            'message': 'Phase 4 features not installed'
+        }), 501
+
+
+@app.route('/api/performance/resources')
+def api_performance_resources():
+    """
+    Get system resource usage (memory, disk space).
+    
+    Returns current memory and disk usage statistics.
+    """
+    try:
+        from performance_monitor import get_resource_monitor
+        
+        db_path = _get_db_path()
+        log_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'var', 'log')
+        
+        monitor = get_resource_monitor(db_path, log_path)
+        status = monitor.get_status()
+        
+        return jsonify({
+            'timestamp': datetime.datetime.now(datetime.UTC).isoformat(),
+            'memory': status['memory'],
+            'disk': status['disk']
+        })
+    except ImportError:
+        return jsonify({
+            'error': 'Resource monitoring not available',
+            'message': 'Phase 4 features not installed'
+        }), 501
+
+
+@app.route('/api/performance/query-plan', methods=['POST'])
+def api_performance_query_plan():
+    """
+    Analyze query execution plan.
+    
+    POST body: {"query": "SELECT * FROM devices", "params": [...]}
+    Returns EXPLAIN QUERY PLAN output for the given query.
+    """
+    try:
+        from performance_monitor import QueryPlanAnalyzer
+        
+        data = request.get_json()
+        if not data or 'query' not in data:
+            return jsonify({'error': 'Missing query parameter'}), 400
+        
+        query = data['query']
+        params = data.get('params')
+        
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({'error': 'Database not available'}), 503
+        
+        try:
+            analyzer = QueryPlanAnalyzer(conn)
+            plan = analyzer.explain_query(query, params)
+            
+            return jsonify({
+                'query': query,
+                'plan': plan,
+                'timestamp': datetime.datetime.now(datetime.UTC).isoformat()
+            })
+        finally:
+            conn.close()
+            
+    except ImportError:
+        return jsonify({
+            'error': 'Query plan analysis not available',
+            'message': 'Phase 4 features not installed'
+        }), 501
+
+
 # LAN Observability API Endpoints
 
 def _mock_lan_stats():
