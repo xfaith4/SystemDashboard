@@ -2265,3 +2265,193 @@ select.input-invalid {
         gap: var(--space-sm);
     }
 }
+
+/* ============================================
+   Data Refresh Indicator
+   ============================================ */
+
+.data-refresh-indicator {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+    padding: var(--space-sm) var(--space-md);
+    background: var(--bg-elevated);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-subtle);
+}
+
+.refresh-status {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+}
+
+.refresh-icon {
+    width: 1.25rem;
+    height: 1.25rem;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+}
+
+.data-refresh-indicator.refreshing .refresh-icon svg {
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.refresh-text {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+}
+
+.refresh-time {
+    color: var(--text-muted);
+    font-weight: 500;
+}
+
+.refresh-button {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: var(--space-xs);
+    width: 2rem;
+    height: 2rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-sm);
+    transition: all var(--transition-fast);
+}
+
+.refresh-button:hover {
+    background: var(--bg-card-hover);
+    color: var(--accent-primary);
+}
+
+.refresh-button svg {
+    width: 1.25rem;
+    height: 1.25rem;
+}
+
+.data-refresh-indicator.refreshing .refresh-button {
+    pointer-events: none;
+    opacity: 0.5;
+}
+
+/* ============================================
+   Table Sorting
+   ============================================ */
+
+th.sortable {
+    position: relative;
+    user-select: none;
+    transition: background var(--transition-fast);
+}
+
+th.sortable:hover {
+    background: var(--bg-card-hover);
+}
+
+.sort-icon {
+    display: inline-flex;
+    align-items: center;
+    margin-left: var(--space-xs);
+    opacity: 0.3;
+    transition: opacity var(--transition-fast);
+}
+
+th.sortable:hover .sort-icon {
+    opacity: 0.6;
+}
+
+.sort-icon svg {
+    width: 1rem;
+    height: 1rem;
+}
+
+th.sorted-asc .sort-icon,
+th.sorted-desc .sort-icon {
+    opacity: 1;
+    color: var(--accent-primary);
+}
+
+th.sorted-asc .sort-icon svg {
+    transform: rotate(180deg);
+}
+
+th.sorted-desc .sort-icon svg {
+    transform: rotate(0deg);
+}
+
+/* ============================================
+   Stale Data Indicator
+   ============================================ */
+
+.stale-data-banner {
+    background: var(--status-warning-bg);
+    border: 1px solid var(--status-warning);
+    border-radius: var(--radius-md);
+    padding: var(--space-md);
+    margin-bottom: var(--space-lg);
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+}
+
+.stale-data-banner svg {
+    width: 1.5rem;
+    height: 1.5rem;
+    color: var(--status-warning);
+    flex-shrink: 0;
+}
+
+.stale-data-banner .message {
+    flex: 1;
+    color: var(--text-primary);
+}
+
+.stale-data-banner button {
+    flex-shrink: 0;
+}
+
+/* ============================================
+   Export Button Enhancements
+   ============================================ */
+
+.btn-secondary svg,
+.btn-refresh svg {
+    display: inline-block;
+    vertical-align: middle;
+}
+
+/* Table toolbar */
+.table-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: var(--space-md);
+    gap: var(--space-md);
+    flex-wrap: wrap;
+}
+
+.table-toolbar-left {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+    flex: 1;
+}
+
+.table-toolbar-right {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+}
