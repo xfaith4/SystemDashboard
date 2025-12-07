@@ -6,7 +6,7 @@ import os
 import sys
 import pytest
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 # Add the app directory to the path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'app'))
@@ -62,7 +62,7 @@ def insert_snapshots(conn, days_old_list):
     """Helper to insert test snapshots at various ages."""
     cursor = conn.cursor()
     for days_old in days_old_list:
-        timestamp = (datetime.utcnow() - timedelta(days=days_old)).strftime('%Y-%m-%d %H:%M:%S')
+        timestamp = (datetime.now(timezone.utc) - timedelta(days=days_old)).strftime('%Y-%m-%d %H:%M:%S')
         cursor.execute(
             "INSERT INTO device_snapshots (mac, timestamp, status) VALUES (?, ?, ?)",
             ('AA:BB:CC:DD:EE:FF', timestamp, 'online')
@@ -76,8 +76,8 @@ def insert_alerts(conn, resolved_days_old_list, unresolved_days_old_list):
     
     # Insert resolved alerts
     for days_old in resolved_days_old_list:
-        created_at = (datetime.utcnow() - timedelta(days=days_old)).strftime('%Y-%m-%d %H:%M:%S')
-        resolved_at = (datetime.utcnow() - timedelta(days=days_old - 0.5)).strftime('%Y-%m-%d %H:%M:%S')
+        created_at = (datetime.now(timezone.utc) - timedelta(days=days_old)).strftime('%Y-%m-%d %H:%M:%S')
+        resolved_at = (datetime.now(timezone.utc) - timedelta(days=days_old - 0.5)).strftime('%Y-%m-%d %H:%M:%S')
         cursor.execute(
             "INSERT INTO device_alerts (device_id, severity, message, created_at, resolved, resolved_at) VALUES (?, ?, ?, ?, ?, ?)",
             (1, 'warning', 'Test alert', created_at, 1, resolved_at)
@@ -85,7 +85,7 @@ def insert_alerts(conn, resolved_days_old_list, unresolved_days_old_list):
     
     # Insert unresolved alerts
     for days_old in unresolved_days_old_list:
-        created_at = (datetime.utcnow() - timedelta(days=days_old)).strftime('%Y-%m-%d %H:%M:%S')
+        created_at = (datetime.now(timezone.utc) - timedelta(days=days_old)).strftime('%Y-%m-%d %H:%M:%S')
         cursor.execute(
             "INSERT INTO device_alerts (device_id, severity, message, created_at, resolved) VALUES (?, ?, ?, ?, ?)",
             (1, 'warning', 'Test alert', created_at, 0)
@@ -98,7 +98,7 @@ def insert_syslog(conn, days_old_list):
     """Helper to insert test syslog entries."""
     cursor = conn.cursor()
     for days_old in days_old_list:
-        timestamp = (datetime.utcnow() - timedelta(days=days_old)).strftime('%Y-%m-%d %H:%M:%S')
+        timestamp = (datetime.now(timezone.utc) - timedelta(days=days_old)).strftime('%Y-%m-%d %H:%M:%S')
         cursor.execute(
             "INSERT INTO syslog_recent (timestamp, severity, message, source) VALUES (?, ?, ?, ?)",
             (timestamp, 'info', 'Test log', 'router')
@@ -339,7 +339,7 @@ class TestDataRetentionEdgeCases:
     def test_boundary_condition_exact_retention(self, test_db):
         """Test snapshot exactly at retention boundary."""
         # Insert snapshot exactly 7 days old (to the second)
-        exactly_7_days = datetime.utcnow() - timedelta(days=7, seconds=0)
+        exactly_7_days = datetime.now(timezone.utc) - timedelta(days=7, seconds=0)
         cursor = test_db.cursor()
         cursor.execute(
             "INSERT INTO device_snapshots (mac, timestamp, status) VALUES (?, ?, ?)",
@@ -358,8 +358,8 @@ class TestDataRetentionEdgeCases:
         cursor = test_db.cursor()
         
         # Insert with different timestamp formats
-        old_time1 = (datetime.utcnow() - timedelta(days=10)).strftime('%Y-%m-%d %H:%M:%S')
-        old_time2 = (datetime.utcnow() - timedelta(days=15)).strftime('%Y-%m-%d %H:%M:%S.%f')
+        old_time1 = (datetime.now(timezone.utc) - timedelta(days=10)).strftime('%Y-%m-%d %H:%M:%S')
+        old_time2 = (datetime.now(timezone.utc) - timedelta(days=15)).strftime('%Y-%m-%d %H:%M:%S.%f')
         
         cursor.execute(
             "INSERT INTO device_snapshots (mac, timestamp, status) VALUES (?, ?, ?)",
