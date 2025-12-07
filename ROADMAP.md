@@ -193,26 +193,49 @@ This roadmap focuses on **hardening existing features** and delivering a **profe
 
 ---
 
-## 📊 Phase 4: Performance & Scalability
+## 📊 Phase 4: Performance & Scalability ✅ IN PROGRESS
 
 ### Query Performance
-- [ ] **Slow query logging**: Identify queries > 100ms, optimize or add indexes
+- [x] **Slow query logging**: Identify queries > 100ms, optimize or add indexes
+  - ✅ Implemented QueryPerformanceTracker with configurable thresholds
+  - ✅ Automatic slow query detection and logging
+  - ✅ Query statistics collection (count, avg, min, max)
 - [ ] **Materialized view refresh**: Ensure views refresh efficiently (incremental if possible)
-- [ ] **Pagination strategy**: Use keyset pagination instead of OFFSET for large tables
-- [ ] **Query plan analysis**: Use `EXPLAIN QUERY PLAN` to optimize hot paths
+- [x] **Pagination strategy**: Use keyset pagination instead of OFFSET for large tables
+  - ✅ Implemented KeysetPaginator for cursor-based pagination
+  - ✅ Implemented OffsetPaginator for backward compatibility
+  - ✅ Full test coverage with 33 tests
+- [x] **Query plan analysis**: Use `EXPLAIN QUERY PLAN` to optimize hot paths
+  - ✅ Implemented QueryPlanAnalyzer
+  - ✅ API endpoint for query plan inspection
+  - ✅ Automatic issue detection (full scans, temp b-trees)
 - [ ] **Data retention enforcement**: Automatic cleanup of old snapshots (already exists, verify it runs)
 
 ### Frontend Performance
 - [ ] **Asset optimization**: Minify CSS/JS, optimize images if any
-- [ ] **CDN integrity**: Ensure Chart.js and other CDN assets have SRI hashes (already done, verify)
-- [ ] **Lazy loading**: Load charts only when scrolled into view
-- [ ] **Debounce/throttle**: Search inputs and filter changes should debounce API calls
+- [x] **CDN integrity**: Ensure Chart.js and other CDN assets have SRI hashes
+  - ✅ Added SRI hash to Chart.js@4.4.0 in all templates
+- [x] **Lazy loading**: Load charts only when scrolled into view
+  - ✅ Implemented LazyLoader with IntersectionObserver
+  - ✅ ChartLazyLoader for automatic chart loading
+  - ✅ Fallback for browsers without IntersectionObserver
+- [x] **Debounce/throttle**: Search inputs and filter changes should debounce API calls
+  - ✅ Implemented debounce() and throttle() functions
+  - ✅ RAF throttle for smooth animations
+  - ✅ Idle callback wrapper for low-priority work
 - [ ] **Service worker**: Consider offline support for static assets
 
 ### Resource Management
-- [ ] **Memory profiling**: Ensure services don't leak memory over days of runtime
-- [ ] **Connection limits**: Limit concurrent database connections
-- [ ] **Disk space monitoring**: Alert when database or log directories approach capacity
+- [x] **Memory profiling**: Ensure services don't leak memory over days of runtime
+  - ✅ Implemented ResourceMonitor with psutil integration
+  - ✅ Memory usage tracking (RSS, VMS, percent)
+  - ✅ API endpoint for resource monitoring
+- [x] **Connection limits**: Limit concurrent database connections
+  - ✅ Already implemented in Phase 1 (ConnectionPool with configurable limits)
+- [x] **Disk space monitoring**: Alert when database or log directories approach capacity
+  - ✅ Disk usage tracking with configurable thresholds
+  - ✅ Warning at 85%, critical at 95%
+  - ✅ Automatic alerting via logs
 - [ ] **CPU throttling**: Ensure collection loops don't peg CPU during idle periods
 
 ---
