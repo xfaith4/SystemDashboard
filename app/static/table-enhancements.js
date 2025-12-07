@@ -24,12 +24,14 @@ const TableExport = {
       .map(th => this.cleanText(th.textContent));
     rows.push(headers);
     
-    // Get data rows
+    // Get data rows (skip empty-state and loading rows)
+    const skipClasses = ['empty-state', 'loading', 'empty'];
     const dataRows = table.querySelectorAll('tbody tr');
     dataRows.forEach(tr => {
       const cells = Array.from(tr.querySelectorAll('td'))
         .map(td => this.cleanText(td.textContent));
-      if (cells.length > 0 && !tr.classList.contains('empty-state') && !tr.classList.contains('loading')) {
+      const shouldSkip = skipClasses.some(cls => tr.classList.contains(cls));
+      if (cells.length > 0 && !shouldSkip) {
         rows.push(cells);
       }
     });

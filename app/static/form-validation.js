@@ -239,7 +239,7 @@ const AutoSave = {
 
       if (field.type === 'checkbox') {
         data[name] = field.checked;
-      } else if (field.type === 'select-multiple') {
+      } else if (field.tagName === 'SELECT' && field.multiple) {
         data[name] = Array.from(field.selectedOptions).map(o => o.value);
       } else {
         data[name] = field.value;

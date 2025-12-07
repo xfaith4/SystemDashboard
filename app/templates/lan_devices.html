@@ -227,9 +227,43 @@ function applySearch() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+    setupSearchPersistence();
     loadDevices();
     setupTableEnhancements();
 });
+
+function setupSearchPersistence() {
+    // Set up search/filter persistence
+    if (window.SearchPersistence) {
+        SearchPersistence.setup('lan-devices', {
+            searchInput: '#search-text',
+            filterSelects: [
+                '#filter-state',
+                '#filter-interface',
+                '#filter-tag',
+                '#filter-network-type'
+            ],
+            onRestore: (state) => {
+                // Update currentFilters with restored state
+                currentFilters.state = document.getElementById('filter-state').value;
+                currentFilters.interface = document.getElementById('filter-interface').value;
+                currentFilters.tag = document.getElementById('filter-tag').value;
+                currentFilters.network_type = document.getElementById('filter-network-type').value;
+                currentFilters.search = document.getElementById('search-text').value;
+                
+                // Show a subtle notification that filters were restored
+                console.log('Filters restored from previous session');
+            },
+            autoSave: true,
+            maxAge: 3600000 // Keep state for 1 hour
+        });
+    }
+    
+    // Track scroll position
+    if (window.StatePersistence) {
+        StatePersistence.trackNavigation('lan-devices');
+    }
+}
 
 function setupTableEnhancements() {
     // Add CSV export button
