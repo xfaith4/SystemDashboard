@@ -176,15 +176,29 @@
         <div class="edit-form">
             <div class="form-group">
                 <label for="edit-nickname">Nickname</label>
-                <input type="text" id="edit-nickname" placeholder="Enter a friendly name" />
+                <input 
+                    type="text" 
+                    id="edit-nickname" 
+                    name="nickname"
+                    placeholder="e.g., Living Room TV"
+                    maxlength="100"
+                />
+                <span class="input-helper">Optional friendly name to identify this device</span>
             </div>
             <div class="form-group">
                 <label for="edit-location">Location</label>
-                <input type="text" id="edit-location" placeholder="Enter location (room, area)" />
+                <input 
+                    type="text" 
+                    id="edit-location" 
+                    name="location"
+                    placeholder="e.g., Living Room, Office, Basement"
+                    maxlength="100"
+                />
+                <span class="input-helper">Physical location of the device</span>
             </div>
             <div class="form-group">
                 <label for="edit-tags">Tags</label>
-                <select id="edit-tags" multiple>
+                <select id="edit-tags" name="tags" multiple>
                     <option value="iot">IoT Device</option>
                     <option value="guest">Guest Device</option>
                     <option value="critical">Critical Infrastructure</option>
@@ -192,20 +206,20 @@
                     <option value="workstation">Workstation</option>
                     <option value="server">Server</option>
                 </select>
-                <small style="color: var(--text-muted); margin-top: 0.25rem; display: block;">Hold Ctrl/Cmd to select multiple tags</small>
+                <span class="input-helper">Hold Ctrl/Cmd to select multiple tags</span>
             </div>
             <div class="form-group">
                 <label for="edit-network-type">Network Type</label>
-                <select id="edit-network-type">
+                <select id="edit-network-type" name="network_type">
                     <option value="main">Main Network</option>
                     <option value="guest">Guest Network</option>
                     <option value="iot">IoT Network</option>
                     <option value="unknown">Unknown</option>
                 </select>
+                <span class="input-helper">The network segment this device is on</span>
             </div>
             <div class="form-actions">
-                <button class="btn-refresh" onclick="saveDeviceEdits()">Save Changes</button>
-                <span id="edit-status" class="edit-status"></span>
+                <span id="edit-status" class="autosave-status"></span>
             </div>
         </div>
     </section>
@@ -293,6 +307,9 @@ async function loadDeviceInfo() {
         if (networkTypeSelect && device.network_type) {
             networkTypeSelect.value = device.network_type;
         }
+        
+        // Set up autosave after form is populated
+        setupAutosave();
     } catch (error) {
         console.error('Failed to load device info:', error);
     }
@@ -324,36 +341,64 @@ async function lookupVendor() {
     }
 }
 
-async function saveDeviceEdits() {
-    const nickname = document.getElementById('edit-nickname').value.trim();
-    const location = document.getElementById('edit-location').value.trim();
-    const tagsSelect = document.getElementById('edit-tags');
-    const selectedTags = Array.from(tagsSelect.selectedOptions).map(o => o.value);
-    const tags = selectedTags.join(',');
-    const network_type = document.getElementById('edit-network-type').value;
-    const statusEl = document.getElementById('edit-status');
-    statusEl.textContent = 'Saving...';
-    statusEl.className = 'edit-status saving';
+// Set up autosave for device edits
+let autosaveInstance = null;
 
-    try {
-        const response = await fetch(`/api/lan/device/${deviceId}/update`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ nickname, location, tags, network_type })
-        });
+function setupAutosave() {
+    if (autosaveInstance) return; // Already set up
+    
+    autosaveInstance = AutoSave.create({
+        fields: [
+            '#edit-nickname',
+            '#edit-location',
+            '#edit-tags',
+            '#edit-network-type'
+        ],
+        saveFunction: async (data) => {
+            // Convert tags array to comma-separated string
+            const tags = Array.isArray(data.tags) ? data.tags.join(',') : data.tags;
+            
+            const response = await fetch(`/api/lan/device/${deviceId}/update`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    nickname: data.nickname || '',
+                    location: data.location || '',
+                    tags: tags || '',
+                    network_type: data.network_type || 'unknown'
+                })
+            });
 
-        if (!response.ok) {
-            const err = await response.json().catch(() => ({}));
-            throw new Error(err.error || 'Update failed');
+            if (!response.ok) {
+                const err = await response.json().catch(() => ({}));
+                throw new Error(err.error || 'Update failed');
+            }
+            
+            return response.json();
+        },
+        delay: 1500, // Wait 1.5 seconds after user stops typing
+        statusElement: document.getElementById('edit-status'),
+        onSaveSuccess: (data) => {
+            // Show success toast
+            if (window.Toast) {
+                Toast.success('Device information saved', 'Saved');
+            }
+            // Refresh device info to get updated data
+            setTimeout(() => loadDeviceInfo(), 500);
+        },
+        onSaveError: (error) => {
+            // Show error toast
+            if (window.Toast) {
+                Toast.error(error.message || 'Failed to save changes', 'Error');
+            }
         }
+    });
+}
 
-        statusEl.textContent = '✓ Saved';
-        statusEl.className = 'edit-status success';
-        loadDeviceInfo();
-    } catch (error) {
-        console.error('Failed to save edits:', error);
-        statusEl.textContent = '✕ Failed to save';
-        statusEl.className = 'edit-status error';
+// Keep old function for backward compatibility (though it's no longer called)
+async function saveDeviceEdits() {
+    if (autosaveInstance) {
+        await autosaveInstance.save();
     }
 }
 
@@ -544,7 +589,35 @@ document.addEventListener('DOMContentLoaded', () => {
     loadTimeline();
     loadConnectionEvents();
     loadEvents();
+    
+    // Set up form validation
+    setupFormValidation();
 });
+
+function setupFormValidation() {
+    const nicknameInput = document.getElementById('edit-nickname');
+    const locationInput = document.getElementById('edit-location');
+    
+    if (nicknameInput && window.FormValidator) {
+        FormValidator.setupInput(nicknameInput, [
+            { name: 'maxLength', max: 100 },
+            'alphanumeric'
+        ], {
+            validateOnInput: true,
+            debounce: 500
+        });
+    }
+    
+    if (locationInput && window.FormValidator) {
+        FormValidator.setupInput(locationInput, [
+            { name: 'maxLength', max: 100 },
+            'alphanumeric'
+        ], {
+            validateOnInput: true,
+            debounce: 500
+        });
+    }
+}
 </script>
 
 <style>
