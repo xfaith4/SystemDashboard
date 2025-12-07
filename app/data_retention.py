@@ -7,7 +7,7 @@ by automatically cleaning up old snapshots, alerts, and logs.
 
 import sqlite3
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, Optional
 from contextlib import contextmanager
 
@@ -46,7 +46,7 @@ class DataRetentionManager:
             
         try:
             cursor = self.connection.cursor()
-            cutoff_date = datetime.utcnow() - timedelta(days=retention_days)
+            cutoff_date = datetime.now(timezone.utc) - timedelta(days=retention_days)
             cutoff_str = cutoff_date.strftime('%Y-%m-%d %H:%M:%S')
             
             # Delete old snapshots
@@ -93,7 +93,7 @@ class DataRetentionManager:
             
         try:
             cursor = self.connection.cursor()
-            cutoff_date = datetime.utcnow() - timedelta(days=retention_days)
+            cutoff_date = datetime.now(timezone.utc) - timedelta(days=retention_days)
             cutoff_str = cutoff_date.strftime('%Y-%m-%d %H:%M:%S')
             
             # Delete old resolved alerts (keep unresolved ones)
@@ -140,7 +140,7 @@ class DataRetentionManager:
             
         try:
             cursor = self.connection.cursor()
-            cutoff_date = datetime.utcnow() - timedelta(days=retention_days)
+            cutoff_date = datetime.now(timezone.utc) - timedelta(days=retention_days)
             cutoff_str = cutoff_date.strftime('%Y-%m-%d %H:%M:%S')
             
             # Delete old syslog entries
