@@ -119,12 +119,12 @@ Browse to `http://localhost:5000/` for the analytics dashboard. For production y
 
 Use `scripts/Launch.ps1` (or the accompanying `scripts/Launch.bat`/`scripts/Launch.sh` wrappers) to run the root-level helper scripts in their recommended order without invoking each file separately. The default pipeline performs:
 
- - `Environment` → runs `scripts/setup-environment.ps1` (use `-EnvironmentPermanent` to persist the vars).
- - `Database` → runs `scripts/setup-database.ps1` (switch to `-DatabaseMode docker` to call `scripts/setup-database-docker.ps1`).
- - `Install` → runs `scripts/Install.ps1`.
- - `PermanentServices` → runs `scripts/setup-permanent-services.ps1 -Install`.
- - `ScheduledTask` → runs `scripts/setup-scheduled-task.ps1`.
- - `LanSchema` → runs `scripts/apply-lan-schema.ps1` (pass `-ForceLanSchema` or `-LanConfigPath` as needed).
+- `Environment` → runs `scripts/setup-environment.ps1` (use `-EnvironmentPermanent` to persist the vars).
+- `Database` → runs `scripts/setup-database.ps1` (switch to `-DatabaseMode docker` to call `scripts/setup-database-docker.ps1`).
+- `Install` → runs `scripts/Install.ps1`.
+- `PermanentServices` → runs `scripts/setup-permanent-services.ps1 -Install`.
+- `ScheduledTask` → runs `scripts/setup-scheduled-task.ps1`.
+- `LanSchema` → runs `scripts/apply-lan-schema.ps1` (pass `-ForceLanSchema` or `-LanConfigPath` as needed).
 
 You can limit what runs by setting the `-Stages` argument (e.g., `-Stages Environment,Install`). Additional argument passthroughs exist (`-DatabaseArgs`, `-InstallArgs`, `-ScheduledTaskArgs`, `-LanArgs`) if you need to forward flags to the underlying scripts.
 

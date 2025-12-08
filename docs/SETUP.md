@@ -39,6 +39,7 @@ python scripts/init_db.py
 ```
 
 This creates:
+
 - Database file: `var/system_dashboard.db`
 - All required tables for telemetry, LAN observability, and AI feedback
 - Views for efficient querying
@@ -50,6 +51,7 @@ This creates:
 ```
 
 This will:
+
 - Copy PowerShell modules to the system modules directory
 - Create Python virtual environment
 - Set up runtime directories under `var/`
@@ -58,6 +60,7 @@ This will:
 ### 5. Start Services
 
 **For Development:**
+
 ```powershell
 # Start telemetry collection
 Start-Service SystemDashboardTelemetry
@@ -68,11 +71,13 @@ python .\app\app.py
 ```
 
 **For Permanent Installation:**
+
 ```powershell
 .\scripts\setup-permanent-services.ps1
 ```
 
 This creates scheduled tasks that run on startup:
+
 - `SystemDashboard-Telemetry` - Data collection service
 - `SystemDashboard-WebUI` - Flask web dashboard
 
@@ -88,14 +93,16 @@ Edit `config.json` to customize:
 ## Accessing the Dashboard
 
 Once running, access the web interface at:
-- **Main Dashboard**: http://localhost:5000
-- **Events**: http://localhost:5000/events
-- **Router Logs**: http://localhost:5000/router
-- **LAN Observability**: http://localhost:5000/lan
+
+- **Main Dashboard**: <http://localhost:5000>
+- **Events**: <http://localhost:5000/events>
+- **Router Logs**: <http://localhost:5000/router>
+- **LAN Observability**: <http://localhost:5000/lan>
 
 ## Management Commands
 
 ### Service Management
+
 ```powershell
 # Check status
 Get-ScheduledTask -TaskName "SystemDashboard-*"
@@ -110,6 +117,7 @@ Get-Content ".\var\log\webui-service.log" -Tail 20
 ```
 
 ### Database Management
+
 ```powershell
 # Verify database exists and has correct schema
 python scripts/init_db.py --verify
@@ -125,24 +133,28 @@ sqlite3 var/system_dashboard.db "SELECT COUNT(*) FROM syslog_messages;"
 ## Troubleshooting
 
 ### Service Won't Start
+
 1. Check logs in `var/log/` directory
 2. Verify database file exists at `var/system_dashboard.db`
 3. Ensure environment variables are set
 4. Run `python scripts/init_db.py --verify` to check database
 
 ### No Data Appearing
+
 1. Verify database is initialized: `python scripts/init_db.py --verify`
 2. Check service is running and collecting data
 3. Confirm syslog sources are sending data
 4. Generate test data: `.\scripts\test-data-collection.ps1`
 
 ### Dashboard Shows Errors
+
 1. Verify Flask app can access the database file
 2. Check database path in `config.json`
-3. Test connection: http://localhost:5000/health
+3. Test connection: <http://localhost:5000/health>
 4. Check browser console for JavaScript errors
 
 ### Router Logs Not Collected
+
 1. Verify `ASUS_ROUTER_PASSWORD` environment variable
 2. Check router endpoint in `config.json`
 3. Test router connectivity
@@ -159,6 +171,7 @@ sqlite3 var/system_dashboard.db "SELECT COUNT(*) FROM syslog_messages;"
 ## Next Steps
 
 After installation:
+
 1. Monitor the dashboard for data collection
 2. Configure router to send syslog to this machine
 3. Set up LAN observability if needed (see [LAN-OBSERVABILITY-README.md](LAN-OBSERVABILITY-README.md))

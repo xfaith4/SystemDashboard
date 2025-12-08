@@ -50,6 +50,7 @@ Core collection logic:
 #### Collector Service: `services/LanCollectorService.ps1`
 
 Runs continuously (or on a schedule) to:
+
 - Poll router every N minutes (configurable, default: 300s / 5 min)
 - Update device inventory and record snapshots
 - Correlate new syslog events
@@ -133,9 +134,12 @@ Set your router password as an environment variable:
 ```powershell
 $env:ASUS_ROUTER_PASSWORD = "your_router_password"
 ```
+
 SSH access is required for log collection and WiFi scanning:
+
 1. Enable SSH on your router (Administration → System → SSH Daemon = Yes)
 2. Install Posh-SSH module:
+
    ```powershell
    Install-Module -Name Posh-SSH -Scope CurrentUser
    ```
@@ -165,8 +169,9 @@ Start the Flask dashboard (if not already running):
 ```
 
 Navigate to:
-- **LAN Overview**: http://localhost:5000/lan
-- **Devices List**: http://localhost:5000/lan/devices
+
+- **LAN Overview**: <http://localhost:5000/lan>
+- **Devices List**: <http://localhost:5000/lan/devices>
 
 ## Configuration
 
@@ -184,14 +189,15 @@ The `telemetry.lan_settings` table stores runtime configuration:
 To change settings, update the database:
 
 ```sql
-UPDATE telemetry.lan_settings 
-SET setting_value = '14' 
+UPDATE telemetry.lan_settings
+SET setting_value = '14'
 WHERE setting_key = 'snapshot_retention_days';
 ```
 
 ### Router Polling Method
 
 All router data is gathered over SSH (Posh-SSH) using router CLI commands; HTTP scraping is no longer used. If polling fails, check:
+
 - Router credentials
 - Network connectivity
 - Router firmware SSH settings
@@ -201,6 +207,7 @@ All router data is gathered over SSH (Posh-SSH) using router CLI commands; HTTP 
 ### Monitoring Online Devices
 
 The **LAN Overview** page shows:
+
 - Total device counts (active/inactive, by interface type)
 - Currently online devices with signal strength
 - Potential issues (weak signal, flapping connections)
@@ -218,6 +225,7 @@ The **LAN Overview** page shows:
 ### Identifying Issues
 
 The system highlights:
+
 - Devices with weak signal (RSSI < -70 dBm)
 - Devices going offline frequently (check syslog events)
 - Unexpected devices (check first seen timestamp)
@@ -229,25 +237,30 @@ The system highlights:
 1. Check collector service logs: `var/log/lan-collector.log`
 2. Verify router credentials
 3. Test router connection:
+
    ```powershell
    .\scripts\asus-wifi-monitor.ps1 -TestConnection
    ```
+
 4. Check database connectivity
 
 ### "Loading..." Never Completes in UI
 
 1. Check Flask app is running
 2. Open browser console for errors
-3. Test API endpoint directly: http://localhost:5000/api/lan/stats
+3. Test API endpoint directly: <http://localhost:5000/api/lan/stats>
 
 ### Syslog Events Not Correlating
 
 1. Verify syslog ingestion is working (check `telemetry.syslog_generic_template`)
 2. Check correlation setting:
+
    ```sql
    SELECT * FROM telemetry.lan_settings WHERE setting_key = 'syslog_correlation_enabled';
    ```
+
 3. Manually run correlation:
+
    ```powershell
    Import-Module .\tools\LanObservability.psm1
    # Run correlation function with database connection
@@ -258,7 +271,7 @@ The system highlights:
 If snapshots aren't being recorded, check partitions:
 
 ```sql
-SELECT tablename FROM pg_tables 
+SELECT tablename FROM pg_tables
 WHERE schemaname = 'telemetry' AND tablename LIKE 'device_snapshots_%';
 ```
 
@@ -293,6 +306,7 @@ Possible improvements for future iterations:
 Implemented based on requirements in `LAN_Observability_SystemMonitor_Prompt.md`.
 
 Built on top of the existing SystemDashboard infrastructure:
+
 - PostgreSQL telemetry database
 - PowerShell 7 modules
 - Flask web framework
