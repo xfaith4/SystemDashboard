@@ -5,6 +5,7 @@ This document describes the Phase 1 improvements implemented for the SystemDashb
 ## Overview
 
 Phase 1 delivers significant improvements to:
+
 - Database connection management and performance
 - Input validation and error handling
 - API consistency and reliability
@@ -30,6 +31,7 @@ with db_manager.get_connection() as conn:
 ```
 
 **Features:**
+
 - Thread-safe connection pooling (max 5 connections by default)
 - WAL mode enabled for better concurrent access
 - Automatic connection reuse and cleanup
@@ -49,6 +51,7 @@ cursor = db_manager.execute_with_retry(
 ```
 
 **Features:**
+
 - Exponential backoff (0.1s, 0.2s, 0.4s, etc.)
 - Configurable max retries (3 by default)
 - Automatic rollback on errors
@@ -64,6 +67,7 @@ if not is_valid:
 ```
 
 **Checks:**
+
 - Required tables: devices, device_snapshots, device_alerts, ai_feedback, syslog_recent
 - Required views: lan_summary_stats, device_alerts_active
 
@@ -78,6 +82,7 @@ print(f"Applied {applied} migrations")
 ```
 
 **Indexes added:**
+
 - `idx_devices_mac` - Fast MAC address lookups
 - `idx_devices_active` - Active device queries
 - `idx_devices_last_seen` - Recent device queries
@@ -235,6 +240,7 @@ def expensive_query():
 ```
 
 **Features:**
+
 - In-memory cache with TTL
 - Automatic cache cleanup
 - Per-endpoint caching
@@ -252,6 +258,7 @@ def my_endpoint():
 ```
 
 **Features:**
+
 - Adds CORS headers to responses
 - Handles preflight OPTIONS requests
 - Configurable for cross-origin requests
@@ -275,14 +282,14 @@ from app.validators import validate_mac_address, validate_tags
 @handle_api_errors
 def create_device():
     data = request.get_json()
-    
+
     # Validate inputs
     mac = validate_mac_address(data['mac_address'])
     tags = validate_tags(data.get('tags', ''))
-    
+
     # Create device
     device_id = insert_device(mac, tags)
-    
+
     return success_response(
         data={'id': device_id, 'mac': mac},
         message="Device created successfully"
@@ -294,16 +301,16 @@ def create_device():
 @handle_api_errors
 def list_devices():
     from app.validators import validate_pagination
-    
+
     # Validate pagination
     page, limit = validate_pagination(
         request.args.get('page'),
         request.args.get('limit')
     )
-    
+
     # Query with pagination
     devices = query_devices(page, limit)
-    
+
     return jsonify({
         'devices': devices,
         'page': page,
@@ -369,6 +376,7 @@ To add validation and error handling to existing endpoints:
 4. Use `success_response()` for consistent success responses
 
 **Before:**
+
 ```python
 @app.route('/api/device/<device_id>')
 def get_device(device_id):
@@ -382,6 +390,7 @@ def get_device(device_id):
 ```
 
 **After:**
+
 ```python
 from app.api_utils import handle_api_errors, error_response
 from app.validators import ValidationError
@@ -400,6 +409,7 @@ def get_device(device_id):
 Replace direct SQLite connections with the database manager:
 
 **Before:**
+
 ```python
 conn = sqlite3.connect('./var/system_dashboard.db')
 cursor = conn.cursor()
@@ -409,6 +419,7 @@ conn.close()
 ```
 
 **After:**
+
 ```python
 from app.db_manager import get_db_manager
 
@@ -445,6 +456,7 @@ with db_manager.get_connection() as conn:
 ### Input Validation
 
 All user inputs are validated before database queries:
+
 - MAC addresses are normalized and validated
 - IP addresses are checked for valid format
 - SQL LIKE patterns are sanitized to prevent injection
@@ -459,6 +471,7 @@ All user inputs are validated before database queries:
 ### CORS Configuration
 
 Configure CORS based on deployment:
+
 - Development: Allow all origins (`*`)
 - Production: Restrict to specific domains
 - Use `@with_cors` decorator or configure app-wide
@@ -468,6 +481,7 @@ Configure CORS based on deployment:
 ### Database Locked Errors
 
 If you still see "database is locked" errors:
+
 1. Increase connection timeout
 2. Reduce concurrent operations
 3. Check for long-running transactions
@@ -476,6 +490,7 @@ If you still see "database is locked" errors:
 ### Cache Issues
 
 If cached data is stale:
+
 1. Reduce TTL for that endpoint
 2. Call `clear_cache()` after data updates
 3. Use cache key that includes timestamp parameter
@@ -483,6 +498,7 @@ If cached data is stale:
 ### Validation Errors
 
 If validation is too strict:
+
 1. Check validation parameters (e.g., `allow_private` for IPs)
 2. Adjust max limits (pagination, date ranges)
 3. Add custom validation functions if needed
@@ -612,6 +628,7 @@ When limit is exceeded, returns 429 Too Many Requests:
 ```
 
 Headers:
+
 ```
 Retry-After: 45
 X-RateLimit-Limit: 10
@@ -713,7 +730,7 @@ def long_running_task():
         if is_shutting_down():
             print("Shutdown requested, aborting task")
             break
-        
+
         # Do work...
         process_item(i)
 ```
@@ -766,6 +783,7 @@ if __name__ == '__main__':
 ## Next Steps
 
 Phase 1 completion enables:
+
 - Phase 2: UI Polish & Professionalism
 - Phase 3: Security & Hardening
 - Phase 4: Performance & Scalability
