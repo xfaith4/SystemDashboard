@@ -639,8 +639,11 @@ async function analyzeTrends() {
             const systemResponse = await fetch(`/api/events?max=100&since_hours=${rangeHours}&log_types=System`);
             
             if (!applicationResponse.ok || !securityResponse.ok || !systemResponse.ok) {
-                const errorMsg = `Failed to fetch events: ${!applicationResponse.ok ? 'Application' : ''} ${!securityResponse.ok ? 'Security' : ''} ${!systemResponse.ok ? 'System' : ''}`;
-                throw new Error(errorMsg);
+                const failedTypes = [];
+                if (!applicationResponse.ok) failedTypes.push('Application');
+                if (!securityResponse.ok) failedTypes.push('Security');
+                if (!systemResponse.ok) failedTypes.push('System');
+                throw new Error(`Failed to fetch events: ${failedTypes.join(', ')}`);
             }
             
             const appData = await applicationResponse.json();
