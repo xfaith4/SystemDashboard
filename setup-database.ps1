@@ -231,6 +231,30 @@ else {
     Write-Host "⚠️  Schema file not found at: $schemaPath" -ForegroundColor Yellow
 }
 
+# Apply extended schema for Windows Event Log and IIS tables
+$extendedSchemaPath = Join-Path $PSScriptRoot "extended-schema.sql"
+if (Test-Path $extendedSchemaPath) {
+    Write-Host "`n📋 Applying extended schema (Windows Event Log and IIS tables)..." -ForegroundColor Cyan
+    $extSchemaArgs = @("-h", $DatabaseHost, "-p", $Port, "-U", $AdminUser, "-d", $DatabaseName, "-f", $extendedSchemaPath, "-q")
+    try {
+        & $psqlPath $extSchemaArgs
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host "✅ Extended schema applied successfully" -ForegroundColor Green
+        }
+        else {
+            Write-Host "❌ Extended schema application failed" -ForegroundColor Red
+            $success = $false
+        }
+    }
+    catch {
+        Write-Host "❌ Extended schema error: $_" -ForegroundColor Red
+        $success = $false
+    }
+}
+else {
+    Write-Host "⚠️  Extended schema file not found at: $extendedSchemaPath" -ForegroundColor Yellow
+}
+
 # Grant permissions
 $permissionCommands = @(
     "GRANT CONNECT ON DATABASE $DatabaseName TO $IngestUser;",
