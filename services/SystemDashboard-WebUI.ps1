@@ -17,7 +17,7 @@ if (-not $RootPath) {
 }
 
 $AppPath = Join-Path $RootPath "app"
-# Use repository-level virtual environment created by Install.ps1
+# Use repository-level virtual environment created by scripts/Install.ps1
 $VenvPath = Join-Path $RootPath ".venv"
 $PythonExe = Join-Path $VenvPath "Scripts\python.exe"
 $AppScript = Join-Path $AppPath "run_dashboard.py"

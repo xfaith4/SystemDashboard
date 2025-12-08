@@ -57,8 +57,8 @@ Get-ScheduledTaskInfo -TaskName "SystemDashboard-Telemetry"
 
 5. Reinstall scheduled tasks:
    ```powershell
-   .\setup-permanent-services.ps1 -Uninstall
-   .\setup-permanent-services.ps1 -Install
+   .\scripts\setup-permanent-services.ps1 -Uninstall
+   .\scripts\setup-permanent-services.ps1 -Install
    ```
 
 ## Database Issues
@@ -146,7 +146,7 @@ Get-ScheduledTaskInfo -TaskName "SystemDashboard-Telemetry"
 
 2. Test syslog reception:
    ```powershell
-   .\test-syslog-sender.ps1
+   .\scripts\test-syslog-sender.ps1
    ```
 
 3. Configure router to send syslog:
@@ -270,7 +270,7 @@ Get-ScheduledTaskInfo -TaskName "SystemDashboard-Telemetry"
 
 4. Generate test data:
    ```powershell
-   .\test-data-collection.ps1
+   .\scripts\test-data-collection.ps1
    ```
 
 ## LAN Observability Issues
@@ -291,7 +291,7 @@ Get-ScheduledTaskInfo -TaskName "SystemDashboard-Telemetry"
 
 3. Test router connection:
    ```powershell
-   .\asus-wifi-monitor.ps1 -TestConnection
+   .\scripts\asus-wifi-monitor.ps1 -TestConnection
    ```
 
 4. Check device data in database:
@@ -358,7 +358,7 @@ Get-ScheduledTaskInfo -TaskName "SystemDashboard-Telemetry"
 
 2. Reinstall modules:
    ```powershell
-   .\Install.ps1
+   .\scripts\Install.ps1
    ```
 
 3. Import manually:

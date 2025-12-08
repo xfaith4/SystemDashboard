@@ -15,7 +15,7 @@ function Show-DashboardMenu {
     Write-Host "=" * 50
     Write-Host ""
     Write-Host "Current Status:" -ForegroundColor Yellow
-    .\setup-permanent-services.ps1 -Status
+    & (Join-Path $PSScriptRoot 'setup-permanent-services.ps1') -Status
     Write-Host ""
     Write-Host "Available Actions:" -ForegroundColor Yellow
     Write-Host "  1️⃣  Health Check               - Full system health assessment"
@@ -215,15 +215,15 @@ function Show-WiFiMonitoring {
     switch ($action.ToUpper()) {
         "A" {
             Write-Host "`n🔍 Testing router connectivity..."
-            .\asus-wifi-monitor.ps1 -RouterIP $routerIP -Username $username -TestConnection
+            & (Join-Path $PSScriptRoot 'asus-wifi-monitor.ps1') -RouterIP $routerIP -Username $username -TestConnection
         }
         "B" {
             Write-Host "`n📋 Available router commands..."
-            .\asus-wifi-monitor.ps1 -ShowCommands
+            & (Join-Path $PSScriptRoot 'asus-wifi-monitor.ps1') -ShowCommands
         }
         "C" {
             Write-Host "`n📡 Testing WiFi client gathering..."
-            .\asus-wifi-monitor.ps1 -RouterIP $routerIP -Username $username
+            & (Join-Path $PSScriptRoot 'asus-wifi-monitor.ps1') -RouterIP $routerIP -Username $username
         }
         "D" {
             Write-Host "`n✅ Enabling WiFi monitoring..."
@@ -355,7 +355,7 @@ function Start-ContinuousEventsMenu {
     Write-Host "Creating test events and data..." -ForegroundColor Yellow
 
     # Run the test data collection script
-    .\test-data-collection.ps1
+    & (Join-Path $PSScriptRoot 'test-data-collection.ps1')
 
     Write-Host "`n✅ Test data generation completed!" -ForegroundColor Green
     Read-Host "Press Enter to return to menu"
@@ -379,7 +379,7 @@ function Test-SyslogSender {
     Write-Host "`n🚀 Sending $count test syslog messages..." -ForegroundColor Green
 
     try {
-        .\test-syslog-sender.ps1 -Count $count -Facility $facility -Source "dashboard-test"
+        & (Join-Path $PSScriptRoot 'test-syslog-sender.ps1') -Count $count -Facility $facility -Source "dashboard-test"
 
         Write-Host "`n💡 Check option 8 (View Recent Data) to see if messages were received!" -ForegroundColor Cyan
     }
