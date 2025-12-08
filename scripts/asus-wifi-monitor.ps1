@@ -210,7 +210,7 @@ if ($TestConnection) {
 
 Write-Host ""
 Write-Host "📚 Usage Examples:" -ForegroundColor Yellow
-Write-Host "  .\asus-wifi-monitor.ps1 -ShowCommands      # Show available router commands"
-Write-Host "  .\asus-wifi-monitor.ps1 -TestConnection    # Test router connectivity"
-Write-Host "  .\asus-wifi-monitor.ps1                    # Gather WiFi client info"
-Write-Host "  .\asus-wifi-monitor.ps1 -RouterIP 192.168.1.1 -Username admin"
+Write-Host "  .\scripts\asus-wifi-monitor.ps1 -ShowCommands      # Show available router commands"
+Write-Host "  .\scripts\asus-wifi-monitor.ps1 -TestConnection    # Test router connectivity"
+Write-Host "  .\scripts\asus-wifi-monitor.ps1                    # Gather WiFi client info"
+Write-Host "  .\scripts\asus-wifi-monitor.ps1 -RouterIP 192.168.1.1 -Username admin"

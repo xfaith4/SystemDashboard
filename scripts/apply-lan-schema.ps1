@@ -99,7 +99,7 @@ if ($LASTEXITCODE -eq 0) {
             if (-not $Force) {
                 Write-Host "`nThe schema appears to be already applied." -ForegroundColor Yellow
                 Write-Host "If you want to reapply the schema (this is safe for existing data), use the -Force parameter." -ForegroundColor Yellow
-                Write-Host "Example: .\apply-lan-schema.ps1 -Force" -ForegroundColor Cyan
+                Write-Host "Example: .\scripts\apply-lan-schema.ps1 -Force" -ForegroundColor Cyan
                 exit 0
             }
 

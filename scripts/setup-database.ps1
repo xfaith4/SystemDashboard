@@ -29,11 +29,11 @@ Database host (default: localhost)
 Database port (default: 5432)
 
 .EXAMPLE
-.\setup-database.ps1
+.\scripts\setup-database.ps1
 Create database with default settings
 
 .EXAMPLE
-.\setup-database.ps1 -PostgreSQLPath "C:\PostgreSQL\16"
+.\scripts\setup-database.ps1 -PostgreSQLPath "C:\PostgreSQL\16"
 Specify custom PostgreSQL installation path
 #>
 
@@ -319,7 +319,7 @@ if ($success) {
 
     Write-Host "`n✅ Your System Dashboard database is ready!" -ForegroundColor Green
     Write-Host "Next steps:" -ForegroundColor Cyan
-    Write-Host "1. Run: .\Install.ps1" -ForegroundColor White
+    Write-Host "1. Run: .\scripts\Install.ps1" -ForegroundColor White
     Write-Host "2. Start-Service SystemDashboardTelemetry" -ForegroundColor White
     Write-Host "3. python .\app\app.py" -ForegroundColor White
 

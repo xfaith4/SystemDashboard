@@ -18,7 +18,7 @@ try {
 
     Write-Host "✅ Successfully bound to UDP port $Port" -ForegroundColor Green
     Write-Host "🔊 Listening for messages for $TestDurationSeconds seconds..." -ForegroundColor Yellow
-    Write-Host "   Send test messages using: .\test-syslog-sender.ps1" -ForegroundColor Gray
+    Write-Host "   Send test messages using: .\scripts\test-syslog-sender.ps1" -ForegroundColor Gray
     Write-Host ""
 
     $messageCount = 0
@@ -51,7 +51,7 @@ try {
     Write-Host "📊 Test completed: Received $messageCount messages" -ForegroundColor Cyan
 
     if ($messageCount -eq 0) {
-        Write-Host "💡 No messages received. Try running: .\test-syslog-sender.ps1 -Port $Port" -ForegroundColor Yellow
+        Write-Host "💡 No messages received. Try running: .\scripts\test-syslog-sender.ps1 -Port $Port" -ForegroundColor Yellow
     }
 }
 catch {

@@ -5,7 +5,7 @@ The System Dashboard now includes enterprise-grade monitoring and scaling capabi
 
 ## 🎛️ Master Control Interface
 ```powershell
-.\dashboard-control.ps1
+.\scripts\dashboard-control.ps1
 ```
 Interactive menu providing access to all dashboard operations:
 - Health monitoring and diagnostics
@@ -72,16 +72,16 @@ dmesg | grep -i wifi           # WiFi kernel messages
 ### Testing and Management
 ```powershell
 # Test router connectivity
-.\asus-wifi-monitor.ps1 -TestConnection
+.\scripts\asus-wifi-monitor.ps1 -TestConnection
 
 # Show available commands
-.\asus-wifi-monitor.ps1 -ShowCommands
+.\scripts\asus-wifi-monitor.ps1 -ShowCommands
 
 # Gather WiFi client info (requires SSH setup)
-.\asus-wifi-monitor.ps1
+.\scripts\asus-wifi-monitor.ps1
 
 # Access via dashboard control
-.\dashboard-control.ps1  # Option 4: Setup WiFi Monitoring
+.\scripts\dashboard-control.ps1  # Option 4: Setup WiFi Monitoring
 ```
 
 ## 📊 Scaling to More Data Sources
@@ -175,17 +175,17 @@ Get-SystemDashboardHealth
 
 ### View Current Data
 ```powershell
-.\dashboard-control.ps1  # Select option 7
+.\scripts\dashboard-control.ps1  # Select option 7
 ```
 
 ### Generate Test Data
 ```powershell
-.\test-data-collection.ps1
+.\scripts\test-data-collection.ps1
 ```
 
 ### Restart All Services
 ```powershell
-.\dashboard-control.ps1  # Select option 8
+.\scripts\dashboard-control.ps1  # Select option 8
 ```
 
 ## 🔧 Architecture Components

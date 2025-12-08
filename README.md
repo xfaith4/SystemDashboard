@@ -23,7 +23,7 @@ To get started with LAN Observability:
 
 ```powershell
 # Apply the database schema
-.\apply-lan-schema.ps1
+.\scripts\apply-lan-schema.ps1
 
 # Start the collector service
 .\services\LanCollectorService.ps1
@@ -87,14 +87,14 @@ For complete documentation, see [docs/LAN-OBSERVABILITY-README.md](docs/LAN-OBSE
 6. **Install and register the service**
 
    ```powershell
-   pwsh -File .\Install.ps1
+   pwsh -File .\scripts\Install.ps1
    ```
 
    This copies the modules into `$env:ProgramFiles\PowerShell\Modules\SystemDashboard`, creates the Python virtual environment, ensures runtime folders exist under `var/`, and registers a Windows service named `SystemDashboardTelemetry` pointing at `services/SystemDashboardService.ps1`.
 7. **Install scheduled tasks (WebUI, LAN collector, Syslog collector)**
 
    ```powershell
-   pwsh -File .\setup-permanent-services.ps1 -Install
+   pwsh -File .\scripts\setup-permanent-services.ps1 -Install
    ```
 
    Tasks created: `SystemDashboard-WebUI`, `SystemDashboard-LANCollector`, `SystemDashboard-SyslogCollector`.
@@ -117,24 +117,24 @@ Browse to `http://localhost:5000/` for the analytics dashboard. For production y
 
 ## Unified launch script
 
-Use `Launch.ps1` (or the accompanying `Launch.bat`/`Launch.sh` wrappers) to run the root-level helper scripts in their recommended order without invoking each file separately. The default pipeline performs:
+Use `scripts/Launch.ps1` (or the accompanying `scripts/Launch.bat`/`scripts/Launch.sh` wrappers) to run the root-level helper scripts in their recommended order without invoking each file separately. The default pipeline performs:
 
-- `Environment` → runs `setup-environment.ps1` (use `-EnvironmentPermanent` to persist the vars).
-- `Database` → runs `setup-database.ps1` (switch to `-DatabaseMode docker` to call `setup-database-docker.ps1`).
-- `Install` → runs `Install.ps1`.
-- `PermanentServices` → runs `setup-permanent-services.ps1 -Install`.
-- `ScheduledTask` → runs `setup-scheduled-task.ps1`.
-- `LanSchema` → runs `apply-lan-schema.ps1` (pass `-ForceLanSchema` or `-LanConfigPath` as needed).
+ - `Environment` → runs `scripts/setup-environment.ps1` (use `-EnvironmentPermanent` to persist the vars).
+ - `Database` → runs `scripts/setup-database.ps1` (switch to `-DatabaseMode docker` to call `scripts/setup-database-docker.ps1`).
+ - `Install` → runs `scripts/Install.ps1`.
+ - `PermanentServices` → runs `scripts/setup-permanent-services.ps1 -Install`.
+ - `ScheduledTask` → runs `scripts/setup-scheduled-task.ps1`.
+ - `LanSchema` → runs `scripts/apply-lan-schema.ps1` (pass `-ForceLanSchema` or `-LanConfigPath` as needed).
 
 You can limit what runs by setting the `-Stages` argument (e.g., `-Stages Environment,Install`). Additional argument passthroughs exist (`-DatabaseArgs`, `-InstallArgs`, `-ScheduledTaskArgs`, `-LanArgs`) if you need to forward flags to the underlying scripts.
 
 ```powershell
-pwsh .\Launch.ps1
-.\Launch.bat
-./Launch.sh
+pwsh .\scripts\Launch.ps1
+.\scripts\Launch.bat
+./scripts/Launch.sh
 ```
 
-Use `pwsh .\Launch.ps1 -ForceLanSchema -DatabaseMode docker` to adjust the defaults.
+Use `pwsh .\scripts\Launch.ps1 -ForceLanSchema -DatabaseMode docker` to adjust the defaults.
 
 ## Configuration reference (`config.json`)
 

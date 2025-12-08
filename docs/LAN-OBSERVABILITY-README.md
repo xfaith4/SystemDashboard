@@ -90,7 +90,7 @@ Three main pages:
 Run the schema migration script:
 
 ```powershell
-.\apply-lan-schema.ps1
+.\scripts\apply-lan-schema.ps1
 ```
 
 This creates all necessary tables, functions, and views. It's safe to run multiple times (idempotent).
@@ -98,7 +98,7 @@ This creates all necessary tables, functions, and views. It's safe to run multip
 To force reapplication:
 
 ```powershell
-.\apply-lan-schema.ps1 -Force
+.\scripts\apply-lan-schema.ps1 -Force
 ```
 
 ### Step 2: Configure Router Access
@@ -230,7 +230,7 @@ The system highlights:
 2. Verify router credentials
 3. Test router connection:
    ```powershell
-   .\asus-wifi-monitor.ps1 -TestConnection
+   .\scripts\asus-wifi-monitor.ps1 -TestConnection
    ```
 4. Check database connectivity
 

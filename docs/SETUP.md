@@ -27,7 +27,7 @@ $env:ASUS_ROUTER_PASSWORD = "your_router_password"
 $env:OPENAI_API_KEY = "your_api_key"
 
 # Make permanent
-.\setup-environment.ps1
+.\scripts\setup-environment.ps1
 ```
 
 ### 3. Set Up Database
@@ -46,7 +46,7 @@ This creates:
 ### 4. Install the Service
 
 ```powershell
-.\Install.ps1
+.\scripts\Install.ps1
 ```
 
 This will:
@@ -69,7 +69,7 @@ python .\app\app.py
 
 **For Permanent Installation:**
 ```powershell
-.\setup-permanent-services.ps1
+.\scripts\setup-permanent-services.ps1
 ```
 
 This creates scheduled tasks that run on startup:
@@ -134,7 +134,7 @@ sqlite3 var/system_dashboard.db "SELECT COUNT(*) FROM syslog_messages;"
 1. Verify database is initialized: `python scripts/init_db.py --verify`
 2. Check service is running and collecting data
 3. Confirm syslog sources are sending data
-4. Generate test data: `.\test-data-collection.ps1`
+4. Generate test data: `.\scripts\test-data-collection.ps1`
 
 ### Dashboard Shows Errors
 1. Verify Flask app can access the database file

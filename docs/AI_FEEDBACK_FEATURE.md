@@ -193,7 +193,7 @@ psql -h <host> -U <user> -d <database> -f ai-feedback-schema.sql
 
 Or if using the setup script:
 ```bash
-./setup-database.ps1
+./scripts/setup-database.ps1
 # Schema is automatically applied
 ```
 

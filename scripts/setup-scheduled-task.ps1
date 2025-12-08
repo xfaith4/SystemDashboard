@@ -8,7 +8,7 @@ This script creates a scheduled task that runs the System Dashboard telemetry se
 automatically at system startup. This is more reliable than Windows Services for PowerShell scripts.
 
 .EXAMPLE
-.\setup-scheduled-task.ps1
+.\scripts\setup-scheduled-task.ps1
 #>
 
 [CmdletBinding()]

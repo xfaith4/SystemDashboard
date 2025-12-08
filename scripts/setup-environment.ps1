@@ -11,11 +11,11 @@ It can set variables for the current session or permanently for the user.
 Set environment variables permanently for the current user
 
 .EXAMPLE
-.\setup-environment.ps1
+.\scripts\setup-environment.ps1
 Set variables for current session only
 
 .EXAMPLE
-.\setup-environment.ps1 -Permanent
+.\scripts\setup-environment.ps1 -Permanent
 Set variables permanently for current user
 #>
 
@@ -55,7 +55,7 @@ if ($Permanent) {
     Write-Host "   Current session already has the variables set" -ForegroundColor Yellow
 } else {
     Write-Host "`n💡 To make these variables permanent, run:" -ForegroundColor Blue
-    Write-Host "   .\setup-environment.ps1 -Permanent" -ForegroundColor Blue
+    Write-Host "   .\scripts\setup-environment.ps1 -Permanent" -ForegroundColor Blue
 }
 
 Write-Host "`n🧪 Running validation to verify setup..." -ForegroundColor Cyan
