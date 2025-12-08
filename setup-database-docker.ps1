@@ -296,7 +296,6 @@ if (Test-Path $extendedSchemaPath) {
 }
 else {
     Write-Host "⚠️  Extended schema file not found at: $extendedSchemaPath" -ForegroundColor Yellow
-    Write-Host "   Skipping Windows Event Log and IIS tables creation" -ForegroundColor Gray
 }
 
 # Grant permissions
