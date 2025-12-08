@@ -9,6 +9,7 @@
 #>
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+$script:BrowserLaunched = $false
 
 # Determine config path with fallback for empty $PSScriptRoot
 # In some contexts (e.g., pwsh -Command), $PSScriptRoot may be empty
@@ -215,7 +216,8 @@ function Start-SystemDashboardListener {
         [Parameter()][string] $Root,
         [Parameter()][string] $IndexHtml,
         [Parameter()][string] $CssFile,
-        [Parameter()][string] $PingTarget
+        [Parameter()][string] $PingTarget,
+        [Parameter()][switch] $OpenBrowser
     )
     if (-not $Prefix) {
         if ($env:SYSTEMDASHBOARD_PREFIX) { $Prefix = $env:SYSTEMDASHBOARD_PREFIX }
@@ -259,6 +261,21 @@ function Start-SystemDashboardListener {
     $l.Prefixes.Add($Prefix)
     $l.Start()
     Write-Log -Message "Listening on $Prefix"
+    $envOpen = $false
+    if ($env:SYSTEMDASHBOARD_OPEN_BROWSER) {
+        switch ($env:SYSTEMDASHBOARD_OPEN_BROWSER.ToLowerInvariant()) {
+            '1','true','yes','on' { $envOpen = $true }
+        }
+    }
+    $shouldOpenBrowser = $OpenBrowser -or $envOpen
+    if ($shouldOpenBrowser -and -not $script:BrowserLaunched) {
+        try {
+            Start-Process -FilePath $Prefix -WindowStyle Normal | Out-Null
+            $script:BrowserLaunched = $true
+        } catch {
+            Write-Log -Level 'WARN' -Message "Opening browser failed: $_"
+        }
+    }
     # Cache for network deltas
     $prevNet = @{}
 
@@ -425,7 +442,8 @@ function Start-SystemDashboardListener {
 function Start-SystemDashboard {
     [CmdletBinding()]
     param(
-        [string]$ConfigPath = (Join-Path $PSScriptRoot 'config.json')
+        [string]$ConfigPath = (Join-Path $PSScriptRoot 'config.json'),
+        [switch]$OpenBrowser
     )
     if (-not (Test-Path -LiteralPath $ConfigPath)) {
         throw "Config file not found: $ConfigPath"
@@ -434,7 +452,7 @@ function Start-SystemDashboard {
     $script:ConfigPath = $resolved
     $script:ConfigBase = Split-Path -Parent $resolved
     $script:Config = Get-Content -LiteralPath $resolved -Raw | ConvertFrom-Json
-    Start-SystemDashboardListener
+    Start-SystemDashboardListener -OpenBrowser:$OpenBrowser
 }
 
 function Scan-ConnectedClients {

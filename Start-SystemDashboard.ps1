@@ -1,6 +1,7 @@
 #requires -Version 7
 param(
-    [string]$ConfigPath = (Join-Path $PSScriptRoot 'config.json')
+    [string]$ConfigPath = (Join-Path $PSScriptRoot 'config.json'),
+    [switch]$NoBrowser
 )
 try {
     $env:SYSTEMDASHBOARD_CONFIG = $ConfigPath
@@ -16,7 +17,11 @@ try {
     }
     
     # Start the dashboard listener
-    Start-SystemDashboard -ConfigPath $ConfigPath
+    if ($NoBrowser) {
+        Start-SystemDashboard -ConfigPath $ConfigPath
+    } else {
+        Start-SystemDashboard -ConfigPath $ConfigPath -OpenBrowser
+    }
 } catch {    
     Write-Error "Failed to start dashboard: $_"
 }
