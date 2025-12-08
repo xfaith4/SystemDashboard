@@ -5,6 +5,7 @@ This document explains how to configure the System Dashboard to pull real data f
 ## Overview
 
 The System Dashboard supports three main data sources:
+
 1. **Windows Event Logs** - Real system events from Windows Event Log
 2. **Router Logs** - Log files from network routers/firewalls
 3. **System Information** - Real-time system metrics (CPU, memory, disk, network)
@@ -16,11 +17,13 @@ The System Dashboard supports three main data sources:
 The PowerShell module automatically accesses Windows Event Logs when running on Windows systems.
 
 **Configuration:**
+
 - No additional configuration required on Windows
 - Logs are pulled from `Application` and `System` event logs by default
 - Access requires appropriate permissions (usually user-level access is sufficient)
 
 **Customization:**
+
 ```powershell
 # Get logs from specific event logs with filtering
 Get-SystemLogs -LogName 'Application','System','Security' -MaxEvents 50 -MinimumLevel 'Error'
@@ -28,6 +31,7 @@ Get-SystemLogs -LogName 'Application','System','Security' -MaxEvents 50 -Minimum
 
 **Flask App Configuration:**
 The Flask app uses PowerShell to retrieve Windows events:
+
 - Automatically detects Windows environment
 - Falls back to empty list on non-Windows systems
 - Supports filtering by event level (Error, Warning, Information)
@@ -37,23 +41,29 @@ The Flask app uses PowerShell to retrieve Windows events:
 Router logs are read from a file specified by the `ROUTER_LOG_PATH` environment variable.
 
 **Setup:**
+
 1. Configure your router to write logs to a file accessible by the dashboard
 2. Set the environment variable:
+
    ```bash
    export ROUTER_LOG_PATH="/path/to/router/logs.txt"
    ```
+
    Or on Windows:
+
    ```cmd
    set ROUTER_LOG_PATH=C:\logs\router.log
    ```
 
 **Log Format:**
 The dashboard expects logs in this format:
+
 ```
 YYYY-MM-DD HH:MM:SS LEVEL MESSAGE
 ```
 
 Example:
+
 ```
 2024-01-15 08:30:15 INFO DHCP assigned IP 192.168.1.100 to MAC 00:11:22:33:44:55
 2024-01-15 08:30:45 WARN Failed login attempt from 192.168.1.50
@@ -62,6 +72,7 @@ Example:
 
 **Sample Configuration:**
 Use the provided `sample-router.log` file for testing:
+
 ```bash
 export ROUTER_LOG_PATH="./sample-router.log"
 ```
@@ -71,6 +82,7 @@ export ROUTER_LOG_PATH="./sample-router.log"
 System metrics are collected automatically using native OS tools.
 
 **Windows Metrics:**
+
 - **CPU Usage**: Performance counters via `Get-Counter`
 - **Memory Usage**: WMI via `Get-CimInstance Win32_ComputerSystem`
 - **Disk Usage**: WMI via `Get-CimInstance Win32_LogicalDisk`
@@ -78,11 +90,13 @@ System metrics are collected automatically using native OS tools.
 - **Process Info**: `Get-Process` cmdlet
 
 **Network Client Discovery:**
+
 - Uses `Get-NetNeighbor` to find connected devices
 - Performs DNS lookups for hostnames
 - Returns IP, MAC address, and connection state
 
 **Linux/Unix Metrics:**
+
 - Limited support for cross-platform operation
 - Uses standard tools like `ps`, `df`, `free` where available
 
@@ -99,6 +113,7 @@ System metrics are collected automatically using native OS tools.
 ## Testing Data Sources
 
 ### Test Router Logs
+
 ```bash
 # Set up sample router log
 export ROUTER_LOG_PATH="./sample-router.log"
@@ -113,6 +128,7 @@ python app.py
 ```
 
 ### Test Windows Events (Windows only)
+
 ```powershell
 # Test PowerShell function
 Import-Module ./Start-SystemDashboard.psm1
@@ -124,6 +140,7 @@ python app/app.py
 ```
 
 ### Test System Metrics
+
 ```powershell
 # Start PowerShell listener
 ./Start-SystemDashboard.ps1
@@ -148,24 +165,28 @@ pwsh -Command "Invoke-Pester tests/ -Verbose"
 ## Troubleshooting
 
 ### Router Logs Not Appearing
+
 1. Verify `ROUTER_LOG_PATH` environment variable is set
 2. Check file exists and is readable
 3. Verify log format matches expected pattern
 4. Check file encoding (should be UTF-8 compatible)
 
 ### Windows Events Not Loading
+
 1. Ensure running on Windows system
 2. Check user has permission to read Event Logs
 3. Verify PowerShell execution policy allows script execution
 4. Check for PowerShell errors in console
 
 ### System Metrics Showing Zeros
+
 1. Verify appropriate permissions for system access
 2. Check if performance counters are enabled
 3. Ensure WMI service is running (Windows)
 4. Check for antivirus interference
 
 ### Network Discovery Issues
+
 1. Verify network adapter is up and configured
 2. Check ARP table has entries: `arp -a`
 3. Ensure DNS resolution is working

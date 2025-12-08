@@ -19,6 +19,7 @@ This roadmap focuses on **hardening existing features** and delivering a **profe
 ## 📋 Phase 1: Core Stability & Error Handling
 
 ### Database & Data Layer
+
 - [x] **Connection pooling**: Implement proper SQLite connection management to prevent "database is locked" errors
   - ✅ Implemented ConnectionPool class with WAL mode and thread-safe access
   - ✅ Configurable max connections and automatic connection reuse
@@ -39,6 +40,7 @@ This roadmap focuses on **hardening existing features** and delivering a **profe
   - ✅ Returns detailed list of missing objects
 
 ### Service Reliability
+
 - [x] **Service heartbeat**: Add health check endpoints that verify database connectivity and data freshness
   - ✅ Implemented comprehensive health check module (`app/health_check.py`)
   - ✅ `/health/detailed` endpoint with JSON response
@@ -60,6 +62,7 @@ This roadmap focuses on **hardening existing features** and delivering a **profe
 - [ ] **State persistence**: Ensure state files (like `asus/state.json`) are atomic writes
 
 ### API Endpoints
+
 - [x] **Input validation**: Strict validation for all query parameters (dates, MAC addresses, IP addresses)
   - ✅ Created validators.py with comprehensive validation functions
   - ✅ MAC address validation and normalization
@@ -88,6 +91,7 @@ This roadmap focuses on **hardening existing features** and delivering a **profe
 ## 🎨 Phase 2: UI Polish & Professionalism
 
 ### Visual Consistency
+
 - [x] **Design system audit**: Document all color variables, spacing, typography in use (CSS variables already well-defined)
 - [x] **Component library**: Extract reusable card, button, table, badge components (existing components well-structured)
 - [x] **Icon consistency**: Use a single icon set (current SVGs are good, just ensure completeness) ✅ SVG icons consistent
@@ -96,6 +100,7 @@ This roadmap focuses on **hardening existing features** and delivering a **profe
 - [x] **Error states**: Clear, actionable error messages with recovery suggestions (Toast notifications)
 
 ### Navigation & UX
+
 - [x] **Breadcrumbs**: Add breadcrumb navigation for device detail pages
 - [x] **Back buttons**: Consistent "back to list" navigation on detail pages (already exists)
 - [x] **Search persistence**: Remember search/filter state when navigating back ✅ LocalStorage-based state persistence
@@ -104,6 +109,7 @@ This roadmap focuses on **hardening existing features** and delivering a **profe
 - [x] **Mobile optimization**: Test on 768px and 375px viewports, make critical views usable (existing media queries)
 
 ### Data Presentation
+
 - [ ] **Chart improvements**:
   - [ ] Add zoom/pan to charts with lots of data
   - [ ] Responsive chart sizing (adapt to viewport)
@@ -119,6 +125,7 @@ This roadmap focuses on **hardening existing features** and delivering a **profe
 - [x] **Data refresh indicators**: Visual cue when data is stale or refreshing ✅ Auto-refresh with visual indicators
 
 ### Forms & Inputs
+
 - [x] **Form validation**: Real-time validation with clear error messages ✅ FormValidator with multiple validators
 - [x] **Input helpers**: Placeholder examples, format hints (e.g., "MAC: AA:BB:CC:DD:EE:FF") ✅ Contextual hints added
 - [x] **Autosave**: Device nickname/location changes save automatically with "Saved" indicator ✅ AutoSave system implemented
@@ -126,6 +133,7 @@ This roadmap focuses on **hardening existing features** and delivering a **profe
 - [x] **Confirmation dialogs**: For destructive actions (clear alerts, delete devices) ✅ ConfirmDialog framework ready
 
 ### Notifications & Feedback
+
 - [x] **Toast notifications**: Unobtrusive success/error messages in corner (instead of alerts)
 - [ ] **Progress indicators**: For long-running operations (data collection, exports)
 - [x] **System status banner**: Persistent banner when services are degraded
@@ -136,6 +144,7 @@ This roadmap focuses on **hardening existing features** and delivering a **profe
 ## 🔒 Phase 3: Security & Hardening ✅ COMPLETE
 
 ### Authentication & Authorization
+
 - [x] **Session management**: Add basic auth or API key authentication for production
   - ✅ Implemented APIKeyAuth class with hashed key storage
   - ✅ Environment variable configuration (DASHBOARD_API_KEY)
@@ -157,6 +166,7 @@ This roadmap focuses on **hardening existing features** and delivering a **profe
   - ✅ Step-by-step instructions for all credential types
 
 ### Input Sanitization
+
 - [x] **SQL injection prevention**: Audit all queries for parameterization (already good, verify 100%)
   - ✅ All queries reviewed - 100% parameterized
   - ✅ Added validate_sql_identifier() for dynamic identifiers
@@ -172,6 +182,7 @@ This roadmap focuses on **hardening existing features** and delivering a **profe
   - ✅ All scripts use parameterized commands
 
 ### Logging & Audit
+
 - [x] **Structured logging**: Consistent log format (JSON?) for easy parsing
   - ✅ Implemented StructuredLogger class
   - ✅ JSON format with timestamp, level, message, context
@@ -196,6 +207,7 @@ This roadmap focuses on **hardening existing features** and delivering a **profe
 ## 📊 Phase 4: Performance & Scalability ✅ COMPLETE
 
 ### Query Performance
+
 - [x] **Slow query logging**: Identify queries > 100ms, optimize or add indexes
   - ✅ Implemented QueryPerformanceTracker with configurable thresholds
   - ✅ Automatic slow query detection and logging
@@ -219,6 +231,7 @@ This roadmap focuses on **hardening existing features** and delivering a **profe
   - ✅ 19 tests with 100% coverage
 
 ### Frontend Performance
+
 - [x] **Asset optimization**: Minify CSS/JS, optimize images if any
   - ✅ DEFERRED - Current asset size (114KB) is acceptable for LAN deployment
   - ✅ Can be added to build pipeline in future if needed
@@ -239,6 +252,7 @@ This roadmap focuses on **hardening existing features** and delivering a **profe
   - ✅ Not blocking production deployment
 
 ### Resource Management
+
 - [x] **Memory profiling**: Ensure services don't leak memory over days of runtime
   - ✅ Implemented ResourceMonitor with psutil integration
   - ✅ Memory usage tracking (RSS, VMS, percent)
@@ -259,6 +273,7 @@ This roadmap focuses on **hardening existing features** and delivering a **profe
 ## 📖 Phase 5: Documentation & Onboarding
 
 ### User Documentation
+
 - [ ] **Getting Started guide**: Streamline installation for new users
 - [ ] **Dashboard tour**: Annotated screenshots explaining each page
 - [ ] **FAQ section**: Common questions (where is data stored, how to reset DB, etc.)
@@ -266,6 +281,7 @@ This roadmap focuses on **hardening existing features** and delivering a **profe
 - [ ] **Video walkthrough**: 5-minute intro video (optional but nice)
 
 ### Developer Documentation
+
 - [ ] **Architecture diagram**: Update with current service layout
 - [ ] **API reference**: Swagger/OpenAPI spec for all endpoints
 - [ ] **Database schema docs**: ER diagram, table descriptions, view purposes
@@ -273,6 +289,7 @@ This roadmap focuses on **hardening existing features** and delivering a **profe
 - [ ] **Release process**: How to tag versions, generate changelogs
 
 ### Operations Documentation
+
 - [ ] **Deployment guide**: Production setup (Windows Server, IIS, SSL, firewall)
 - [ ] **Backup & restore**: How to backup database, restore from backup
 - [ ] **Monitoring setup**: Recommended alerts and health checks
@@ -284,6 +301,7 @@ This roadmap focuses on **hardening existing features** and delivering a **profe
 ## 🧪 Phase 6: Testing & Quality Assurance
 
 ### Test Coverage
+
 - [ ] **Unit tests**: Maintain >80% coverage for app.py and service modules
 - [ ] **Integration tests**: End-to-end tests for critical workflows (device discovery, alert lifecycle)
 - [ ] **Performance tests**: Benchmark query response times under load
@@ -291,6 +309,7 @@ This roadmap focuses on **hardening existing features** and delivering a **profe
 - [ ] **Accessibility testing**: Run axe-core or similar tool, fix critical issues
 
 ### Quality Checks
+
 - [ ] **Linting**: Add flake8/black for Python, ESLint for JavaScript
 - [ ] **Type checking**: Add mypy annotations to critical functions
 - [ ] **Dependency updates**: Audit requirements.txt for CVEs, update safely
@@ -302,6 +321,7 @@ This roadmap focuses on **hardening existing features** and delivering a **profe
 ## 🚀 Phase 7: Production Readiness
 
 ### Deployment Automation
+
 - [ ] **Installation script improvements**: Idempotent install (can run multiple times safely)
 - [ ] **Configuration validation**: Script that checks config.json for common mistakes
 - [ ] **Environment detection**: Auto-detect Windows version, PowerShell version, Python version
@@ -309,12 +329,14 @@ This roadmap focuses on **hardening existing features** and delivering a **profe
 - [ ] **Uninstall script**: Clean removal of services, scheduled tasks, modules
 
 ### Monitoring & Alerting
+
 - [ ] **Service health dashboard**: Dedicated page showing service status, last run times, error counts
 - [ ] **Alert rules**: Define thresholds for critical issues (DB size, service down, error rate spike)
 - [ ] **Email notifications**: Send alerts via SMTP when issues detected
 - [ ] **Integration hooks**: Webhooks for external monitoring (PagerDuty, Slack, etc.)
 
 ### Operations Tooling
+
 - [ ] **Backup script**: Automated SQLite backup with configurable retention
 - [ ] **Database vacuum**: Scheduled job to reclaim space from deleted rows
 - [ ] **Log archival**: Compress and archive old service logs
