@@ -259,6 +259,10 @@ function formatTime(value) {
 async function loadSummary() {
     const logTypesQuery = buildLogTypesQuery();
     const res = await fetch(`/api/events/summary?max=500&since_hours=${rangeHours}${logTypesQuery}`);
+    if (!res.ok) {
+        console.error('Failed to load summary:', res.status, res.statusText);
+        return;
+    }
     const data = await res.json();
     updateSourceBanner(data.source);
     document.getElementById('stat-total').textContent = data.total || 0;
@@ -305,6 +309,11 @@ async function loadSummary() {
 async function loadEvents() {
     const logTypesQuery = buildLogTypesQuery();
     const res = await fetch(`/api/events?max=200&page=${currentPage}&since_hours=${rangeHours}${logTypesQuery}`);
+    if (!res.ok) {
+        console.error('Failed to load events:', res.status, res.statusText);
+        document.getElementById('eventsBody').innerHTML = '<tr><td colspan="6" class="error">Failed to load events</td></tr>';
+        return;
+    }
     const data = await res.json();
     currentEvents = data.events || [];
     updateSourceBanner(data.source);
@@ -533,6 +542,11 @@ async function askAI(eventIndex) {
             })
         });
         
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`AI API error (${response.status}): ${errorText}`);
+        }
+        
         const result = await response.json();
         
         // Log response for observability
@@ -624,6 +638,14 @@ async function analyzeTrends() {
             const securityResponse = await fetch(`/api/events?max=100&since_hours=${rangeHours}&log_types=Security`);
             const systemResponse = await fetch(`/api/events?max=100&since_hours=${rangeHours}&log_types=System`);
             
+            if (!applicationResponse.ok || !securityResponse.ok || !systemResponse.ok) {
+                const failedTypes = [];
+                if (!applicationResponse.ok) failedTypes.push('Application');
+                if (!securityResponse.ok) failedTypes.push('Security');
+                if (!systemResponse.ok) failedTypes.push('System');
+                throw new Error(`Failed to fetch events: ${failedTypes.join(', ')}`);
+            }
+            
             const appData = await applicationResponse.json();
             const secData = await securityResponse.json();
             const sysData = await systemResponse.json();
@@ -646,6 +668,9 @@ async function analyzeTrends() {
             modalBody.innerHTML = '<p class="loading">🔄 Analyzing last 100 events for trends...</p>';
             
             const response = await fetch(`/api/events?max=100&since_hours=${rangeHours}${logTypesQuery}`);
+            if (!response.ok) {
+                throw new Error(`Failed to fetch events: ${response.status} ${response.statusText}`);
+            }
             const data = await response.json();
             events = data.events || [];
             
@@ -685,6 +710,11 @@ async function analyzeTrends() {
                 userQuestion: analysisMessage
             })
         });
+        
+        if (!aiResponse.ok) {
+            const errorText = await aiResponse.text();
+            throw new Error(`AI API error (${aiResponse.status}): ${errorText}`);
+        }
         
         const result = await aiResponse.json();
         
@@ -780,7 +810,12 @@ async function saveFeedbackToBackend(eventData, aiResponse) {
         });
         
         if (!response.ok) {
-            const error = await response.json();
+            let error;
+            try {
+                error = await response.json();
+            } catch (e) {
+                error = { error: await response.text() };
+            }
             console.error('[Save Feedback] Failed:', error);
             return;
         }
@@ -812,6 +847,9 @@ async function loadFeedbackHistory() {
         }
         
         const response = await fetch(url);
+        if (!response.ok) {
+            throw new Error(`Failed to load feedback: ${response.status} ${response.statusText}`);
+        }
         const data = await response.json();
         
         console.log('[Load Feedback] Retrieved:', data.total, 'entries');
@@ -887,7 +925,12 @@ async function updateFeedbackStatus(feedbackId, newStatus) {
         });
         
         if (!response.ok) {
-            const error = await response.json();
+            let error;
+            try {
+                error = await response.json();
+            } catch (e) {
+                error = { error: await response.text() };
+            }
             console.error('[Update Status] Failed:', error);
             alert('Failed to update status: ' + (error.error || 'Unknown error'));
             // Reload to reset the dropdown
