@@ -3,8 +3,8 @@
 
 param(
     [string]$RouterIP = "192.168.50.1",
-    [string]$Username = "xfaith",
-    [string]$Password,
+    [string]$Username = "$($env:Router_Username)",
+    [SecureString]$Password = "$($env:Router_Password)",
     [switch]$ShowCommands,
     [switch]$TestConnection
 )
@@ -50,7 +50,7 @@ function Test-RouterConnection {
     param(
         [string]$RouterIP,
         [string]$Username,
-        [string]$Password
+        [SecureString]$Password
     )
 
     Write-Host "🔍 Testing Connection to Router" -ForegroundColor Cyan
@@ -73,17 +73,17 @@ function Test-RouterConnection {
     }
 
     # Test SSH port
-    Write-Host "Testing SSH port 22..." -ForegroundColor Yellow
+    Write-Host "Testing SSH port 1099..." -ForegroundColor Yellow
     try {
         $tcpClient = New-Object System.Net.Sockets.TcpClient
-        $connect = $tcpClient.BeginConnect($RouterIP, 22, $null, $null)
+        $connect = $tcpClient.BeginConnect($RouterIP, 1099, $null, $null)
         $wait = $connect.AsyncWaitHandle.WaitOne(3000, $false)
 
         if ($wait -and $tcpClient.Connected) {
-            Write-Host "✅ SSH port 22 is open" -ForegroundColor Green
+            Write-Host "✅ SSH port 1099 is open" -ForegroundColor Green
             $tcpClient.Close()
         } else {
-            Write-Host "❌ SSH port 22 is not accessible" -ForegroundColor Red
+            Write-Host "❌ SSH port 1099 is not accessible" -ForegroundColor Red
             $tcpClient.Close()
             return $false
         }
@@ -108,7 +108,7 @@ function Get-WiFiClientInfo {
     param(
         [string]$RouterIP,
         [string]$Username,
-        [string]$Password
+        [SecureString]$Password
     )
 
     Write-Host "📡 Gathering WiFi Client Information" -ForegroundColor Cyan
@@ -144,11 +144,10 @@ function Get-WiFiClientInfo {
 
     try {
         # Create SSH session
-        $securePassword = ConvertTo-SecureString $Password -AsPlainText -Force
-        $credential = New-Object System.Management.Automation.PSCredential($Username, $securePassword)
+        $credential = New-Object System.Management.Automation.PSCredential($Username, $Password)
 
         Write-Host "Connecting to $RouterIP..." -ForegroundColor Yellow
-        $session = New-SSHSession -ComputerName $RouterIP -Credential $credential -AcceptKey -ErrorAction Stop
+        $session = New-SSHSession -ComputerName $RouterIP -Port 1099 -Credential $credential -AcceptKey -ErrorAction Stop
 
         Write-Host "✅ SSH connection established" -ForegroundColor Green
         Write-Host ""
@@ -193,13 +192,11 @@ if ($ShowCommands) {
 
 if (-not $Password) {
     if ($env:ASUS_ROUTER_PASSWORD) {
-        $Password = $env:ASUS_ROUTER_PASSWORD
+        $Password = ConvertTo-SecureString $env:ASUS_ROUTER_PASSWORD -AsPlainText -Force
     } else {
         $Password = Read-Host "Enter router password" -AsSecureString
-        $Password = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($Password))
     }
 }
-
 Write-Host "🏠 ASUS Router WiFi Client Monitor" -ForegroundColor Cyan
 Write-Host "Router: $RouterIP" -ForegroundColor Gray
 Write-Host "User: $Username" -ForegroundColor Gray

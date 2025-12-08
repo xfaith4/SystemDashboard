@@ -15,7 +15,7 @@ The service, ingestion helpers, and UI follow the project guidance of “PowerSh
 The SystemDashboard now includes comprehensive network device monitoring:
 
 - **Device Inventory**: Tracks all devices (by MAC address) that have ever appeared on your network
-- **Time-Series Metrics**: Records signal strength (RSSI), transfer rates, and online/offline behavior  
+- **Time-Series Metrics**: Records signal strength (RSSI), transfer rates, and online/offline behavior
 - **Syslog Correlation**: Links router events to specific devices for troubleshooting
 - **Web Dashboard**: Real-time visibility with charts and filtering at `/lan`
 
@@ -25,11 +25,12 @@ To get started with LAN Observability:
 # Apply the database schema
 .\apply-lan-schema.ps1
 
-# Start the collector service  
+# Start the collector service
 .\services\LanCollectorService.ps1
 ```
 
 Recent LAN updates:
+
 - Interface/band detection (wired, wireless 2.4/5 GHz) with RSSI/Tx/Rx and lease type.
 - Per-device nickname/location editing (stored on `telemetry.devices`).
 - Router syslog correlation shows per-device events in detail pages.
@@ -66,40 +67,52 @@ For complete documentation, see [docs/LAN-OBSERVABILITY-README.md](docs/LAN-OBSE
    - Python 3.10+ (for the Flask UI and database initialization)
    - Git
 2. **Clone the repository**
+
    ```powershell
    git clone https://github.com/your-org/SystemDashboard.git
    cd SystemDashboard
    ```
+
 3. **Configure secrets** (optional)
    - Set `ASUS_ROUTER_PASSWORD` if your router requires authentication.
    - Set `OPENAI_API_KEY` for AI-powered explanations.
 4. **Review `config.json`** – update the ASUS router endpoint if needed. Paths can be relative to the repo root.
 5. **Initialize the database**
+
    ```powershell
    python scripts/init_db.py
    ```
+
    This creates the SQLite database at `var/system_dashboard.db` with all required tables and views.
 6. **Install and register the service**
+
    ```powershell
    pwsh -File .\Install.ps1
    ```
+
    This copies the modules into `$env:ProgramFiles\PowerShell\Modules\SystemDashboard`, creates the Python virtual environment, ensures runtime folders exist under `var/`, and registers a Windows service named `SystemDashboardTelemetry` pointing at `services/SystemDashboardService.ps1`.
 7. **Install scheduled tasks (WebUI, LAN collector, Syslog collector)**
+
    ```powershell
    pwsh -File .\setup-permanent-services.ps1 -Install
    ```
+
    Tasks created: `SystemDashboard-WebUI`, `SystemDashboard-LANCollector`, `SystemDashboard-SyslogCollector`.
 8. **Start ingestion**
+
    ```powershell
    Start-Service SystemDashboardTelemetry
    Get-Content .\var\log\telemetry-service.log -Tail 20 -Wait
    ```
+
    You should see entries indicating syslog packets received and ASUS log batches ingested.
 9. **Run the web UI (dev)**
+
    ```powershell
    .\.venv\Scripts\Activate.ps1
    python .\app\app.py
    ```
+
    Browse to `http://localhost:5000/` for the analytics dashboard. For production you can host the contents of `wwwroot/` (or the Flask app behind IIS) at `http://localhost:8088/` per the project brief.
 
 ## Configuration reference (`config.json`)
@@ -160,6 +173,7 @@ $env:AUTH_FAILURE_THRESHOLD = '10'   # optional override for auth burst detectio
 For detailed troubleshooting, see [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md).
 
 **Quick fixes:**
+
 - **Service fails to start** – Check `var/log/telemetry-service.log` for errors.
 - **No data in SQLite** – Ensure the database has been initialized with `python scripts/init_db.py`.
 - **ASUS fetch errors** – Verify SSH connectivity to the router, the configured remote log path, and credentials/environment variables. The service backs off quietly but logs warnings.
@@ -181,6 +195,7 @@ For detailed troubleshooting, see [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING
 ## Tests
 
 Python tests use pytest:
+
 ```bash
 # Run all Python tests
 pytest tests/
@@ -192,6 +207,7 @@ pytest tests/test_graceful_shutdown.py
 ```
 
 Pester tests for PowerShell modules:
+
 ```powershell
 pwsh -NoLogo -NoProfile -Command "Invoke-Pester -Path tests"
 ```
@@ -199,6 +215,7 @@ pwsh -NoLogo -NoProfile -Command "Invoke-Pester -Path tests"
 ## Production Features
 
 ### Phase 1: Service Reliability
+
 - **Health Monitoring** (`/health/detailed`) - Comprehensive health checks with database connectivity, schema integrity, and data freshness monitoring
 - **Rate Limiting** - Per-client API rate limiting to prevent abuse (configurable per endpoint)
 - **Graceful Shutdown** - Clean shutdown with signal handlers and cleanup functions
@@ -206,6 +223,7 @@ pwsh -NoLogo -NoProfile -Command "Invoke-Pester -Path tests"
 See [Phase 1 Improvements](docs/PHASE1-IMPROVEMENTS.md) for detailed documentation and usage examples.
 
 ### Phase 2: UI Polish & Professionalism
+
 - **Form Validation & Autosave** - Real-time validation with automatic saving
 - **Keyboard Shortcuts** - Navigate with `?` for help, `h`/`e`/`l`/`r`/`w` for pages
 - **Table Enhancements** - CSV export, sortable columns, auto-refresh indicators
@@ -214,6 +232,7 @@ See [Phase 1 Improvements](docs/PHASE1-IMPROVEMENTS.md) for detailed documentati
 See [Phase 2 Completion Summary](docs/PHASE2-COMPLETION-SUMMARY.md) for complete details.
 
 ### Phase 3: Security & Hardening
+
 - **Security Headers** - CSP, HSTS, X-Frame-Options, X-Content-Type-Options for protection
 - **API Key Authentication** - Optional authentication for sensitive endpoints
 - **CSRF Protection** - Double-submit cookie pattern for state-changing operations
