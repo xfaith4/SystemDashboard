@@ -57,6 +57,7 @@ if %errorlevel% neq 0 (
 )
 
 call :log "System Dashboard startup complete! Web interface should be at http://localhost:5001"
+start "" "http://localhost:5001"
 echo See log: %LOGFILE%
 echo.
 pause

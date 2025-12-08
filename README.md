@@ -113,7 +113,7 @@ For complete documentation, see [docs/LAN-OBSERVABILITY-README.md](docs/LAN-OBSE
    python .\app\app.py
    ```
 
-   Running `Start-SystemDashboard.ps1` now also opens `http://localhost:15000/` in your default browser. Use `.\Start-SystemDashboard.ps1 -NoBrowser` if you need to keep it headless or run inside automation.
+   Running `Start-SystemDashboard.ps1` now also opens `http://localhost:15000/` in your default browser. Use `.\Start-SystemDashboard.ps1 -NoBrowser` if you need to keep it headless or run inside automation. Running `.\start-dashboard.bat` now triggers the same browser launch after all services are healthy (`http://localhost:5001` by default).
 
 Browse to `http://localhost:5000/` for the analytics dashboard. For production you can host the contents of `wwwroot/` (or the Flask app behind IIS) at `http://localhost:8088/` per the project brief.
 
