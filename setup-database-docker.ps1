@@ -288,6 +288,17 @@ END;
     $success = $success -and (Invoke-DockerPSQL -Command $basicSchema -Database $DatabaseName -Description "Creating basic telemetry schema")
 }
 
+# Apply extended schema for Windows Event Log and IIS tables
+$extendedSchemaPath = Join-Path $PSScriptRoot "extended-schema.sql"
+if (Test-Path $extendedSchemaPath) {
+    Write-Host "`n📋 Applying extended schema (Windows Event Log and IIS tables)..." -ForegroundColor Cyan
+    $success = $success -and (Invoke-DockerSQLFile -FilePath $extendedSchemaPath -Database $DatabaseName -Description "Applying extended schema from extended-schema.sql")
+}
+else {
+    Write-Host "⚠️  Extended schema file not found at: $extendedSchemaPath" -ForegroundColor Yellow
+    Write-Host "   Skipping Windows Event Log and IIS tables creation" -ForegroundColor Gray
+}
+
 # Grant permissions
 Write-Host "`n🔐 Setting up permissions..." -ForegroundColor Yellow
 
