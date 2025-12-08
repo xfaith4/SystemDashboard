@@ -113,7 +113,28 @@ For complete documentation, see [docs/LAN-OBSERVABILITY-README.md](docs/LAN-OBSE
    python .\app\app.py
    ```
 
-   Browse to `http://localhost:5000/` for the analytics dashboard. For production you can host the contents of `wwwroot/` (or the Flask app behind IIS) at `http://localhost:8088/` per the project brief.
+Browse to `http://localhost:5000/` for the analytics dashboard. For production you can host the contents of `wwwroot/` (or the Flask app behind IIS) at `http://localhost:8088/` per the project brief.
+
+## Unified launch script
+
+Use `Launch.ps1` (or the accompanying `Launch.bat`/`Launch.sh` wrappers) to run the root-level helper scripts in their recommended order without invoking each file separately. The default pipeline performs:
+
+- `Environment` → runs `setup-environment.ps1` (use `-EnvironmentPermanent` to persist the vars).
+- `Database` → runs `setup-database.ps1` (switch to `-DatabaseMode docker` to call `setup-database-docker.ps1`).
+- `Install` → runs `Install.ps1`.
+- `PermanentServices` → runs `setup-permanent-services.ps1 -Install`.
+- `ScheduledTask` → runs `setup-scheduled-task.ps1`.
+- `LanSchema` → runs `apply-lan-schema.ps1` (pass `-ForceLanSchema` or `-LanConfigPath` as needed).
+
+You can limit what runs by setting the `-Stages` argument (e.g., `-Stages Environment,Install`). Additional argument passthroughs exist (`-DatabaseArgs`, `-InstallArgs`, `-ScheduledTaskArgs`, `-LanArgs`) if you need to forward flags to the underlying scripts.
+
+```powershell
+pwsh .\Launch.ps1
+.\Launch.bat
+./Launch.sh
+```
+
+Use `pwsh .\Launch.ps1 -ForceLanSchema -DatabaseMode docker` to adjust the defaults.
 
 ## Configuration reference (`config.json`)
 
