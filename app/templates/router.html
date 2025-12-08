@@ -234,6 +234,10 @@ function formatTime(value) {
 
 async function loadSummary() {
     const res = await fetch('/api/router/summary');
+    if (!res.ok) {
+        console.error('Failed to load summary:', res.status, res.statusText);
+        return;
+    }
     const data = await res.json();
     document.getElementById('stat-total').textContent = data.total || 0;
     document.getElementById('stat-igmp').textContent = data.igmp_drops || 0;
@@ -281,6 +285,11 @@ function buildApiUrl() {
 async function loadLogs() {
     const url = buildApiUrl();
     const res = await fetch(url);
+    if (!res.ok) {
+        console.error('Failed to load logs:', res.status, res.statusText);
+        document.getElementById('router-body').innerHTML = '<tr><td colspan="5" class="error">Failed to load logs</td></tr>';
+        return;
+    }
     const data = await res.json();
     const logs = data.logs || [];
     currentLogs = logs; // Store for Ask AI
@@ -455,6 +464,9 @@ async function analyzeTrends() {
     try {
         // Fetch the last 100 logs
         const response = await fetch('/api/router/logs?limit=100&sort=time&order=desc');
+        if (!response.ok) {
+            throw new Error(`Failed to fetch logs: ${response.status} ${response.statusText}`);
+        }
         const data = await response.json();
         const logs = data.logs || [];
         
@@ -485,6 +497,11 @@ async function analyzeTrends() {
                 userQuestion: 'Analyze these router logs for trends, recurring issues, or anything that needs immediate attention. Focus on identifying patterns that could indicate problems.'
             })
         });
+        
+        if (!aiResponse.ok) {
+            const errorText = await aiResponse.text();
+            throw new Error(`AI API error (${aiResponse.status}): ${errorText}`);
+        }
         
         const result = await aiResponse.json();
         
@@ -552,6 +569,11 @@ async function askAI(rowIndex) {
                 context: logData
             })
         });
+        
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`AI API error (${response.status}): ${errorText}`);
+        }
         
         const result = await response.json();
         
