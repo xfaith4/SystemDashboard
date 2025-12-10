@@ -58,6 +58,10 @@ def client_with_db(test_db):
     flask_app.app.config['TESTING'] = True
     flask_app._DB_PATH = test_db
     
+    # Reset rate limiter for clean test state
+    from conftest import reset_rate_limiter
+    reset_rate_limiter()
+    
     # Disable CSRF protection for tests
     os.environ['DASHBOARD_CSRF_ENABLED'] = 'false'
     if flask_app.PHASE3_FEATURES_AVAILABLE:
@@ -144,6 +148,10 @@ def client_with_populated_db(populated_db):
     """Create a test client with populated test database."""
     flask_app.app.config['TESTING'] = True
     flask_app._DB_PATH = populated_db
+    
+    # Reset rate limiter for clean test state
+    from conftest import reset_rate_limiter
+    reset_rate_limiter()
     
     with flask_app.app.test_client() as client:
         yield client
