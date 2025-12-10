@@ -23,11 +23,8 @@ def client():
     os.environ['DASHBOARD_CSRF_ENABLED'] = 'false'
     
     # Reset rate limiter for clean test state
-    if flask_app.PHASE1_FEATURES_AVAILABLE:
-        from rate_limiter import get_rate_limiter
-        rate_limiter = get_rate_limiter()
-        # Clear all rate limit tracking for clean state
-        rate_limiter._requests.clear()
+    from conftest import reset_rate_limiter
+    reset_rate_limiter()
     
     # Reload CSRF protection if Phase 3 features available
     if flask_app.PHASE3_FEATURES_AVAILABLE:
