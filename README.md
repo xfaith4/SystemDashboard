@@ -204,16 +204,37 @@ For detailed troubleshooting, see [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING
 
 ## Documentation
 
-- **[Roadmap](ROADMAP.md)** - **Next steps for hardening and UI polish** - Production readiness plan
-- **[Help Guide](docs/HELP.md)** - **Dashboard user guide** - How to use the dashboard, interpret metrics, and troubleshoot issues
+### Getting Started
+- **[Getting Started Guide](docs/GETTING-STARTED.md)** - **START HERE** - 5-minute quick start guide
+- **[FAQ](docs/FAQ.md)** - Frequently asked questions with answers
 - **[Setup Guide](docs/SETUP.md)** - Complete installation and configuration instructions
-- **[Troubleshooting](docs/TROUBLESHOOTING.md)** - Common issues and solutions
+- **[Dashboard Tour](docs/DASHBOARD-TOUR.md)** - Guided tour of the dashboard (coming soon)
+
+### User Guides
+- **[Help Guide](docs/HELP.md)** - **Dashboard user guide** - How to use the dashboard, interpret metrics, and troubleshoot issues
 - **[LAN Observability](docs/LAN-OBSERVABILITY-README.md)** - Network device monitoring
 - **[Advanced Features](docs/ADVANCED-FEATURES.md)** - Router monitoring, scaling, and maintenance
 - **[Data Sources](docs/DATA-SOURCES.md)** - Configuring Windows Events, router logs, and system metrics
-- **[Security Summary](docs/SECURITY-SUMMARY.md)** - Security analysis and recommendations
+- **[Troubleshooting](docs/TROUBLESHOOTING.md)** - Common issues and solutions
+
+### Developer Documentation
+- **[Architecture](docs/ARCHITECTURE.md)** - System architecture with diagrams
+- **[API Reference](docs/API-REFERENCE.md)** - Complete REST API documentation
+- **[Database Schema](docs/DATABASE-SCHEMA.md)** - Database structure and ER diagrams
+- **[Contributing Guide](docs/CONTRIBUTING.md)** - How to contribute to the project
 - **[Implementation Guide](docs/IMPLEMENTATION-GUIDE.md)** - Code examples for roadmap items
+
+### Operations Documentation
+- **[Deployment Guide](docs/DEPLOYMENT.md)** - Production deployment with security and monitoring
+- **[Backup & Restore](docs/BACKUP-RESTORE.md)** - Backup strategies and restore procedures
+- **[Monitoring Setup](docs/MONITORING.md)** - Monitoring configuration (coming soon)
+- **[Performance Tuning](docs/PERFORMANCE-TUNING.md)** - Optimization guide (coming soon)
+- **[Upgrade Guide](docs/UPGRADE-GUIDE.md)** - Version upgrade procedures (coming soon)
+
+### Project Management
+- **[Roadmap](ROADMAP.md)** - **Production readiness plan** - Feature hardening and UI polish
 - **[Changelog](docs/CHANGELOG.md)** - Version history
+- **[Security Summary](docs/SECURITY-SUMMARY.md)** - Security analysis and recommendations
 
 ## Tests
 
