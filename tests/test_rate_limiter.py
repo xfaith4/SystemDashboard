@@ -180,6 +180,32 @@ class TestRateLimiter:
         )
         assert allowed is True
     
+    def test_reset_all(self, limiter):
+        """Test resetting all clients' rate limits."""
+        # Make requests from multiple clients
+        for i in range(3):
+            limiter.is_allowed(client_id='client1', max_requests=5, window_seconds=60)
+            limiter.is_allowed(client_id='client2', max_requests=5, window_seconds=60)
+        
+        # Verify both clients have requests tracked
+        stats = limiter.get_stats()
+        assert stats['active_clients'] == 2
+        assert stats['total_requests_in_window'] == 6
+        
+        # Reset all clients
+        limiter.reset_all()
+        
+        # Verify all tracking is cleared
+        stats = limiter.get_stats()
+        assert stats['active_clients'] == 0
+        assert stats['total_requests_in_window'] == 0
+        
+        # Both clients should be able to make requests again
+        allowed, _ = limiter.is_allowed(client_id='client1', max_requests=5, window_seconds=60)
+        assert allowed is True
+        allowed, _ = limiter.is_allowed(client_id='client2', max_requests=5, window_seconds=60)
+        assert allowed is True
+    
     def test_get_stats(self, limiter):
         """Test getting rate limiter statistics."""
         # Make some requests from different clients

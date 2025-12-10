@@ -22,6 +22,10 @@ def client():
     # Disable CSRF protection for tests
     os.environ['DASHBOARD_CSRF_ENABLED'] = 'false'
     
+    # Reset rate limiter for clean test state
+    from conftest import reset_rate_limiter
+    reset_rate_limiter()
+    
     # Reload CSRF protection if Phase 3 features available
     if flask_app.PHASE3_FEATURES_AVAILABLE:
         from security import get_csrf_protection

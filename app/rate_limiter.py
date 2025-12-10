@@ -107,6 +107,10 @@ class RateLimiter:
         if client_id in self._requests:
             del self._requests[client_id]
     
+    def reset_all(self):
+        """Reset rate limits for all clients. Useful for testing."""
+        self._requests.clear()
+    
     def get_stats(self) -> dict:
         """Get statistics about current rate limiting state."""
         current_time = time.time()
