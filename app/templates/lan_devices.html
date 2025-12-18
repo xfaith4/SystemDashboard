@@ -1,0 +1,369 @@
+{% extends 'base.html' %}
+{% block title %}NOC Dashboard - LAN Devices{% endblock %}
+{% block content %}
+<section class="page-container">
+    <nav class="breadcrumb" aria-label="Breadcrumb">
+        <div class="breadcrumb-item">
+            <a href="/" class="breadcrumb-link">Home</a>
+            <span class="breadcrumb-separator">/</span>
+        </div>
+        <div class="breadcrumb-item">
+            <a href="/lan" class="breadcrumb-link">LAN Overview</a>
+            <span class="breadcrumb-separator">/</span>
+        </div>
+        <div class="breadcrumb-item">
+            <span class="breadcrumb-current">Devices</span>
+        </div>
+    </nav>
+    <header class="dashboard-header">
+        <div>
+            <h1>LAN Devices</h1>
+            <p class="subtitle">Complete device inventory and history</p>
+        </div>
+        <a href="/lan" class="btn-secondary">← Back to Overview</a>
+    </header>
+
+    <!-- Filters -->
+    <section class="filters-panel">
+        <div class="filters">
+            <label>
+                <span>Status</span>
+                <select id="filter-state" onchange="applyFilters()">
+                    <option value="">All Devices</option>
+                    <option value="active" selected>Active Only</option>
+                    <option value="inactive">Inactive Only</option>
+                </select>
+            </label>
+            <label>
+                <span>Interface</span>
+                <select id="filter-interface" onchange="applyFilters()">
+                    <option value="">All Interfaces</option>
+                    <option value="wired">Wired</option>
+                    <option value="wireless">Wireless</option>
+                </select>
+            </label>
+            <label>
+                <span>Tag</span>
+                <select id="filter-tag" onchange="applyFilters()">
+                    <option value="">All Tags</option>
+                    <option value="iot">IoT Device</option>
+                    <option value="guest">Guest Device</option>
+                    <option value="critical">Critical Infrastructure</option>
+                    <option value="mobile">Mobile Device</option>
+                    <option value="workstation">Workstation</option>
+                    <option value="server">Server</option>
+                </select>
+            </label>
+            <label>
+                <span>Network Type</span>
+                <select id="filter-network-type" onchange="applyFilters()">
+                    <option value="">All Networks</option>
+                    <option value="main">Main Network</option>
+                    <option value="guest">Guest Network</option>
+                    <option value="iot">IoT Network</option>
+                    <option value="unknown">Unknown</option>
+                </select>
+            </label>
+            <label>
+                <span>Search</span>
+                <input type="text" id="search-text" placeholder="Hostname, IP, or MAC" onkeyup="applySearch()" />
+            </label>
+        </div>
+    </section>
+
+    <!-- Devices Table -->
+    <section class="panel">
+        <div class="table-toolbar">
+            <div class="table-toolbar-left">
+                <span id="device-count" style="color: var(--text-secondary);"></span>
+            </div>
+            <div class="table-toolbar-right" id="table-actions">
+                <!-- Export button and refresh indicator will be added here by JavaScript -->
+            </div>
+        </div>
+        <div class="table-container">
+            <table class="data-table" id="devices-table">
+                <thead>
+                    <tr>
+                        <th>Status</th>
+                        <th>Device Name</th>
+                        <th>IP Address</th>
+                        <th>MAC Address</th>
+                        <th>Vendor</th>
+                        <th>Location</th>
+                        <th>Tags</th>
+                        <th>Interface</th>
+                        <th>Signal</th>
+                        <th>Rates (Tx/Rx)</th>
+                        <th>Lease</th>
+                        <th>First Seen</th>
+                        <th>Last Seen</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody id="devices-body">
+                    <tr>
+                        <td colspan="100%" class="loading">Loading devices...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+</section>
+
+<script>
+let allDevices = [];
+let currentFilters = {
+    state: 'active',
+    interface: '',
+    tag: '',
+    network_type: '',
+    search: ''
+};
+
+function formatTimestamp(isoString) {
+    if (!isoString) return '--';
+    const date = new Date(isoString);
+    return date.toLocaleDateString('en-US', { timeZone: 'America/New_York' });
+}
+
+async function loadDevices() {
+    try {
+        const state = currentFilters.state;
+        const iface = currentFilters.interface;
+        const tag = currentFilters.tag;
+        const networkType = currentFilters.network_type;
+        
+        let url = '/api/lan/devices?limit=500';
+        if (state) url += `&state=${state}`;
+        if (iface) url += `&interface=${iface}`;
+        if (tag) url += `&tag=${tag}`;
+        if (networkType) url += `&network_type=${networkType}`;
+        
+        const response = await fetch(url);
+        const data = await response.json();
+        allDevices = data.devices || [];
+        
+        renderDevices();
+    } catch (error) {
+        console.error('Failed to load devices:', error);
+        document.getElementById('devices-body').innerHTML = 
+            '<tr><td colspan="100%" class="empty">Error loading devices</td></tr>';
+    }
+}
+
+function renderDevices() {
+    const tbody = document.getElementById('devices-body');
+    
+    let filteredDevices = allDevices;
+    if (currentFilters.search) {
+        const searchLower = currentFilters.search.toLowerCase();
+        filteredDevices = allDevices.filter(d => 
+            (d.hostname && d.hostname.toLowerCase().includes(searchLower)) ||
+            (d.nickname && d.nickname.toLowerCase().includes(searchLower)) ||
+            (d.primary_ip_address && d.primary_ip_address.includes(searchLower)) ||
+            (d.mac_address && d.mac_address.toLowerCase().includes(searchLower))
+        );
+    }
+    
+    // Update device count
+    const countEl = document.getElementById('device-count');
+    if (countEl) {
+        const total = allDevices.length;
+        const shown = filteredDevices.length;
+        if (shown === total) {
+            countEl.textContent = `${total} device${total !== 1 ? 's' : ''}`;
+        } else {
+            countEl.textContent = `${shown} of ${total} device${total !== 1 ? 's' : ''}`;
+        }
+    }
+    
+    if (filteredDevices.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="100%" class="empty">No devices found matching your criteria</td></tr>';
+        return;
+    }
+    
+    tbody.innerHTML = filteredDevices.map(device => {
+        const statusClass = device.is_active ? 'status-active' : 'status-inactive';
+        const statusText = device.is_active ? 'Online' : 'Offline';
+        const displayName = device.nickname || device.hostname || device.mac_address;
+        const rssi = device.last_rssi !== null && device.last_rssi !== undefined ? `${device.last_rssi} dBm` : '--';
+        const tx = device.last_tx_rate_mbps && device.last_tx_rate_mbps > 0 ? device.last_tx_rate_mbps.toFixed(1) : '--';
+        const rx = device.last_rx_rate_mbps && device.last_rx_rate_mbps > 0 ? device.last_rx_rate_mbps.toFixed(1) : '--';
+        const lease = device.lease_type || '--';
+        
+        return `
+            <tr>
+                <td><span class="status-badge ${statusClass}">${statusText}</span></td>
+                <td><strong>${displayName}</strong></td>
+                <td><code>${device.primary_ip_address || '--'}</code></td>
+                <td><code>${device.mac_address}</code></td>
+                <td>${device.vendor || '--'}</td>
+                <td>${device.location || '--'}</td>
+                <td>${device.tags ? device.tags.split(',').map(t => `<span class="tag-badge">${t.trim()}</span>`).join(' ') : '--'}</td>
+                <td><span class="badge">${device.last_interface || '--'}</span></td>
+                <td>${rssi}</td>
+                <td>${tx} / ${rx}</td>
+                <td>${lease}</td>
+                <td>${formatTimestamp(device.first_seen_utc)}</td>
+                <td>${formatTimestamp(device.last_seen_utc)}</td>
+                <td><a href="/lan/device/${device.device_id}" class="btn-link">View →</a></td>
+            </tr>
+        `;
+    }).join('');
+}
+
+function applyFilters() {
+    currentFilters.state = document.getElementById('filter-state').value;
+    currentFilters.interface = document.getElementById('filter-interface').value;
+    currentFilters.tag = document.getElementById('filter-tag').value;
+    currentFilters.network_type = document.getElementById('filter-network-type').value;
+    loadDevices();
+}
+
+function applySearch() {
+    currentFilters.search = document.getElementById('search-text').value;
+    renderDevices();
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    setupSearchPersistence();
+    loadDevices();
+    setupTableEnhancements();
+});
+
+function setupSearchPersistence() {
+    // Set up search/filter persistence
+    if (window.SearchPersistence) {
+        SearchPersistence.setup('lan-devices', {
+            searchInput: '#search-text',
+            filterSelects: [
+                '#filter-state',
+                '#filter-interface',
+                '#filter-tag',
+                '#filter-network-type'
+            ],
+            onRestore: (state) => {
+                // Update currentFilters with restored state
+                currentFilters.state = document.getElementById('filter-state').value;
+                currentFilters.interface = document.getElementById('filter-interface').value;
+                currentFilters.tag = document.getElementById('filter-tag').value;
+                currentFilters.network_type = document.getElementById('filter-network-type').value;
+                currentFilters.search = document.getElementById('search-text').value;
+                
+                // Show a subtle notification that filters were restored
+                console.log('Filters restored from previous session');
+            },
+            autoSave: true,
+            maxAge: 3600000 // Keep state for 1 hour
+        });
+    }
+    
+    // Track scroll position
+    if (window.StatePersistence) {
+        StatePersistence.trackNavigation('lan-devices');
+    }
+}
+
+function setupTableEnhancements() {
+    // Add CSV export button
+    if (window.TableExport) {
+        TableExport.addExportButton('#devices-table', {
+            filename: `lan-devices-${new Date().toISOString().split('T')[0]}.csv`,
+            buttonText: 'Export CSV',
+            buttonClass: 'btn-secondary',
+            container: '#table-actions'
+        });
+    }
+
+    // Add data refresh indicator
+    if (window.DataRefreshIndicator) {
+        DataRefreshIndicator.create({
+            id: 'devices-refresh',
+            container: document.getElementById('table-actions'),
+            autoRefresh: true,
+            refreshInterval: 30000, // Refresh every 30 seconds
+            onRefresh: async () => {
+                await loadDevices();
+            },
+            showLastUpdate: true
+        });
+    }
+
+    // Make table sortable
+    if (window.TableSorting) {
+        TableSorting.makeSortable('#devices-table', {
+            onSort: (columnIndex, direction) => {
+                console.log(`Sorted column ${columnIndex} in ${direction} order`);
+            }
+        });
+    }
+}
+</script>
+
+<style>
+.page-container {
+    max-width: 1800px;
+    margin: 0 auto;
+}
+
+.filters-panel {
+    background: var(--bg-card);
+    padding: var(--space-lg);
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border-subtle);
+    margin-bottom: var(--space-lg);
+}
+
+.filters {
+    display: flex;
+    gap: var(--space-xl);
+    flex-wrap: wrap;
+}
+
+.filters label {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+}
+
+.filters label span {
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+}
+
+.filters select,
+.filters input[type="text"] {
+    padding: var(--space-sm) var(--space-md);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-md);
+    color: var(--text-primary);
+    font-size: 0.9rem;
+    min-width: 200px;
+}
+
+.filters select:focus,
+.filters input[type="text"]:focus {
+    outline: none;
+    border-color: var(--accent-primary);
+    box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+.table-container {
+    overflow-x: auto;
+}
+
+.tag-badge {
+    display: inline-block;
+    padding: 0.2rem 0.5rem;
+    background: var(--accent-primary);
+    color: var(--text-primary);
+    border-radius: 0.25rem;
+    font-size: 0.75rem;
+    font-weight: 500;
+    margin-right: 0.25rem;
+}
+</style>
+{% endblock %}

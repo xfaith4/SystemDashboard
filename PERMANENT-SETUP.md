@@ -26,6 +26,7 @@ Your System Dashboard is now configured to run permanently on your machine with 
 ## 🔧 **Management Commands**
 
 ### Quick Start/Stop
+
 ```powershell
 # Start all services manually
 .\start-dashboard.bat
@@ -39,6 +40,7 @@ Start-ScheduledTask -TaskName "SystemDashboard-WebUI"
 ```
 
 ### Service Management
+
 ```powershell
 # Uninstall all scheduled tasks
 .\setup-permanent-services.ps1 -Uninstall
@@ -48,6 +50,7 @@ Start-ScheduledTask -TaskName "SystemDashboard-WebUI"
 ```
 
 ### Database Management
+
 ```powershell
 # Start PostgreSQL container
 docker start postgres-container
@@ -66,12 +69,14 @@ docker logs postgres-container
 **Main URL**: http://localhost:5000
 
 ### Available Pages:
+
 - **Dashboard** (`/`) - System overview with KPIs and alerts
 - **Events** (`/events`) - Windows Event Log viewer with filtering
 - **Router** (`/router`) - Network and router logs
 - **WiFi** (`/wifi`) - Connected devices and network clients
 
 ### API Endpoints:
+
 - **Health Check**: http://localhost:5000/health
 - **Events API**: http://localhost:5000/api/events?level=Error&max=10
 
@@ -80,12 +85,14 @@ docker logs postgres-container
 ## 🔄 **Auto-Start Behavior**
 
 ### On Windows Boot:
+
 1. **Docker** starts PostgreSQL container automatically
 2. **Task Scheduler** starts both services:
    - `SystemDashboard-Telemetry` (data collection)
    - `SystemDashboard-WebUI` (web interface)
 
 ### Service Recovery:
+
 - Both services are configured to **automatically restart** if they crash
 - **Maximum restart attempts**: 3 times per hour
 - **Restart interval**: 1 minute between attempts
@@ -114,16 +121,19 @@ G:\Development\10_Active\SystemDashboard\
 ## 🛠️ **Troubleshooting**
 
 ### If Dashboard Won't Load:
+
 1. Check service status: `.\setup-permanent-services.ps1 -Status`
 2. Check web UI logs: `Get-Content ".\var\log\webui-service.log" -Tail 20`
 3. Restart web UI service: `Restart-ScheduledTask -TaskName "SystemDashboard-WebUI"`
 
 ### If No Data Appears:
+
 1. Check telemetry service: `Get-ScheduledTask -TaskName "SystemDashboard-Telemetry"`
 2. Check database connection: `docker exec postgres-container psql -U sysdash_reader -d system_dashboard -c "SELECT NOW();"`
 3. Generate test event: `Write-EventLog -LogName Application -Source "Application Error" -EventId 1001 -EntryType Warning -Message "Test event"`
 
 ### If Services Won't Start:
+
 1. Run as Administrator: `Start-Process pwsh -Verb RunAs`
 2. Reinstall services: `.\setup-permanent-services.ps1 -Install`
 3. Check Windows Event Logs for Task Scheduler errors

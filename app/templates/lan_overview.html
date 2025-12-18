@@ -1,0 +1,491 @@
+{% extends 'base.html' %}
+{% block title %}NOC Dashboard - LAN Overview{% endblock %}
+{% block content %}
+<section class="page-container">
+    <header class="dashboard-header">
+        <div>
+            <h1>LAN Observability</h1>
+            <p class="subtitle">Real-time network device monitoring and tracking</p>
+        </div>
+        <a href="/lan/devices" class="btn-secondary">View All Devices →</a>
+    </header>
+
+    <!-- Summary Stats Cards -->
+    <div class="kpi-grid">
+        <article class="kpi-card">
+            <h2>Total Devices</h2>
+            <p class="metric" id="total-devices">--</p>
+            <p class="detail">Ever seen on network</p>
+        </article>
+        <article class="kpi-card active-card">
+            <h2>Active Now</h2>
+            <p class="metric" id="active-devices">--</p>
+            <p class="detail">Currently online</p>
+        </article>
+        <article class="kpi-card">
+            <h2>Wired</h2>
+            <p class="metric" id="wired-devices">--</p>
+            <p class="detail">Last 24 hours</p>
+        </article>
+        <article class="kpi-card">
+            <h2>2.4 GHz Wi-Fi</h2>
+            <p class="metric" id="wifi-24-devices">--</p>
+            <p class="detail">Last 24 hours</p>
+        </article>
+        <article class="kpi-card">
+            <h2>5 GHz Wi-Fi</h2>
+            <p class="metric" id="wifi-5-devices">--</p>
+            <p class="detail">Last 24 hours</p>
+        </article>
+        <article class="kpi-card">
+            <h2>Inactive</h2>
+            <p class="metric" id="inactive-devices">--</p>
+            <p class="detail">Not recently seen</p>
+        </article>
+    </div>
+
+    <!-- Currently Online Devices -->
+    <section class="panel">
+        <header class="panel-header">
+            <div>
+                <h2>Currently Online Devices</h2>
+                <p class="muted">Auto-refreshes every 30 seconds</p>
+            </div>
+            <button onclick="refreshOnlineDevices()" class="btn-refresh">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="23 4 23 10 17 10"/>
+                    <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+                </svg>
+                Refresh
+            </button>
+        </header>
+        <div class="table-container">
+            <table class="data-table" id="online-devices-table">
+                <thead>
+                    <tr>
+                        <th>Hostname</th>
+                        <th>IP Address</th>
+                        <th>MAC Address</th>
+                        <th>Interface</th>
+                        <th>Signal (RSSI)</th>
+                        <th>Last Seen</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="online-devices-body">
+                    <tr>
+                        <td colspan="7" class="loading">Loading devices...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <!-- Active Alerts -->
+    <section class="panel">
+        <header class="panel-header">
+            <div>
+                <h2>Active Alerts</h2>
+                <p class="muted">Network issues and device notifications</p>
+            </div>
+            <button onclick="refreshAlerts()" class="btn-refresh">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="23 4 23 10 17 10"/>
+                    <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+                </svg>
+                Refresh
+            </button>
+        </header>
+        <div id="alerts-container">
+            <p class="muted">Loading alerts...</p>
+        </div>
+    </section>
+
+    <!-- Potential Issues Widget -->
+    <section class="panel">
+        <header class="panel-header">
+            <div>
+                <h2>Potential Issues</h2>
+                <p class="muted">Devices with connectivity problems or weak signal</p>
+            </div>
+        </header>
+        <div id="issues-container">
+            <p class="muted">Analyzing network health...</p>
+        </div>
+    </section>
+</section>
+
+<script>
+let refreshTimer;
+
+function formatTimestamp(isoString) {
+    if (!isoString) return '--';
+    const date = new Date(isoString);
+    const now = new Date();
+    const diffMs = now - date;
+    const diffMins = Math.floor(diffMs / 60000);
+    
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    const diffHours = Math.floor(diffMins / 60);
+    if (diffHours < 24) return `${diffHours}h ago`;
+    return date.toLocaleDateString('en-US', { timeZone: 'America/New_York' });
+}
+
+function formatRssi(rssi) {
+    if (!rssi) return '--';
+    let strength, badgeClass;
+    if (rssi >= -50) {
+        strength = 'Excellent';
+        badgeClass = 'badge-success';
+    } else if (rssi >= -60) {
+        strength = 'Good';
+        badgeClass = 'badge-success';
+    } else if (rssi >= -70) {
+        strength = 'Fair';
+        badgeClass = 'badge-warning';
+    } else {
+        strength = 'Poor';
+        badgeClass = 'badge-error';
+    }
+    return `<span class="badge ${badgeClass}">${rssi} dBm</span> <span class="muted">${strength}</span>`;
+}
+
+async function loadStats() {
+    try {
+        const response = await fetch('/api/lan/stats');
+        const stats = await response.json();
+        
+        document.getElementById('total-devices').textContent = stats.total_devices || 0;
+        document.getElementById('active-devices').textContent = stats.active_devices || 0;
+        document.getElementById('inactive-devices').textContent = stats.inactive_devices || 0;
+        document.getElementById('wired-devices').textContent = stats.wired_devices_24h || 0;
+        document.getElementById('wifi-24-devices').textContent = stats.wifi_24ghz_devices_24h || 0;
+        document.getElementById('wifi-5-devices').textContent = stats.wifi_5ghz_devices_24h || 0;
+    } catch (error) {
+        console.error('Failed to load stats:', error);
+    }
+}
+
+async function loadOnlineDevices() {
+    try {
+        const response = await fetch('/api/lan/devices/online');
+        const data = await response.json();
+        const devices = data.devices || [];
+        
+        const tbody = document.getElementById('online-devices-body');
+        
+        if (devices.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="7" class="empty">No devices currently online</td></tr>';
+            checkForIssues([]);
+            return;
+        }
+        
+        tbody.innerHTML = devices.map(device => `
+            <tr>
+                <td><strong>${device.hostname || device.mac_address}</strong></td>
+                <td><code>${device.current_ip || device.primary_ip_address || '--'}</code></td>
+                <td><code>${device.mac_address}</code></td>
+                <td><span class="badge">${device.current_interface || '--'}</span></td>
+                <td>${device.current_rssi ? formatRssi(device.current_rssi) : '--'}</td>
+                <td>${formatTimestamp(device.last_seen_utc)}</td>
+                <td><a href="/lan/device/${device.device_id}" class="btn-link">Details →</a></td>
+            </tr>
+        `).join('');
+        
+        checkForIssues(devices);
+    } catch (error) {
+        console.error('Failed to load online devices:', error);
+        document.getElementById('online-devices-body').innerHTML = 
+            '<tr><td colspan="7" class="empty">Error loading devices</td></tr>';
+    }
+}
+
+function checkForIssues(devices) {
+    const issues = [];
+    
+    devices.forEach(device => {
+        if (device.current_rssi && device.current_rssi < -70) {
+            issues.push({
+                device: device.hostname || device.mac_address,
+                issue: `Weak signal strength: ${device.current_rssi} dBm`,
+                severity: 'warning'
+            });
+        }
+    });
+    
+    const issuesContainer = document.getElementById('issues-container');
+    
+    if (issues.length === 0) {
+        issuesContainer.innerHTML = '<div class="success-message"><span class="status-indicator"></span> All devices operating normally</div>';
+    } else {
+        issuesContainer.innerHTML = '<ul class="issues-list">' + 
+            issues.map(i => `
+                <li class="issue-item ${i.severity}">
+                    <strong>${i.device}</strong>: ${i.issue}
+                </li>
+            `).join('') + 
+            '</ul>';
+    }
+}
+
+async function loadAlerts() {
+    const alertsContainer = document.getElementById('alerts-container');
+    
+    try {
+        const response = await fetch('/api/lan/alerts?limit=10');
+        const data = await response.json();
+        const alerts = data.alerts || [];
+        
+        if (alerts.length === 0) {
+            alertsContainer.innerHTML = '<div class="success-message"><span class="status-indicator"></span> No active alerts</div>';
+            return;
+        }
+        
+        alertsContainer.innerHTML = '<ul class="alerts-list">' + 
+            alerts.map(alert => {
+                const severityClass = alert.severity === 'critical' ? 'alert-critical' : 
+                                     alert.severity === 'warning' ? 'alert-warning' : 'alert-info';
+                const deviceName = alert.nickname || alert.hostname || alert.mac_address;
+                const timeAgo = formatTimestamp(alert.created_at);
+                
+                return `
+                    <li class="alert-item ${severityClass}">
+                        <div class="alert-header">
+                            <strong>${alert.title}</strong>
+                            <span class="alert-time">${timeAgo}</span>
+                        </div>
+                        <div class="alert-body">
+                            <span class="alert-device">${deviceName}</span>: ${alert.message || ''}
+                        </div>
+                        <div class="alert-actions">
+                            <button class="btn-small" onclick="acknowledgeAlert(${alert.alert_id})">Acknowledge</button>
+                            <button class="btn-small" onclick="resolveAlert(${alert.alert_id})">Resolve</button>
+                            <a href="/lan/device/${alert.device_id}" class="btn-link">View Device →</a>
+                        </div>
+                    </li>
+                `;
+            }).join('') + 
+            '</ul>';
+    } catch (error) {
+        console.error('Failed to load alerts:', error);
+        alertsContainer.innerHTML = '<p class="error">Error loading alerts</p>';
+    }
+}
+
+async function acknowledgeAlert(alertId) {
+    try {
+        const response = await fetch(`/api/lan/alerts/${alertId}/acknowledge`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ acknowledged_by: 'web_user' })
+        });
+        
+        if (response.ok) {
+            loadAlerts();
+        }
+    } catch (error) {
+        console.error('Failed to acknowledge alert:', error);
+    }
+}
+
+async function resolveAlert(alertId) {
+    try {
+        const response = await fetch(`/api/lan/alerts/${alertId}/resolve`, {
+            method: 'POST'
+        });
+        
+        if (response.ok) {
+            loadAlerts();
+        }
+    } catch (error) {
+        console.error('Failed to resolve alert:', error);
+    }
+}
+
+function refreshAlerts() {
+    loadAlerts();
+}
+
+function refreshOnlineDevices() {
+    loadOnlineDevices();
+    loadStats();
+}
+
+function startAutoRefresh() {
+    refreshTimer = setInterval(() => {
+        refreshOnlineDevices();
+        loadAlerts();
+    }, 30000);
+}
+
+function stopAutoRefresh() {
+    if (refreshTimer) {
+        clearInterval(refreshTimer);
+    }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    loadStats();
+    loadOnlineDevices();
+    loadAlerts();
+    startAutoRefresh();
+});
+
+window.addEventListener('beforeunload', stopAutoRefresh);
+</script>
+
+<style>
+.page-container {
+    max-width: 1600px;
+    margin: 0 auto;
+}
+
+.active-card {
+    background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary)) !important;
+    border-color: transparent !important;
+}
+
+.active-card h2,
+.active-card .metric,
+.active-card .detail {
+    color: white !important;
+}
+
+.active-card::before {
+    display: none;
+}
+
+.panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--space-md);
+    padding-bottom: var(--space-sm);
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+.panel-header h2 {
+    margin: 0;
+    border: none;
+    padding: 0;
+}
+
+.table-container {
+    overflow-x: auto;
+}
+
+.success-message {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    color: var(--status-healthy);
+    font-weight: 500;
+    padding: var(--space-md);
+    background: var(--status-healthy-bg);
+    border-radius: var(--radius-md);
+}
+
+.success-message .status-indicator {
+    width: 8px;
+    height: 8px;
+    background: var(--status-healthy);
+    border-radius: 50%;
+}
+
+.issues-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.issue-item {
+    padding: var(--space-sm) var(--space-md);
+    margin: var(--space-sm) 0;
+    border-radius: var(--radius-md);
+    border-left: 4px solid;
+}
+
+.issue-item.warning {
+    background: var(--status-warning-bg);
+    border-color: var(--status-warning);
+    color: var(--status-warning);
+}
+
+.issue-item.error {
+    background: var(--status-critical-bg);
+    border-color: var(--status-critical);
+    color: var(--status-critical);
+}
+
+.alerts-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.alert-item {
+    padding: var(--space-md);
+    margin: var(--space-sm) 0;
+    border-radius: var(--radius-md);
+    border-left: 4px solid;
+    background: var(--bg-elevated);
+}
+
+.alert-critical {
+    border-color: var(--status-critical);
+    background: var(--status-critical-bg);
+}
+
+.alert-warning {
+    border-color: var(--status-warning);
+    background: var(--status-warning-bg);
+}
+
+.alert-info {
+    border-color: var(--accent-primary);
+}
+
+.alert-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--space-sm);
+}
+
+.alert-time {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+
+.alert-body {
+    margin-bottom: var(--space-sm);
+    color: var(--text-secondary);
+}
+
+.alert-device {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.alert-actions {
+    display: flex;
+    gap: var(--space-sm);
+    margin-top: var(--space-sm);
+}
+
+.btn-small {
+    padding: 0.25rem 0.75rem;
+    font-size: 0.85rem;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-md);
+    color: var(--text-primary);
+    cursor: pointer;
+}
+
+.btn-small:hover {
+    background: var(--bg-card);
+}
+</style>
+{% endblock %}
