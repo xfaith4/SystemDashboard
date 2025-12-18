@@ -1,0 +1,795 @@
+{% extends 'base.html' %}
+{% block title %}NOC Dashboard - Device Details{% endblock %}
+{% block content %}
+<section class="page-container">
+    <nav class="breadcrumb" aria-label="Breadcrumb">
+        <div class="breadcrumb-item">
+            <a href="/" class="breadcrumb-link">Home</a>
+            <span class="breadcrumb-separator">/</span>
+        </div>
+        <div class="breadcrumb-item">
+            <a href="/lan" class="breadcrumb-link">LAN Overview</a>
+            <span class="breadcrumb-separator">/</span>
+        </div>
+        <div class="breadcrumb-item">
+            <a href="/lan/devices" class="breadcrumb-link">Devices</a>
+            <span class="breadcrumb-separator">/</span>
+        </div>
+        <div class="breadcrumb-item">
+            <span class="breadcrumb-current" id="breadcrumb-device">Device</span>
+        </div>
+    </nav>
+    <header class="dashboard-header">
+        <div>
+            <h1 id="device-title">Device Details</h1>
+            <p class="subtitle" id="device-subtitle">Loading...</p>
+        </div>
+        <a href="/lan/devices" class="btn-secondary">← Back to Devices</a>
+    </header>
+
+    <!-- Device Info Card -->
+    <section class="panel">
+        <h2>Device Information</h2>
+        <div class="info-grid" id="device-info">
+            <div class="info-item">
+                <span class="label">Status</span>
+                <span class="value" id="info-status">--</span>
+            </div>
+            <div class="info-item">
+                <span class="label">MAC Address</span>
+                <span class="value"><code id="info-mac">--</code></span>
+            </div>
+            <div class="info-item">
+                <span class="label">IP Address</span>
+                <span class="value"><code id="info-ip">--</code></span>
+            </div>
+            <div class="info-item">
+                <span class="label">Hostname</span>
+                <span class="value" id="info-hostname">--</span>
+            </div>
+            <div class="info-item">
+                <span class="label">Interface</span>
+                <span class="value" id="info-interface">--</span>
+            </div>
+            <div class="info-item">
+                <span class="label">Location</span>
+                <span class="value" id="info-location">--</span>
+            </div>
+            <div class="info-item">
+                <span class="label">Tags</span>
+                <span class="value" id="info-tags">--</span>
+            </div>
+            <div class="info-item">
+                <span class="label">Network Type</span>
+                <span class="value" id="info-network-type">--</span>
+            </div>
+            <div class="info-item">
+                <span class="label">Vendor</span>
+                <span class="value">
+                    <span id="info-vendor">--</span>
+                    <button class="btn-small-inline" onclick="lookupVendor()" title="Look up vendor from MAC address">🔍 Lookup</button>
+                </span>
+            </div>
+            <div class="info-item">
+                <span class="label">First Seen</span>
+                <span class="value" id="info-first-seen">--</span>
+            </div>
+            <div class="info-item">
+                <span class="label">Last Seen</span>
+                <span class="value" id="info-last-seen">--</span>
+            </div>
+            <div class="info-item">
+                <span class="label">Signal (RSSI)</span>
+                <span class="value" id="info-rssi">--</span>
+            </div>
+            <div class="info-item">
+                <span class="label">Tx / Rx Rate</span>
+                <span class="value" id="info-rates">--</span>
+            </div>
+            <div class="info-item">
+                <span class="label">Lease Type</span>
+                <span class="value" id="info-lease">--</span>
+            </div>
+            <div class="info-item">
+                <span class="label">Total Snapshots</span>
+                <span class="value" id="info-snapshots">--</span>
+            </div>
+        </div>
+    </section>
+
+    <!-- Time Period Selector -->
+    <section class="period-selector">
+        <label>
+            <span>Time Range:</span>
+            <select id="period-select" onchange="loadTimeline()">
+                <option value="24">Last 24 Hours</option>
+                <option value="72">Last 3 Days</option>
+                <option value="168">Last 7 Days</option>
+            </select>
+        </label>
+    </section>
+
+    <!-- Charts Section -->
+    <div class="charts-grid">
+        <section class="chart-card">
+            <h3>Signal Strength (RSSI) Over Time</h3>
+            <div class="chart-container">
+                <div class="empty-state" id="rssi-empty">No RSSI data for this period</div>
+                <canvas id="rssi-chart"></canvas>
+            </div>
+        </section>
+        <section class="chart-card">
+            <h3>Transfer Rates Over Time</h3>
+            <div class="chart-container">
+                <div class="empty-state" id="rates-empty">No throughput data for this period</div>
+                <canvas id="rates-chart"></canvas>
+            </div>
+        </section>
+    </div>
+
+    <!-- Recent Events -->
+    <section class="panel">
+        <h2>Associated Syslog Events</h2>
+        <div class="table-container">
+            <table class="data-table" id="events-table">
+                <thead>
+                    <tr>
+                        <th>Timestamp</th>
+                        <th>Severity</th>
+                        <th>Message</th>
+                        <th>Match Type</th>
+                    </tr>
+                </thead>
+                <tbody id="events-body">
+                    <tr>
+                        <td colspan="4" class="loading">Loading events...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <!-- Connection Event Timeline -->
+    <section class="panel">
+        <h2>Connection Event Timeline</h2>
+        <div class="table-container">
+            <table class="data-table" id="connection-events-table">
+                <thead>
+                    <tr>
+                        <th>Timestamp</th>
+                        <th>Event</th>
+                        <th>Details</th>
+                    </tr>
+                </thead>
+                <tbody id="connection-events-body">
+                    <tr>
+                        <td colspan="3" class="loading">Loading connection events...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <!-- Edit Device -->
+    <section class="panel">
+        <h2>Edit Device</h2>
+        <div class="edit-form">
+            <div class="form-group">
+                <label for="edit-nickname">Nickname</label>
+                <input 
+                    type="text" 
+                    id="edit-nickname" 
+                    name="nickname"
+                    placeholder="e.g., Living Room TV"
+                    maxlength="100"
+                />
+                <span class="input-helper">Optional friendly name to identify this device</span>
+            </div>
+            <div class="form-group">
+                <label for="edit-location">Location</label>
+                <input 
+                    type="text" 
+                    id="edit-location" 
+                    name="location"
+                    placeholder="e.g., Living Room, Office, Basement"
+                    maxlength="100"
+                />
+                <span class="input-helper">Physical location of the device</span>
+            </div>
+            <div class="form-group">
+                <label for="edit-tags">Tags</label>
+                <select id="edit-tags" name="tags" multiple>
+                    <option value="iot">IoT Device</option>
+                    <option value="guest">Guest Device</option>
+                    <option value="critical">Critical Infrastructure</option>
+                    <option value="mobile">Mobile Device</option>
+                    <option value="workstation">Workstation</option>
+                    <option value="server">Server</option>
+                </select>
+                <span class="input-helper">Hold Ctrl/Cmd to select multiple tags</span>
+            </div>
+            <div class="form-group">
+                <label for="edit-network-type">Network Type</label>
+                <select id="edit-network-type" name="network_type">
+                    <option value="main">Main Network</option>
+                    <option value="guest">Guest Network</option>
+                    <option value="iot">IoT Network</option>
+                    <option value="unknown">Unknown</option>
+                </select>
+                <span class="input-helper">The network segment this device is on</span>
+            </div>
+            <div class="form-actions">
+                <span id="edit-status" class="autosave-status"></span>
+            </div>
+        </div>
+    </section>
+</section>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" 
+        integrity="sha384-mGNr+Nq6QvBHQATlN/hLQjDp1SJjPJZLcmxQ4djS+9Q4yQ8I5DpYyFTzKQ4/+qqL" 
+        crossorigin="anonymous"></script>
+<script>
+const deviceId = {{ device_id }};
+let rssiChart = null;
+let ratesChart = null;
+
+const chartOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+        legend: { display: true, position: 'top', labels: { color: '#94a3b8', usePointStyle: true } },
+        tooltip: { mode: 'index', intersect: false }
+    },
+    scales: {
+        y: { beginAtZero: false, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8' } },
+        x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8', maxRotation: 45, minRotation: 45 } }
+    }
+};
+
+function formatTimestamp(isoString) {
+    if (!isoString) return '--';
+    const date = new Date(isoString);
+    return date.toLocaleString('en-US', { timeZone: 'America/New_York', hour12: false });
+}
+
+function formatShortTime(isoString) {
+    if (!isoString) return '--';
+    const date = new Date(isoString);
+    return date.toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit', hour12: false });
+}
+
+async function loadDeviceInfo() {
+    try {
+        const response = await fetch(`/api/lan/device/${deviceId}`);
+        const device = await response.json();
+        
+        if (device.error) {
+            document.getElementById('device-title').textContent = 'Device Not Found';
+            document.getElementById('device-subtitle').textContent = device.error;
+            return;
+        }
+        
+        const displayName = device.nickname || device.hostname || device.mac_address;
+        document.getElementById('device-title').textContent = displayName;
+        document.getElementById('device-subtitle').textContent = `Device ID: ${device.device_id}`;
+        
+        const statusClass = device.is_active ? 'status-active' : 'status-inactive';
+        const statusText = device.is_active ? 'Online' : 'Offline';
+        document.getElementById('info-status').innerHTML = `<span class="status-badge ${statusClass}">${statusText}</span>`;
+        
+        document.getElementById('info-mac').textContent = device.mac_address;
+        document.getElementById('info-ip').textContent = device.primary_ip_address || '--';
+        document.getElementById('info-hostname').textContent = device.hostname || '--';
+        document.getElementById('info-interface').textContent = device.last_interface || '--';
+        document.getElementById('info-location').textContent = device.location || '--';
+        document.getElementById('info-tags').textContent = device.tags || '--';
+        document.getElementById('info-network-type').textContent = device.network_type || 'main';
+        document.getElementById('info-lease').textContent = device.lease_type || '--';
+        document.getElementById('info-rssi').textContent = device.last_rssi !== null && device.last_rssi !== undefined ? `${device.last_rssi} dBm` : '--';
+        const tx = device.last_tx_rate_mbps && device.last_tx_rate_mbps > 0 ? device.last_tx_rate_mbps.toFixed(1) : '--';
+        const rx = device.last_rx_rate_mbps && device.last_rx_rate_mbps > 0 ? device.last_rx_rate_mbps.toFixed(1) : '--';
+        document.getElementById('info-rates').textContent = `${tx} / ${rx} Mbps`;
+        document.getElementById('info-vendor').textContent = device.vendor || '--';
+        document.getElementById('info-first-seen').textContent = formatTimestamp(device.first_seen_utc);
+        document.getElementById('info-last-seen').textContent = formatTimestamp(device.last_seen_utc);
+        document.getElementById('info-snapshots').textContent = device.total_snapshots || 0;
+
+        const nickInput = document.getElementById('edit-nickname');
+        const locInput = document.getElementById('edit-location');
+        const tagsSelect = document.getElementById('edit-tags');
+        const networkTypeSelect = document.getElementById('edit-network-type');
+        if (nickInput) nickInput.value = device.nickname || '';
+        if (locInput) locInput.value = device.location || '';
+        if (tagsSelect && device.tags) {
+            const tags = device.tags.split(',').map(t => t.trim());
+            Array.from(tagsSelect.options).forEach(option => {
+                option.selected = tags.includes(option.value);
+            });
+        }
+        if (networkTypeSelect && device.network_type) {
+            networkTypeSelect.value = device.network_type;
+        }
+        
+        // Set up autosave after form is populated
+        setupAutosave();
+    } catch (error) {
+        console.error('Failed to load device info:', error);
+    }
+}
+
+async function lookupVendor() {
+    const vendorEl = document.getElementById('info-vendor');
+    const originalText = vendorEl.textContent;
+    vendorEl.textContent = 'Looking up...';
+    
+    try {
+        const response = await fetch(`/api/lan/device/${deviceId}/lookup-vendor`, {
+            method: 'POST'
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            vendorEl.textContent = data.vendor;
+            setTimeout(() => loadDeviceInfo(), 500);
+        } else {
+            vendorEl.textContent = originalText;
+            alert(data.message || 'Vendor lookup failed');
+        }
+    } catch (error) {
+        console.error('Failed to lookup vendor:', error);
+        vendorEl.textContent = originalText;
+        alert('Error looking up vendor');
+    }
+}
+
+// Set up autosave for device edits
+let autosaveInstance = null;
+
+function setupAutosave() {
+    if (autosaveInstance) return; // Already set up
+    
+    autosaveInstance = AutoSave.create({
+        fields: [
+            '#edit-nickname',
+            '#edit-location',
+            '#edit-tags',
+            '#edit-network-type'
+        ],
+        saveFunction: async (data) => {
+            // Convert tags array to comma-separated string
+            const tags = Array.isArray(data.tags) ? data.tags.join(',') : data.tags;
+            
+            const response = await fetch(`/api/lan/device/${deviceId}/update`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    nickname: data.nickname || '',
+                    location: data.location || '',
+                    tags: tags || '',
+                    network_type: data.network_type || 'unknown'
+                })
+            });
+
+            if (!response.ok) {
+                const err = await response.json().catch(() => ({}));
+                throw new Error(err.error || 'Update failed');
+            }
+            
+            return response.json();
+        },
+        delay: 1500, // Wait 1.5 seconds after user stops typing
+        statusElement: document.getElementById('edit-status'),
+        onSaveSuccess: (data) => {
+            // Show success toast
+            if (window.Toast) {
+                Toast.success('Device information saved', 'Saved');
+            }
+            // Refresh device info to get updated data
+            setTimeout(() => loadDeviceInfo(), 500);
+        },
+        onSaveError: (error) => {
+            // Show error toast
+            if (window.Toast) {
+                Toast.error(error.message || 'Failed to save changes', 'Error');
+            }
+        }
+    });
+}
+
+// Keep old function for backward compatibility (though it's no longer called)
+async function saveDeviceEdits() {
+    if (autosaveInstance) {
+        await autosaveInstance.save();
+    }
+}
+
+async function loadTimeline() {
+    const hours = document.getElementById('period-select').value;
+    const rssiEmpty = document.getElementById('rssi-empty');
+    const ratesEmpty = document.getElementById('rates-empty');
+    
+    try {
+        const response = await fetch(`/api/lan/device/${deviceId}/timeline?hours=${hours}`);
+        const data = await response.json();
+        const timeline = data.timeline || [];
+        
+        if (timeline.length === 0) {
+            showEmptyStates(rssiEmpty, ratesEmpty);
+            return;
+        }
+        
+        const labels = timeline.map(p => formatShortTime(p.sample_time_utc));
+        const rssiData = timeline.map(p => p.rssi);
+        const txData = timeline.map(p => p.tx_rate_mbps);
+        const rxData = timeline.map(p => p.rx_rate_mbps);
+
+        const hasRssi = rssiData.some(v => typeof v === 'number' && !Number.isNaN(v));
+        const hasRates = txData.some(v => typeof v === 'number') || rxData.some(v => typeof v === 'number');
+
+        if (!hasRssi && !hasRates) {
+            showEmptyStates(rssiEmpty, ratesEmpty);
+            return;
+        }
+
+        rssiEmpty.style.display = hasRssi ? 'none' : 'flex';
+        ratesEmpty.style.display = hasRates ? 'none' : 'flex';
+        
+        if (hasRssi) updateRssiChart(labels, rssiData);
+        if (hasRates) updateRatesChart(labels, txData, rxData);
+    } catch (error) {
+        console.error('Failed to load timeline:', error);
+        showEmptyStates(rssiEmpty, ratesEmpty);
+    }
+}
+
+function showEmptyStates(rssiEmpty, ratesEmpty) {
+    if (rssiEmpty) rssiEmpty.style.display = 'flex';
+    if (ratesEmpty) ratesEmpty.style.display = 'flex';
+}
+
+function updateRssiChart(labels, data) {
+    const ctx = document.getElementById('rssi-chart').getContext('2d');
+    if (rssiChart) rssiChart.destroy();
+    
+    rssiChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'RSSI (dBm)',
+                data: data,
+                borderColor: '#3b82f6',
+                backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                fill: true,
+                tension: 0.4
+            }]
+        },
+        options: {
+            ...chartOptions,
+            scales: {
+                ...chartOptions.scales,
+                y: { ...chartOptions.scales.y, title: { display: true, text: 'Signal Strength (dBm)', color: '#94a3b8' } }
+            }
+        }
+    });
+}
+
+function updateRatesChart(labels, txData, rxData) {
+    const ctx = document.getElementById('rates-chart').getContext('2d');
+    if (ratesChart) ratesChart.destroy();
+    
+    ratesChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [
+                {
+                    label: 'TX Rate (Mbps)',
+                    data: txData,
+                    borderColor: '#10b981',
+                    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                    fill: true,
+                    tension: 0.4
+                },
+                {
+                    label: 'RX Rate (Mbps)',
+                    data: rxData,
+                    borderColor: '#ef4444',
+                    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                    fill: true,
+                    tension: 0.4
+                }
+            ]
+        },
+        options: {
+            ...chartOptions,
+            scales: {
+                ...chartOptions.scales,
+                y: { ...chartOptions.scales.y, beginAtZero: true, title: { display: true, text: 'Rate (Mbps)', color: '#94a3b8' } }
+            }
+        }
+    });
+}
+
+async function loadEvents() {
+    try {
+        const response = await fetch(`/api/lan/device/${deviceId}/events?limit=50`);
+        const data = await response.json();
+        const events = data.events || [];
+        
+        const tbody = document.getElementById('events-body');
+        
+        if (events.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="4" class="empty">No associated syslog events</td></tr>';
+            return;
+        }
+        
+        tbody.innerHTML = events.map(event => {
+            const severityClass = getSeverityClass(event.severity);
+            return `
+                <tr>
+                    <td>${formatTimestamp(event.timestamp)}</td>
+                    <td><span class="badge ${severityClass}">${event.severity}</span></td>
+                    <td class="wrap">${event.message}</td>
+                    <td><span class="badge">${event.match_type || '--'}</span></td>
+                </tr>
+            `;
+        }).join('');
+    } catch (error) {
+        console.error('Failed to load events:', error);
+        document.getElementById('events-body').innerHTML = 
+            '<tr><td colspan="4" class="empty">Error loading events</td></tr>';
+    }
+}
+
+async function loadConnectionEvents() {
+    try {
+        const response = await fetch(`/api/lan/device/${deviceId}/connection-events?limit=50`);
+        const data = await response.json();
+        const events = data.events || [];
+        
+        const tbody = document.getElementById('connection-events-body');
+        
+        if (events.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="3" class="empty">No connection events recorded</td></tr>';
+            return;
+        }
+        
+        tbody.innerHTML = events.map(event => {
+            const eventClass = event.event_type === 'connected' || event.event_type === 'reconnected' ? 'event-connected' : 'event-disconnected';
+            const eventIcon = event.event_type === 'connected' || event.event_type === 'reconnected' ? '🟢' : '🔴';
+            return `
+                <tr class="${eventClass}">
+                    <td>${formatTimestamp(event.event_time)}</td>
+                    <td>${eventIcon} <strong>${event.event_type}</strong></td>
+                    <td class="wrap">${event.details || '--'}</td>
+                </tr>
+            `;
+        }).join('');
+    } catch (error) {
+        console.error('Failed to load connection events:', error);
+        document.getElementById('connection-events-body').innerHTML = 
+            '<tr><td colspan="3" class="empty">Error loading connection events</td></tr>';
+    }
+}
+
+function getSeverityClass(severity) {
+    if (!severity) return '';
+    const s = severity.toLowerCase();
+    if (s.includes('error') || s.includes('critical') || s.includes('alert') || s.includes('emergency')) {
+        return 'badge-error';
+    }
+    if (s.includes('warning')) {
+        return 'badge-warning';
+    }
+    return 'badge-info';
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    loadDeviceInfo();
+    loadTimeline();
+    loadConnectionEvents();
+    loadEvents();
+    
+    // Set up form validation
+    setupFormValidation();
+});
+
+function setupFormValidation() {
+    const nicknameInput = document.getElementById('edit-nickname');
+    const locationInput = document.getElementById('edit-location');
+    
+    if (nicknameInput && window.FormValidator) {
+        // Alphanumeric validator allows letters, numbers, spaces, and common punctuation: - _ . ( ) ,
+        FormValidator.setupInput(nicknameInput, [
+            { name: 'maxLength', max: 100 },
+            'alphanumeric'
+        ], {
+            validateOnInput: true,
+            debounce: 500
+        });
+    }
+    
+    if (locationInput && window.FormValidator) {
+        FormValidator.setupInput(locationInput, [
+            { name: 'maxLength', max: 100 },
+            'alphanumeric'
+        ], {
+            validateOnInput: true,
+            debounce: 500
+        });
+    }
+}
+</script>
+
+<style>
+.page-container {
+    max-width: 1400px;
+    margin: 0 auto;
+}
+
+.info-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: var(--space-lg);
+}
+
+.info-item {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+
+.info-item .label {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.info-item .value {
+    font-size: 1rem;
+    color: var(--text-primary);
+}
+
+.period-selector {
+    background: var(--bg-card);
+    padding: var(--space-md) var(--space-lg);
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border-subtle);
+    margin-bottom: var(--space-lg);
+}
+
+.period-selector label {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+}
+
+.period-selector label span {
+    font-weight: 500;
+    color: var(--text-secondary);
+}
+
+.period-selector select {
+    padding: var(--space-sm) var(--space-md);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-md);
+    color: var(--text-primary);
+    font-size: 0.9rem;
+}
+
+.charts-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+    gap: var(--space-md);
+    margin-bottom: var(--space-lg);
+}
+
+.chart-container {
+    position: relative;
+    height: 280px;
+    padding: var(--space-md);
+    background: var(--bg-elevated);
+    border-radius: var(--radius-md);
+}
+
+.empty-state {
+    position: absolute;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-muted);
+    font-weight: 500;
+    background: var(--bg-elevated);
+    border-radius: var(--radius-md);
+    z-index: 2;
+}
+
+.table-container {
+    overflow-x: auto;
+}
+
+.edit-form {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: var(--space-lg);
+    align-items: end;
+}
+
+.form-group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+}
+
+.form-group label {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
+.form-group input {
+    padding: var(--space-sm) var(--space-md);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-md);
+    color: var(--text-primary);
+    font-size: 0.95rem;
+}
+
+.form-group input:focus,
+.form-group select:focus {
+    outline: none;
+    border-color: var(--accent-primary);
+    box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+.form-group select {
+    padding: var(--space-sm) var(--space-md);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-md);
+    color: var(--text-primary);
+    font-size: 0.95rem;
+}
+
+.form-group select[multiple] {
+    min-height: 100px;
+}
+
+.form-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+}
+
+.edit-status {
+    font-size: 0.9rem;
+    font-weight: 500;
+}
+
+.edit-status.saving { color: var(--status-warning); }
+.edit-status.success { color: var(--status-healthy); }
+.edit-status.error { color: var(--status-critical); }
+
+.btn-small-inline {
+    padding: 0.15rem 0.5rem;
+    margin-left: 0.5rem;
+    font-size: 0.75rem;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-md);
+    color: var(--text-primary);
+    cursor: pointer;
+}
+
+.btn-small-inline:hover {
+    background: var(--accent-primary);
+}
+</style>
+{% endblock %}
