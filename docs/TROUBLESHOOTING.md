@@ -2,6 +2,53 @@
 
 This guide covers common issues and their solutions.
 
+## Build Issues
+
+### NETSDK1083: RuntimeIdentifier not recognized (WinUI/OpsWorkbench)
+
+**Symptoms:**
+
+- `dotnet run --project YourProject.csproj -c Debug` fails with `NETSDK1083` for legacy RIDs like `win10-arm`, `win10-x86`, `win10-x64-aot`, etc. This occurs even without explicitly passing `-r` because the project’s `RuntimeIdentifiers` list contains those values.
+- NuGet warning `NU1603` downgrades `Microsoft.WindowsAppSDK` to `1.5.240607001`.
+
+**Cause:**
+
+- The project lists legacy/AOT RuntimeIdentifiers that are not present in the installed .NET 8 SDK runtime graph.
+- Windows App SDK 1.5 pulls in the closest patch, but the RID resolution fails before restore completes.
+
+**Fix:**
+
+1. Install the Windows build prerequisites:
+   - In Visual Studio Installer, add **.NET desktop development** and a current **Windows SDK** (22621+ recommended; 19041+ minimum) so the Windows targeting packs for .NET 8 are available.
+   - After the install finishes, restart Visual Studio. If `dotnet --info` still does not list the new SDK after restarting, reboot the system.
+2. Trim unsupported RIDs in `YourProject.csproj` to only the supported ones:
+
+   ```xml
+   <PropertyGroup>
+     <RuntimeIdentifiers>win-x64;win-arm64</RuntimeIdentifiers>
+   </PropertyGroup>
+   ```
+
+   - Remove the `*-aot` entries unless you have explicit AOT (Ahead-of-Time) packs installed.
+   - Check for AOT packs by looking for entries like `Microsoft.NETCore.App.Runtime.AOT.win-x64.Cross` in `dotnet --info` or for “.NET 8 AOT” workloads in Visual Studio Installer.
+3. Clear old artifacts and restore with an explicit RID:
+
+   ```powershell
+   dotnet clean YourProject.csproj
+   dotnet restore YourProject.csproj -r win-x64
+   dotnet run --project YourProject.csproj -c Debug -r win-x64
+   ```
+
+4. If the NU1603 warning persists, pin the package to the resolved version in the project file:
+
+   ```xml
+   <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.5.240607001" />
+   ```
+
+   Match the version in this reference to the exact version NuGet resolves in the NU1603 warning.
+
+These steps stabilize RID resolution on development environments without requiring AOT workloads.
+
 ## Service Issues
 
 ### Windows Service vs Scheduled Task
