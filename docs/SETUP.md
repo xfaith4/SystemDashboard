@@ -94,10 +94,10 @@ Edit `config.json` to customize:
 
 Once running, access the web interface at:
 
-- **Main Dashboard**: <http://localhost:5000>
-- **Events**: <http://localhost:5000/events>
-- **Router Logs**: <http://localhost:5000/router>
-- **LAN Observability**: <http://localhost:5000/lan>
+- **Main Dashboard**: `http://localhost:<port>` (use the value from `var/webui-port.txt`)
+- **Events**: `http://localhost:<port>/events`
+- **Router Logs**: `http://localhost:<port>/router`
+- **LAN Observability**: `http://localhost:<port>/lan`
 
 ## Management Commands
 
@@ -150,7 +150,7 @@ sqlite3 var/system_dashboard.db "SELECT COUNT(*) FROM syslog_messages;"
 
 1. Verify Flask app can access the database file
 2. Check database path in `config.json`
-3. Test connection: <http://localhost:5000/health>
+3. Test connection: `http://localhost:<port>/health`
 4. Check browser console for JavaScript errors
 
 ### Router Logs Not Collected

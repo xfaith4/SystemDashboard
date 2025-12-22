@@ -22,6 +22,13 @@ if (-not $RootPath) {
     $RootPath = Split-Path -Parent $PSScriptRoot
 }
 
+$PortalHelpersPath = Join-Path $RootPath "tools\PortalPortHelpers.ps1"
+$PortalHelpersLoaded = $false
+if (Test-Path $PortalHelpersPath) {
+    . $PortalHelpersPath
+    $PortalHelpersLoaded = $true
+}
+
 $ServicesPath = Join-Path $RootPath "services"
 
 function Test-Administrator {
