@@ -4,6 +4,15 @@
 Write-Host "🧪 Testing System Dashboard Data Collection" -ForegroundColor Yellow
 Write-Host "=" * 50
 
+$ScriptPath = $MyInvocation.MyCommand.Path
+$RootPath = if ($env:SYSTEMDASHBOARD_ROOT) { $env:SYSTEMDASHBOARD_ROOT } else { Split-Path -Parent $ScriptPath }
+$PortalHelpersPath = Join-Path $RootPath "tools\PortalPortHelpers.ps1"
+if (Test-Path $PortalHelpersPath) {
+    . $PortalHelpersPath
+}
+$DashboardPort = if (Get-Command Read-WebUIPortFromFile -ErrorAction SilentlyContinue) { Read-WebUIPortFromFile -DefaultPort 5000 } else { 5000 }
+$DashboardBaseUrl = "http://localhost:$DashboardPort"
+
 # 1. Create a test Windows Event
 Write-Host "`n📝 Creating test Windows Event..." -ForegroundColor Cyan
 try {
@@ -36,7 +45,7 @@ try {
 # 4. Test dashboard data API
 Write-Host "`n🌐 Testing dashboard data API..." -ForegroundColor Cyan
 try {
-    $response = Invoke-WebRequest -Uri "http://localhost:5000/api/events?max=5" -UseBasicParsing
+    $response = Invoke-WebRequest -Uri "$DashboardBaseUrl/api/events?max=5" -UseBasicParsing
     $eventsData = $response.Content | ConvertFrom-Json
 
     Write-Host "✅ Dashboard API returned $($eventsData.events.Count) events" -ForegroundColor Green
@@ -76,7 +85,7 @@ try {
 
 # 6. Final status
 Write-Host "`n🎯 System Dashboard Status:" -ForegroundColor Cyan
-Write-Host "   🌐 Web Interface: http://localhost:5000" -ForegroundColor White
+Write-Host "   🌐 Web Interface: $DashboardBaseUrl (see var/webui-port.txt for the active port)" -ForegroundColor White
 Write-Host "   📊 Database: Connected and operational" -ForegroundColor White
 Write-Host "   🔄 Services: Running via scheduled tasks" -ForegroundColor White
 

@@ -5,6 +5,7 @@ This document explains how to configure the System Dashboard to pull real data f
 ## Overview
 
 The System Dashboard supports three main data sources:
+
 1. **Windows Event Logs** - Real system events from Windows Event Log
 2. **Router Logs** - Log files from network routers/firewalls
 3. **System Information** - Real-time system metrics (CPU, memory, disk, network)
@@ -16,6 +17,7 @@ The System Dashboard supports three main data sources:
 The PowerShell module automatically accesses Windows Event Logs when running on Windows systems.
 
 **Configuration:**
+
 - No additional configuration required on Windows
 - Logs are pulled from `Application` and `System` event logs by default
 - Access requires appropriate permissions (usually user-level access is sufficient)
@@ -28,6 +30,7 @@ Get-SystemLogs -LogName 'Application','System','Security' -MaxEvents 50 -Minimum
 
 **Flask App Configuration:**
 The Flask app uses PowerShell to retrieve Windows events:
+
 - Automatically detects Windows environment
 - Falls back to empty list on non-Windows systems
 - Supports filtering by event level (Error, Warning, Information)
@@ -37,6 +40,7 @@ The Flask app uses PowerShell to retrieve Windows events:
 Router logs are read from a file specified by the `ROUTER_LOG_PATH` environment variable.
 
 **Setup:**
+
 1. Configure your router to write logs to a file accessible by the dashboard
 2. Set the environment variable:
    ```bash
@@ -71,6 +75,7 @@ export ROUTER_LOG_PATH="./sample-router.log"
 System metrics are collected automatically using native OS tools.
 
 **Windows Metrics:**
+
 - **CPU Usage**: Performance counters via `Get-Counter`
 - **Memory Usage**: WMI via `Get-CimInstance Win32_ComputerSystem`
 - **Disk Usage**: WMI via `Get-CimInstance Win32_LogicalDisk`
@@ -78,11 +83,13 @@ System metrics are collected automatically using native OS tools.
 - **Process Info**: `Get-Process` cmdlet
 
 **Network Client Discovery:**
+
 - Uses `Get-NetNeighbor` to find connected devices
 - Performs DNS lookups for hostnames
 - Returns IP, MAC address, and connection state
 
 **Linux/Unix Metrics:**
+
 - Limited support for cross-platform operation
 - Uses standard tools like `ps`, `df`, `free` where available
 
@@ -93,7 +100,7 @@ System metrics are collected automatically using native OS tools.
 | `ROUTER_LOG_PATH` | Path to router log file | None | `/var/log/router.log` |
 | `CHATTY_THRESHOLD` | Threshold for "chatty" network clients | 500 | `1000` |
 | `SYSTEMDASHBOARD_BACKEND` | Backend URL for Flask health checks | `http://localhost:15000/metrics` | `http://server:15000/metrics` |
-| `DASHBOARD_PORT` | Flask app port | 5000 | `8080` |
+| `DASHBOARD_PORT` | Flask app port | Automatically assigned from the next open port (see `var/webui-port.txt`) | `8080` |
 | `OPENAI_API_KEY` | OpenAI API key for AI suggestions | None | `sk-...` |
 
 ## Testing Data Sources
@@ -109,7 +116,7 @@ python -c "from app import get_router_logs; print(len(get_router_logs()))"
 
 # Test with Flask
 python app.py
-# Visit http://localhost:5000/router
+# Visit http://localhost:<port>/router (check `var/webui-port.txt` for the current port)
 ```
 
 ### Test Windows Events (Windows only)
@@ -120,7 +127,7 @@ Get-SystemLogs -LogName 'Application' -MaxEvents 5
 
 # Test Flask endpoint
 python app/app.py
-# Visit http://localhost:5000/events
+# Visit http://localhost:<port>/events (check `var/webui-port.txt` for the current port)
 ```
 
 ### Test System Metrics
@@ -148,24 +155,28 @@ pwsh -Command "Invoke-Pester tests/ -Verbose"
 ## Troubleshooting
 
 ### Router Logs Not Appearing
+
 1. Verify `ROUTER_LOG_PATH` environment variable is set
 2. Check file exists and is readable
 3. Verify log format matches expected pattern
 4. Check file encoding (should be UTF-8 compatible)
 
 ### Windows Events Not Loading
+
 1. Ensure running on Windows system
 2. Check user has permission to read Event Logs
 3. Verify PowerShell execution policy allows script execution
 4. Check for PowerShell errors in console
 
 ### System Metrics Showing Zeros
+
 1. Verify appropriate permissions for system access
 2. Check if performance counters are enabled
 3. Ensure WMI service is running (Windows)
 4. Check for antivirus interference
 
 ### Network Discovery Issues
+
 1. Verify network adapter is up and configured
 2. Check ARP table has entries: `arp -a`
 3. Ensure DNS resolution is working

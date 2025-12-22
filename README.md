@@ -133,7 +133,7 @@ The service, ingestion helpers, and UI follow the project guidance of “PowerSh
    python .\app\app.py
    ```
 
-   Browse to `http://localhost:5000/` for the analytics dashboard. For production you can host the contents of `wwwroot/` (or the Flask app behind IIS) at `http://localhost:8088/` per the project brief.
+   Browse to `http://localhost:<port>/` for the analytics dashboard; the currently assigned port is tracked in `var/webui-port.txt` and the service will pick the next available port starting at 5000. For production you can host the contents of `wwwroot/` (or the Flask app behind IIS) at `http://localhost:8088/` per the project brief.
 
 ## Configuration reference (`config.json`)
 

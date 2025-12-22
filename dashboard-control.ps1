@@ -9,6 +9,21 @@ param(
     [switch]$Maintenance
 )
 
+$ScriptPath = $MyInvocation.MyCommand.Path
+$DashboardRoot = if ($env:SYSTEMDASHBOARD_ROOT) { $env:SYSTEMDASHBOARD_ROOT } else { Split-Path -Parent $ScriptPath }
+$PortalHelpersPath = Join-Path $DashboardRoot "tools\PortalPortHelpers.ps1"
+if (Test-Path $PortalHelpersPath) {
+    . $PortalHelpersPath
+}
+
+function Get-WebInterfaceBaseUrl {
+    $port = 5000
+    if (Get-Command Read-WebUIPortFromFile -ErrorAction SilentlyContinue) {
+        $port = Read-WebUIPortFromFile -DefaultPort 5000
+    }
+    return "http://localhost:$port"
+}
+
 function Show-DashboardMenu {
     Clear-Host
     Write-Host "🎛️  System Dashboard Control Center" -ForegroundColor Cyan
@@ -457,7 +472,9 @@ function Restart-AllServices {
 
 function Open-DashboardInBrowser {
     Write-Host "🌐 Opening System Dashboard..." -ForegroundColor Cyan
-    Start-Process "http://localhost:5000"
+    $webUrl = Get-WebInterfaceBaseUrl
+    Write-Host "  Opening $webUrl" -ForegroundColor Gray
+    Start-Process $webUrl
     Start-Sleep 1
     Show-DashboardMenu
 }

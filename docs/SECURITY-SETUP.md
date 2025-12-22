@@ -100,8 +100,9 @@ gunicorn --certfile cert.pem --keyfile key.pem \
             <rules>
                 <rule name="ReverseProxyInboundRule1" stopProcessing="true">
                     <match url="(.*)" />
-                    <action type="Rewrite" url="http://localhost:5000/{R:1}" />
+                    <action type="Rewrite" url="http://localhost:<port>/{R:1}" />
                 </rule>
+                <!-- Replace `<port>` with the value stored in `var/webui-port.txt`. -->
             </rules>
         </rewrite>
     </system.webServer>
@@ -175,7 +176,7 @@ openssl rand -base64 32
 **Option 1: HTTP Header (Recommended)**
 
 ```bash
-curl -H "X-API-Key: your-api-key" https://localhost:5000/api/devices
+curl -H "X-API-Key: your-api-key" https://localhost:<port>/api/devices
 ```
 
 ```javascript
@@ -190,7 +191,7 @@ fetch('/api/devices', {
 **Option 2: Query Parameter**
 
 ```bash
-curl https://localhost:5000/api/devices?api_key=your-api-key
+curl https://localhost:<port>/api/devices?api_key=your-api-key
 ```
 
 ### Protecting Endpoints

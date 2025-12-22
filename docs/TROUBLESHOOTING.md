@@ -345,7 +345,7 @@ Get-ScheduledTaskInfo -TaskName "SystemDashboard-Telemetry"
 1. Check database connection:
 
    ```powershell
-   Invoke-RestMethod http://localhost:5000/health
+   Invoke-RestMethod http://localhost:<port>/health  # see var/webui-port.txt for the assigned port
    ```
 
 2. Verify data exists:

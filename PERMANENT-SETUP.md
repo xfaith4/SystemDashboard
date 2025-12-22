@@ -18,7 +18,7 @@ Your System Dashboard is now configured to run permanently on your machine with 
 
 3. **Flask Web Dashboard**
    - Scheduled Task: `SystemDashboard-WebUI`
-   - Web interface at: **http://localhost:5000**
+   - Web interface at: **http://localhost:<port>** (the assigned port is written to `var/webui-port.txt`)
    - Automatically restarts if it fails
 
 ---
@@ -66,7 +66,7 @@ docker logs postgres-container
 
 ## 🌐 **Accessing the Dashboard**
 
-**Main URL**: http://localhost:5000
+**Main URL**: `http://localhost:<port>` (check `var/webui-port.txt` for the currently assigned port)
 
 ### Available Pages:
 
@@ -77,8 +77,8 @@ docker logs postgres-container
 
 ### API Endpoints:
 
-- **Health Check**: http://localhost:5000/health
-- **Events API**: http://localhost:5000/api/events?level=Error&max=10
+- **Health Check**: `http://localhost:<port>/health`
+- **Events API**: `http://localhost:<port>/api/events?level=Error&max=10`
 
 ---
 
@@ -142,7 +142,7 @@ G:\Development\10_Active\SystemDashboard\
 
 ## 🎯 **Next Steps**
 
-1. **Bookmark the dashboard**: http://localhost:5000
+1. **Bookmark the dashboard**: `http://localhost:<port>` (refer to `var/webui-port.txt` for the active port)
 2. **Monitor the system**: Check dashboard daily for alerts
 3. **Customize alerts**: Edit thresholds in `config.json`
 4. **Add more data sources**: Extend telemetry collection as needed
