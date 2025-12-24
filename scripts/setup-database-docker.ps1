@@ -225,7 +225,7 @@ if (-not $success) {
 # Apply schema
 Write-Host "`n🏗️  Setting up schema..." -ForegroundColor Yellow
 
-$schemaPath = Join-Path $PSScriptRoot "tools\schema.sql"
+$schemaPath = Join-Path $PSScriptRoot "..\tools\schema.sql"
 if (Test-Path $schemaPath) {
     $success = $success -and (Invoke-DockerSQLFile -FilePath $schemaPath -Database $DatabaseName -Description "Applying schema from schema.sql")
 }
@@ -233,7 +233,7 @@ else {
     Write-Host "⚠️  Schema file not found at: $schemaPath" -ForegroundColor Yellow
     Write-Host "Creating basic telemetry schema..." -ForegroundColor Cyan
 
-    $basicSchema = @"
+    $basicSchema = @'
 CREATE SCHEMA IF NOT EXISTS telemetry;
 
 CREATE TABLE IF NOT EXISTS telemetry.syslog_generic_template (
@@ -254,7 +254,7 @@ CREATE TABLE IF NOT EXISTS telemetry.syslog_generic_template (
 CREATE OR REPLACE FUNCTION telemetry.ensure_syslog_partition(target_month DATE)
 RETURNS VOID
 LANGUAGE plpgsql
-AS \$\$
+AS $$
 DECLARE
     partition_name TEXT;
     start_ts       DATE;
@@ -282,14 +282,14 @@ BEGIN
         EXECUTE stmt;
     END IF;
 END;
-\$\$;
-"@
+$$;
+'@
 
     $success = $success -and (Invoke-DockerPSQL -Command $basicSchema -Database $DatabaseName -Description "Creating basic telemetry schema")
 }
 
 # Apply extended schema for Windows Event Log and IIS tables
-$extendedSchemaPath = Join-Path $PSScriptRoot "extended-schema.sql"
+$extendedSchemaPath = Join-Path $PSScriptRoot "..\extended-schema.sql"
 if (Test-Path $extendedSchemaPath) {
     Write-Host "`n📋 Applying extended schema (Windows Event Log and IIS tables)..." -ForegroundColor Cyan
     $success = $success -and (Invoke-DockerSQLFile -FilePath $extendedSchemaPath -Database $DatabaseName -Description "Applying extended schema from extended-schema.sql")
@@ -375,7 +375,7 @@ if ($success) {
     Write-Host "`n✅ Your System Dashboard database is ready!" -ForegroundColor Green
     Write-Host "Next steps:" -ForegroundColor Cyan
     Write-Host "1. Run: .\scripts\Install.ps1" -ForegroundColor White
-    Write-Host "2. Start-Service SystemDashboardTelemetry" -ForegroundColor White
+    Write-Host "2. Start-ScheduledTask -TaskName 'SystemDashboard-Telemetry'" -ForegroundColor White
     Write-Host "3. python .\app\app.py" -ForegroundColor White
 
     Write-Host "`n💡 Docker container management:" -ForegroundColor Blue

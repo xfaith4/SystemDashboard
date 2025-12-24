@@ -32,9 +32,7 @@ if ($IsWindows) {
 
 if ($IsWindows) {
     Write-Host 'Registering SystemDashboard telemetry service...'
-    $pwsh = (Get-Command pwsh -ErrorAction Stop).Source
     $serviceScript = (Resolve-Path (Join-Path $PSScriptRoot 'services/SystemDashboardService.ps1')).Path
-    $resolvedConfig = (Resolve-Path $ConfigPath).Path
     $binary = "`"$serviceScript`""
 
     $existing = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue

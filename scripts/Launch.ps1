@@ -79,25 +79,25 @@ function Invoke-Stage {
 
 function Run-Environment {
     $scriptPath = Get-ScriptPath 'setup-environment.ps1'
-    $args = @()
+    $scriptArgs = @()
     if ($EnvironmentPermanent) {
-        $args += '-Permanent'
+        $scriptArgs += '-Permanent'
     }
 
     Write-Host 'Running setup-environment.ps1' -ForegroundColor Yellow
-    . $scriptPath @args
+    . $scriptPath @scriptArgs
 }
 
 function Run-Database {
     $scriptName = if ($DatabaseMode -eq 'docker') { 'setup-database-docker.ps1' } else { 'setup-database.ps1' }
     $scriptPath = Get-ScriptPath $scriptName
-    $args = @()
+    $scriptArgs = @()
     if ($DatabaseArgs) {
-        $args += $DatabaseArgs
+        $scriptArgs += $DatabaseArgs
     }
 
     Write-Host ("Running {0}" -f $scriptName) -ForegroundColor Yellow
-    & $scriptPath @args
+    & $scriptPath @scriptArgs
 }
 
 function Run-Install {
@@ -161,7 +161,7 @@ $stageActions = [ordered]@{
 
 Write-Host "Launching stages: $($Stages -join ', ')" -ForegroundColor Cyan
 foreach ($stage in $Stages) {
-    if (-not $stageActions.ContainsKey($stage)) {
+    if (-not $stageActions.Contains($stage)) {
         Write-Host "⚠️  Unknown stage '$stage' skipped" -ForegroundColor Yellow
         continue
     }
