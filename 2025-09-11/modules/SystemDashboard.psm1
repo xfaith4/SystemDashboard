@@ -207,7 +207,7 @@ function ConvertTo-SqlLiteral {
 function Get-TelemetrySyslogRows {
     [CmdletBinding()]
     param(
-        [string]$Host,
+        [string]$SourceHost,
         [string]$Severity,
         [string]$Since = 'PT1H',
         [int]$Skip = 0,
@@ -217,7 +217,7 @@ function Get-TelemetrySyslogRows {
     try {
         $sinceTs = (Get-Date).ToUniversalTime() - [System.Xml.XmlConvert]::ToTimeSpan($Since)
         $schema = $Script:TelemetryDb.Schema ?? 'telemetry'
-        $filters = @("received_utc >= '{0}'::timestamptz" -f $sinceTs.ToString('o'))
+        $filters = @("received_utc >= '{0}'::timestamptz" -f $sinceTs.ToString('o')) # Host is a reserved keyword in PowerShell, use SourceHost instead
         if ($Host)     { $filters += "source_host = {0}" -f (ConvertTo-SqlLiteral -Value $Host) }
         if ($Severity) { $filters += "severity = {0}" -f (ConvertTo-SqlLiteral -Value $Severity) }
         $where = $filters -join ' AND '
@@ -463,14 +463,14 @@ function Start-SyslogUdp {
 function Get-SyslogRows {
     [CmdletBinding()]
     param(
-        [string]$Host,
+        [string]$SourceHost,
         [string]$Severity,
         [string]$Since = 'PT1H',
         [int]$Skip = 0,
         [int]$Take = 200
     )
     if ($Script:TelemetryDb) {
-        return Get-TelemetrySyslogRows -Host $Host -Severity $Severity -Since $Since -Skip $Skip -Take $Take
+        return Get-TelemetrySyslogRows -SourceHost $SourceHost -Severity $Severity -Since $Since -Skip $Skip -Take $Take
     }
     $sinceTs = (Get-Date) - [System.Xml.XmlConvert]::ToTimeSpan($Since)
     $sql = "SELECT ts,host,facility,severity,message,tags FROM syslog WHERE ts >= @since"
@@ -513,9 +513,9 @@ class RouterProviderBase {
 }
 
 class AsuswrtSshProvider : RouterProviderBase {
-    [string]$Host; [int]$Port; [string]$User; [int]$TimeoutSec = 6
-    AsuswrtSshProvider([string]$host,[int]$port,[string]$user){
-        $this.Host=$host; $this.Port=$port; $this.User=$user
+    [string]$RouterHost; [int]$Port; [string]$User; [int]$TimeoutSec = 6
+    AsuswrtSshProvider([string]$routerHostParam,[int]$port,[string]$user){
+        $this.RouterHost=$routerHostParam; $this.Port=$port; $this.User=$user
     }
     [string] GetName(){ return 'AsuswrtSsh' }
     hidden [string[]] Exec([string]$cmd) {
@@ -566,8 +566,8 @@ class AsuswrtSshProvider : RouterProviderBase {
 }
 
 class GenericSnmpProvider : RouterProviderBase {
-    [string]$Host; [int]$Port = 161; [string]$Community = 'public'
-    GenericSnmpProvider([string]$host){ $this.Host=$host }
+    [string]$SnmpHost; [int]$Port = 161; [string]$Community = 'public'
+    GenericSnmpProvider([string]$snmpHostParam){ $this.SnmpHost=$snmpHostParam }
     [string] GetName(){ return 'GenericSnmp' }
     [bool] TestConnection(){
         # Best-effort: require snmpwalk.exe in PATH
@@ -635,8 +635,8 @@ function Get-LiveMetrics {
 }
 
 function Write-SseEvent {
-    param([System.IO.StreamWriter]$Writer,[string]$Event,[string]$Data)
-    $Writer.WriteLine("event: $Event")
+    param([System.IO.StreamWriter]$Writer,[string]$EventName,[string]$Data)
+    $Writer.WriteLine("event: $EventName")
     $Writer.WriteLine("data: $Data")
     $Writer.WriteLine()
     $Writer.Flush()
@@ -769,12 +769,12 @@ function Start-SystemDashboard {
 
         # API: syslog
         Add-PodeRoute -Method Get -Path '/api/syslog' -ScriptBlock {
-            $host  = Get-PodeRequestQuery -Name 'host'
+            $sourceHost  = Get-PodeRequestQuery -Name 'host'
             $sev   = Get-PodeRequestQuery -Name 'severity'
             $since = (Get-PodeRequestQuery -Name 'since','PT1H')
             $skip  = [int](Get-PodeRequestQuery -Name 'skip','0')
-            $take  = [int](Get-PodeRequestQuery -Name 'take','200')
-            Write-PodeJsonResponse -Value (Get-SyslogRows -Host $host -Severity $sev -Since $since -Skip $skip -Take $take)
+            $take  = [int](Get-PodeRequestQuery -Name 'take','200') # Host is a reserved keyword in PowerShell, use SourceHost instead
+            Write-PodeJsonResponse -Value (Get-SyslogRows -SourceHost $sourceHost -Severity $sev -Since $since -Skip $skip -Take $take)
         }
 
         # API: AI assess (requires X-API-Key)
@@ -803,10 +803,10 @@ function Start-SystemDashboard {
 
     } -ArgumentList $Config, $Script:WebRoot | Out-Null
 
-    Write-AppLog -Message "Server started on http://$bind:$port"
+    Write-AppLog -Message "Server started on http://$($bind):$port"
     # Background loops (simple timers)
-    Register-PodeSchedule -Name 'events-collect' -Cron '* */10 * * * *' -ScriptBlock { Collect-EventLogs -Config $Config } | Out-Null  # every 10 minutes
-    $useTelemetrySyslog = ($Script:TelemetryDb -ne $null)
+    Register-PodeSchedule -Name 'events-collect' -Cron '* */10 * * * *' -ScriptBlock { Collect-EventLogs -Config $Config } | Out-Null # every 10 minutes
+    $useTelemetrySyslog = ($null -ne ${Script:TelemetryDb})
     if (-not $useTelemetrySyslog) {
         Register-PodeSchedule -Name 'syslog-poll'    -Cron '*/30 * * * * *' -ScriptBlock { Ingest-SyslogFiles -Config $Config } | Out-Null # every 30 sec
         if ($Config.syslog.enableUdp -eq $true) { Start-SyslogUdp -Port ([int]$Config.syslog.udpPort) }

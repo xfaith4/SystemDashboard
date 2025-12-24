@@ -1,7 +1,8 @@
 param(
     [string]$ModulePath = (Join-Path $env:ProgramFiles 'PowerShell/Modules/SystemDashboard'),
     [string]$ConfigPath = (Join-Path $PSScriptRoot 'config.json'),
-    [string]$ServiceName = 'SystemDashboardTelemetry'
+    [string]$ServiceName = 'SystemDashboardTelemetry',
+    [switch]$UseWindowsService
 )
 
 Write-Host 'Installing SystemDashboard module...'
@@ -31,28 +32,37 @@ if ($IsWindows) {
 }
 
 if ($IsWindows) {
-    Write-Host 'Registering SystemDashboard telemetry service...'
-    $pwsh = (Get-Command pwsh -ErrorAction Stop).Source
-    $serviceScript = (Resolve-Path (Join-Path $PSScriptRoot 'services/SystemDashboardService.ps1')).Path
-    $resolvedConfig = (Resolve-Path $ConfigPath).Path
-    $binary = "`"$pwsh`" -NoLogo -NoProfile -ExecutionPolicy Bypass -File `"$serviceScript`" -ConfigPath `"$resolvedConfig`""
+    if ($UseWindowsService) {
+        Write-Host 'Registering SystemDashboard telemetry service (legacy)...'
+        $pwsh = (Get-Command pwsh -ErrorAction Stop).Source
+        $serviceScript = (Resolve-Path (Join-Path $PSScriptRoot 'services/SystemDashboardService.ps1')).Path
+        $resolvedConfig = (Resolve-Path $ConfigPath).Path
+        $binary = "`"$pwsh`" -NoLogo -NoProfile -ExecutionPolicy Bypass -File `"$serviceScript`" -ConfigPath `"$resolvedConfig`""
 
-    $existing = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
-    if ($existing) {
-        Write-Host "Service $ServiceName already exists. Attempting to stop and delete..."
-        try {
-            if ($existing.Status -ne 'Stopped') {
-                Stop-Service -Name $ServiceName -Force -ErrorAction SilentlyContinue
-                $existing.WaitForStatus('Stopped', (New-TimeSpan -Seconds 15)) | Out-Null
+        $existing = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+        if ($existing) {
+            Write-Host "Service $ServiceName already exists. Attempting to stop and delete..."
+            try {
+                if ($existing.Status -ne 'Stopped') {
+                    Stop-Service -Name $ServiceName -Force -ErrorAction SilentlyContinue
+                    $existing.WaitForStatus('Stopped', (New-TimeSpan -Seconds 15)) | Out-Null
+                }
             }
+            catch {
+                Write-Warning "Failed to stop existing service $ServiceName $_"
+            }
+            & sc.exe delete $ServiceName | Out-Null
+            Start-Sleep -Seconds 2
         }
-        catch {
-            Write-Warning "Failed to stop existing service $ServiceName $_"
-        }
-        & sc.exe delete $ServiceName | Out-Null
-        Start-Sleep -Seconds 2
-    }
 
-    New-Service -Name $ServiceName -BinaryPathName $binary -DisplayName 'System Dashboard Telemetry Service' -StartupType Automatic -ErrorAction Stop | Out-Null
-    Write-Host "Service $ServiceName registered. Use Start-Service $ServiceName to begin ingestion."
+        New-Service -Name $ServiceName -BinaryPathName $binary -DisplayName 'System Dashboard Telemetry Service' -StartupType Automatic -ErrorAction Stop | Out-Null
+        Write-Host "Service $ServiceName registered. Use Start-Service $ServiceName to begin ingestion."
+    } else {
+        Write-Host 'Registering SystemDashboard telemetry scheduled task (recommended)...'
+        $taskScript = Join-Path $PSScriptRoot 'scripts/setup-scheduled-task.ps1'
+        if (-not (Test-Path -LiteralPath $taskScript)) {
+            throw "Scheduled task setup script not found at $taskScript"
+        }
+        & $taskScript
+    }
 }

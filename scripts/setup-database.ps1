@@ -320,7 +320,7 @@ if ($success) {
     Write-Host "`n✅ Your System Dashboard database is ready!" -ForegroundColor Green
     Write-Host "Next steps:" -ForegroundColor Cyan
     Write-Host "1. Run: .\scripts\Install.ps1" -ForegroundColor White
-    Write-Host "2. Start-Service SystemDashboardTelemetry" -ForegroundColor White
+    Write-Host "2. Start-ScheduledTask -TaskName 'SystemDashboard-Telemetry'" -ForegroundColor White
     Write-Host "3. python .\app\app.py" -ForegroundColor White
 
 }
