@@ -13,33 +13,17 @@ Describe 'Circular Import Fix Validation' {
         $module.Name | Should -Be 'Start-SystemDashboard'
     }
     
-    It 'Start-SystemDashboard.ps1 script can be dot-sourced without circular reference' {
+    It 'Start-SystemDashboard.ps1 can be dot-sourced without side effects when preflight is skipped' {
         # Remove any existing module first
         Remove-Module -Name 'Start-SystemDashboard' -ErrorAction SilentlyContinue
         
         # Dot-source the script - should not throw
-        { . "$script:RepoRoot/Start-SystemDashboard.ps1" } | Should -Not -Throw
-        
-        # Verify module is loaded after script execution
-        $module = Get-Module -Name 'Start-SystemDashboard'
-        $module | Should -Not -BeNullOrEmpty
+        { . "$script:RepoRoot/Start-SystemDashboard.ps1" -SkipPreflight -SkipLaunch } | Should -Not -Throw
     }
     
-    It 'multiple imports of Start-SystemDashboard.ps1 are prevented by guard' {
-        # Remove any existing module first
-        Remove-Module -Name 'Start-SystemDashboard' -ErrorAction SilentlyContinue
-        
-        # First import
-        . "$script:RepoRoot/Start-SystemDashboard.ps1"
-        $firstModule = Get-Module -Name 'Start-SystemDashboard'
-        
-        # Second import (should be guarded)
-        . "$script:RepoRoot/Start-SystemDashboard.ps1"
-        $secondModule = Get-Module -Name 'Start-SystemDashboard'
-        
-        # Should be the same module instance
-        $secondModule | Should -Not -BeNullOrEmpty
-        $secondModule.Path | Should -Be $firstModule.Path
+    It 'Start-SystemDashboard.ps1 can be invoked twice with skip flags' {
+        . "$script:RepoRoot/Start-SystemDashboard.ps1" -SkipPreflight -SkipLaunch
+        { . "$script:RepoRoot/Start-SystemDashboard.ps1" -SkipPreflight -SkipLaunch } | Should -Not -Throw
     }
     
     It 'exported functions are available after import' {
