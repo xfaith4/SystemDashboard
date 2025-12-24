@@ -35,7 +35,7 @@ if ($IsWindows) {
     $pwsh = (Get-Command pwsh -ErrorAction Stop).Source
     $serviceScript = (Resolve-Path (Join-Path $PSScriptRoot 'services/SystemDashboardService.ps1')).Path
     $resolvedConfig = (Resolve-Path $ConfigPath).Path
-    $binary = "`"$pwsh`" -NoLogo -NoProfile -ExecutionPolicy Bypass -File `"$serviceScript`" -ConfigPath `"$resolvedConfig`""
+    $binary = "`"$serviceScript`""
 
     $existing = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
     if ($existing) {
