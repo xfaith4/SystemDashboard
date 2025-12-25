@@ -7,9 +7,9 @@ import pytest
 from datetime import datetime, timedelta
 
 # Add the app directory to the path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'app'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from validators import (
+from app.validators import (
     ValidationError, validate_mac_address, validate_ip_address,
     validate_pagination, validate_date_range, validate_severity,
     validate_sort_field, validate_sort_order, validate_tags,

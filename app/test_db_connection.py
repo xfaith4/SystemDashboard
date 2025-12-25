@@ -3,6 +3,8 @@
 Test script to verify database connection with Flask app settings
 """
 
+__test__ = False
+
 import os
 import sys
 import json
@@ -12,8 +14,8 @@ try:  # pragma: no cover - pytest is optional when running as a script
 except ImportError:  # pragma: no cover - running standalone without pytest installed
     pytest = None
 
-# Add the app directory to Python path
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# Add the repo root to Python path
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 def load_config():
     """Load database configuration from config.json"""
@@ -24,6 +26,19 @@ def load_config():
             return config.get('Database', {})
     except Exception as e:
         print(f"Failed to load config: {e}")
+        return {}
+
+def load_connection_info():
+    """Load generated database passwords from var/database-connection.json if present."""
+    repo_root = os.path.dirname(os.path.dirname(__file__))
+    connection_path = os.path.join(repo_root, 'var', 'database-connection.json')
+    if not os.path.exists(connection_path):
+        return {}
+    try:
+        with open(connection_path, 'r') as f:
+            return json.load(f) or {}
+    except Exception as e:
+        print(f"Failed to load connection info: {e}")
         return {}
 
 def check_database_connection(verbose: bool = True):
@@ -44,8 +59,10 @@ def check_database_connection(verbose: bool = True):
     os.environ['DASHBOARD_DB_NAME'] = db_config.get('Database', 'system_dashboard')
     os.environ['DASHBOARD_DB_USER'] = 'sysdash_reader'
 
-    # Try to get the reader password
-    reader_password = os.environ.get('SYSTEMDASHBOARD_DB_READER_PASSWORD')
+    connection_info = load_connection_info()
+
+    # Prefer docker-generated passwords when available
+    reader_password = connection_info.get('ReaderPassword') or os.environ.get('SYSTEMDASHBOARD_DB_READER_PASSWORD')
     if not reader_password:
         reader_password = os.environ.get('SYSTEMDASHBOARD_DB_PASSWORD', 'GeneratedPassword123!').replace('123!', '456!')
 

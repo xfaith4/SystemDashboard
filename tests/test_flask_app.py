@@ -8,8 +8,8 @@ import pytest
 import json
 from unittest.mock import patch, mock_open
 
-# Add the app directory to the path so we can import app
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'app'))
+# Add the repo root to the path so we can import the app package
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 import app as flask_app
 
@@ -248,6 +248,38 @@ class TestAPIEndpoints:
         for value in data['iis_errors'] + data['auth_failures'] + data['windows_errors'] + data['router_alerts']:
             assert isinstance(value, int)
             assert value >= 0
+
+
+class TestApiV1Endpoints:
+    """Test versioned API endpoints."""
+
+    def test_api_v1_health(self, client, monkeypatch):
+        """Health endpoint should respond even when DB is not configured."""
+        from app.api.v1 import routes as api_v1_routes
+        monkeypatch.setattr(api_v1_routes, 'get_db_connection', lambda: None)
+
+        response = client.get('/api/v1/health')
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert data.get('status') == 'success'
+        assert 'db_connected' in data.get('data', {})
+
+    def test_api_v1_incidents_without_db(self, client, monkeypatch):
+        """Incidents should return 503 when DB connection is unavailable."""
+        from app.api.v1 import routes as api_v1_routes
+        monkeypatch.setattr(api_v1_routes, 'get_db_connection', lambda: None)
+
+        response = client.get('/api/v1/incidents')
+        assert response.status_code == 503
+        data = json.loads(response.data)
+        assert data.get('error') == 'Database not configured'
+
+    def test_api_v1_actions_invalid_type(self, client):
+        """Invalid action type should return 400 even before DB access."""
+        response = client.post('/api/v1/actions', json={'action_type': 'does_not_exist'})
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert 'Unknown action type' in data.get('error', '')
 
 
 class TestConfigurationValidation:

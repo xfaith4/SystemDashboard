@@ -7,9 +7,9 @@ import sys
 from flask import Flask
 
 # Add the app directory to the path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'app'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from rate_limiter import (
+from app.rate_limiter import (
     RateLimiter,
     get_rate_limiter,
     rate_limit,

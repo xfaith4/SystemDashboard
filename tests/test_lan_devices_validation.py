@@ -16,7 +16,7 @@ from unittest.mock import patch, MagicMock
 from datetime import datetime, timedelta, UTC
 
 # Add the app directory to the path so we can import app
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'app'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 import app as flask_app
 
@@ -65,7 +65,7 @@ def client_with_db(test_db):
     # Disable CSRF protection for tests
     os.environ['DASHBOARD_CSRF_ENABLED'] = 'false'
     if flask_app.PHASE3_FEATURES_AVAILABLE:
-        from security import get_csrf_protection
+        from app.security import get_csrf_protection
         get_csrf_protection().set_enabled(False)
     
     with flask_app.app.test_client() as client:

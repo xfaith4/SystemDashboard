@@ -10,7 +10,7 @@ import sqlite3
 from unittest.mock import MagicMock, patch
 
 # Add the app directory to the path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'app'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 import app as flask_app
 

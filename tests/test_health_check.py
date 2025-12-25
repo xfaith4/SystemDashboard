@@ -8,9 +8,9 @@ import tempfile
 import datetime
 
 # Add the app directory to the path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'app'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from health_check import (
+from app.health_check import (
     check_database_health,
     check_data_freshness,
     check_schema_integrity,

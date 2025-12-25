@@ -6,11 +6,15 @@ import tempfile
 import os
 import sys
 import time
+import importlib.util
 
 # Add the app directory to the path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'app'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from performance_monitor import (
+if importlib.util.find_spec("psutil") is None:
+    pytest.skip("psutil not installed", allow_module_level=True)
+
+from app.performance_monitor import (
     QueryPerformanceTracker,
     QueryPlanAnalyzer,
     ResourceMonitor,

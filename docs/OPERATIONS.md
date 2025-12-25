@@ -39,6 +39,17 @@ Common log locations:
 - `var/log/lan-collector.log`
 - `var/log/syslog-collector.log`
 
+## Action engine (MVP)
+Queue and approve actions via the Flask API:
+
+```
+POST /api/v1/actions
+POST /api/v1/actions/{id}/approve
+POST /api/v1/actions/{id}/execute
+```
+
+Configured via `config.json` under `Actions` (safe allowlist + approval gates).
+
 ## Troubleshooting quick hits
 - Database failures: run `pwsh -NoProfile -File .\scripting\setup-database.ps1` and re-check.
 - Missing credentials: ensure `SYSTEMDASHBOARD_DB_PASSWORD` is set or `var/database-connection.json` exists.

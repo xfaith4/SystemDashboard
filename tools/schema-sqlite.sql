@@ -322,3 +322,96 @@ SELECT
 FROM ai_feedback
 WHERE review_status IN ('Pending', 'Viewed')
 ORDER BY created_at DESC;
+
+-- ============================================================================
+-- Unified Event/Incident/Action Tables
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS events (
+    event_id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_type     TEXT NOT NULL,
+    source         TEXT NOT NULL,
+    severity       TEXT,
+    subject        TEXT,
+    occurred_at    TEXT NOT NULL,
+    received_at    TEXT NOT NULL DEFAULT (datetime('now')),
+    tags           TEXT,
+    correlation_id TEXT,
+    payload        TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_events_occurred_at ON events(occurred_at DESC);
+CREATE INDEX IF NOT EXISTS idx_events_type ON events(event_type, occurred_at DESC);
+
+CREATE TABLE IF NOT EXISTS metrics (
+    metric_id    INTEGER PRIMARY KEY AUTOINCREMENT,
+    metric_name  TEXT NOT NULL,
+    metric_value REAL NOT NULL,
+    metric_unit  TEXT,
+    source       TEXT,
+    captured_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    tags         TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_metrics_captured_at ON metrics(captured_at DESC);
+CREATE INDEX IF NOT EXISTS idx_metrics_name ON metrics(metric_name, captured_at DESC);
+
+CREATE TABLE IF NOT EXISTS incidents (
+    incident_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title       TEXT NOT NULL,
+    status      TEXT NOT NULL DEFAULT 'open',
+    severity    TEXT NOT NULL DEFAULT 'info',
+    summary     TEXT,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    closed_at   TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_incidents_status ON incidents(status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_incidents_severity ON incidents(severity, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS incident_links (
+    incident_id INTEGER NOT NULL REFERENCES incidents(incident_id) ON DELETE CASCADE,
+    event_id    INTEGER NOT NULL REFERENCES events(event_id) ON DELETE CASCADE,
+    confidence  REAL NOT NULL DEFAULT 1.0,
+    reason      TEXT,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (incident_id, event_id)
+);
+
+CREATE TABLE IF NOT EXISTS actions (
+    action_id      INTEGER PRIMARY KEY AUTOINCREMENT,
+    incident_id    INTEGER REFERENCES incidents(incident_id) ON DELETE SET NULL,
+    action_type    TEXT NOT NULL,
+    status         TEXT NOT NULL DEFAULT 'requested',
+    requested_by   TEXT,
+    requested_at   TEXT NOT NULL DEFAULT (datetime('now')),
+    approved_by    TEXT,
+    approved_at    TEXT,
+    executed_at    TEXT,
+    completed_at   TEXT,
+    action_payload TEXT,
+    result_payload TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_actions_status ON actions(status, requested_at DESC);
+CREATE INDEX IF NOT EXISTS idx_actions_incident ON actions(incident_id, requested_at DESC);
+
+CREATE TABLE IF NOT EXISTS action_audit (
+    audit_id   INTEGER PRIMARY KEY AUTOINCREMENT,
+    action_id  INTEGER NOT NULL REFERENCES actions(action_id) ON DELETE CASCADE,
+    step       TEXT NOT NULL,
+    status     TEXT NOT NULL,
+    message    TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    metadata   TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_action_audit_action ON action_audit(action_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS config_snapshots (
+    snapshot_id    INTEGER PRIMARY KEY AUTOINCREMENT,
+    source         TEXT NOT NULL,
+    captured_at    TEXT NOT NULL DEFAULT (datetime('now')),
+    config_payload TEXT NOT NULL
+);

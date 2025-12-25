@@ -45,5 +45,13 @@
       "MinBatchSize": 25,
       "StagingDirectory": "./var/staging"
     }
+  },
+  "Actions": {
+    "AllowAutoExecute": false,
+    "RequireApproval": true,
+    "SafeActions": [
+      "dns_flush",
+      "noop"
+    ]
   }
 }

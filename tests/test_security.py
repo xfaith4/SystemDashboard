@@ -15,9 +15,9 @@ from flask import Flask, jsonify, request, make_response
 import sys
 
 # Add app directory to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'app'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from security import (
+from app.security import (
     add_security_headers, configure_security_headers,
     APIKeyAuth, get_api_key_auth, require_api_key,
     CSRFProtection, get_csrf_protection, csrf_protect,

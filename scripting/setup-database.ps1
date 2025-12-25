@@ -196,9 +196,33 @@ $success = $true
 # Create database
 $success = $success -and (Invoke-PSQL -Command "CREATE DATABASE $DatabaseName;" -Description "Creating database '$DatabaseName'")
 
-# Create users
-$success = $success -and (Invoke-PSQL -Command "CREATE USER $IngestUser WITH PASSWORD '$ingestPassword';" -Description "Creating ingest user '$IngestUser'")
-$success = $success -and (Invoke-PSQL -Command "CREATE USER $ReaderUser WITH PASSWORD '$readerPassword';" -Description "Creating reader user '$ReaderUser'")
+# Create or update users to ensure passwords stay in sync
+$ingestUserSql = @'
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{0}') THEN
+        CREATE USER {0} WITH PASSWORD '{1}';
+    ELSE
+        ALTER USER {0} WITH PASSWORD '{1}';
+    END IF;
+END;
+$$;
+'@ -f $IngestUser, $ingestPassword
+
+$readerUserSql = @'
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{0}') THEN
+        CREATE USER {0} WITH PASSWORD '{1}';
+    ELSE
+        ALTER USER {0} WITH PASSWORD '{1}';
+    END IF;
+END;
+$$;
+'@ -f $ReaderUser, $readerPassword
+
+$success = $success -and (Invoke-PSQL -Command $ingestUserSql -Description "Creating/updating ingest user '$IngestUser'")
+$success = $success -and (Invoke-PSQL -Command $readerUserSql -Description "Creating/updating reader user '$ReaderUser'")
 
 if (-not $success) {
     Write-Host "❌ Database setup failed" -ForegroundColor Red
