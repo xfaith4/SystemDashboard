@@ -1102,18 +1102,18 @@ def _query_lan_devices(args):
     elif state == 'inactive':
         clauses.append('d.is_active = 0')
     if tag:
-        clauses.append('LOWER(COALESCE(d.tags, \"\")) LIKE ?')
-        params.append(f\"%{tag.lower()}%\")
+        clauses.append('LOWER(COALESCE(d.tags, "")) LIKE ?')
+        params.append(f"%{tag.lower()}%")
     if network_type:
         clauses.append('d.network_type = ?')
         params.append(network_type)
     if interface:
-        clauses.append('LOWER(COALESCE(s.interface, \"\")) LIKE ?')
-        params.append(f\"%{interface.lower()}%\")
+        clauses.append('LOWER(COALESCE(s.interface, "")) LIKE ?')
+        params.append(f"%{interface.lower()}%")
 
-    where_sql = f\"WHERE {' AND '.join(clauses)}\" if clauses else ''
+    where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ''
 
-    query = f\"\"\"
+    query = f"""
         SELECT d.device_id, d.mac_address, d.primary_ip_address, d.hostname,
                d.nickname, d.location, d.vendor, d.first_seen_utc, d.last_seen_utc,
                d.is_active, d.tags, d.network_type,
@@ -1131,7 +1131,7 @@ def _query_lan_devices(args):
         ) s ON s.device_id = d.device_id
         {where_sql}
         ORDER BY d.last_seen_utc DESC
-    \"\"\"
+    """
 
     try:
         cur = conn.cursor()
