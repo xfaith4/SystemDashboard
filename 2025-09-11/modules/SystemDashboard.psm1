@@ -40,7 +40,7 @@ try {
 # --- Paths & Globals ---
 $Script:Root       = Split-Path -Parent $PSCommandPath
 $Script:RepoRoot   = Split-Path -Parent (Split-Path -Parent $Script:Root)
-$Script:WebRoot    = Join-Path $Script:RepoRoot 'webroot'
+$Script:WebRoot    = Join-Path $Script:RepoRoot '2025-09-11\webroot'
 $Script:LogsDir    = Join-Path $Script:RepoRoot 'logs'
 $Script:ConfigPath = if ($env:SYSTEMDASHBOARD_CONFIG) { $env:SYSTEMDASHBOARD_CONFIG } else { Join-Path $Script:RepoRoot 'config.json' }
 $Script:Server     = $null

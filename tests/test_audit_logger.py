@@ -15,9 +15,9 @@ import tempfile
 import sys
 
 # Add app directory to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'app'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from audit_logger import (
+from app.audit_logger import (
     SensitiveDataMasker, mask_sensitive_data,
     StructuredLogger, get_structured_logger,
     AuditTrail, get_audit_trail,

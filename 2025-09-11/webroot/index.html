@@ -1,67 +1,159 @@
 <!doctype html>
-<html lang="en" data-theme="dark">
+<html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>System Monitor</title>
+  <title>System Dashboard</title>
   <link rel="stylesheet" href="/styles.css" />
   <script src="https://unpkg.com/htmx.org@1.9.12" defer></script>
   <script src="/app.js" defer></script>
 </head>
-<body>
-<header>
-  <h1>System Monitor</h1>
-  <nav>
-    <a href="#" hx-get="/api/metrics" hx-target="#content" hx-swap="innerHTML">Overview</a>
-    <a href="#" hx-get="/api/events?since=PT24H" hx-target="#content" hx-swap="innerHTML">Event Logs</a>
-    <a href="#" hx-get="/api/router/clients" hx-target="#content" hx-swap="innerHTML">Router Clients</a>
-    <a href="#" hx-get="/api/syslog?since=PT1H" hx-target="#content" hx-swap="innerHTML">Syslog</a>
-    <a href="#" onclick="showAskAI()">Ask AI</a>
+<body data-api-base="http://localhost:5000/api/v1">
+<header class="topbar">
+  <div class="brand">
+    <div class="brand-mark">SD</div>
+    <div>
+      <h1>System Dashboard</h1>
+      <p>Home + LAN intelligence, realtime remediation</p>
+    </div>
+  </div>
+  <nav class="nav">
+    <button class="nav-item is-active" data-view="overview">Overview</button>
+    <button class="nav-item" data-view="incidents">Incident Timeline</button>
+    <button class="nav-item" data-view="actions">Action Center</button>
+    <button class="nav-item" data-view="telemetry">Telemetry</button>
+    <button class="nav-item" data-view="askai">Ask AI</button>
   </nav>
 </header>
 
-<main>
-  <section id="overview">
-    <div class="cards">
-      <div class="card">
-        <h3>Live Metrics</h3>
-        <div id="live-metrics">
-          <div class="kpi"><span id="kpi-cpu">--</span><label>CPU %</label></div>
-          <div class="kpi"><span id="kpi-mem">--</span><label>Mem %</label></div>
-          <div class="kpi"><span id="kpi-tcp">--</span><label>TCP</label></div>
+<main class="layout">
+  <section class="panel hero" data-panel="overview">
+    <div class="hero-left">
+      <h2>What changed?</h2>
+      <p>Live signals and standout anomalies across your system and LAN.</p>
+      <div class="metrics">
+        <div class="metric">
+          <span id="kpi-cpu">--</span>
+          <label>CPU %</label>
         </div>
-        <div class="bar" aria-label="CPU meter"><div id="bar-cpu"></div></div>
-        <div class="bar" aria-label="Mem meter"><div id="bar-mem"></div></div>
+        <div class="metric">
+          <span id="kpi-mem">--</span>
+          <label>Memory %</label>
+        </div>
+        <div class="metric">
+          <span id="kpi-tcp">--</span>
+          <label>TCP Connections</label>
+        </div>
       </div>
-      <div class="card">
-        <h3>Health</h3>
-        <div id="health">
-          <button onclick="checkHealth()">Check /healthz</button>
-          <pre id="health-out" class="pre"></pre>
-        </div>
+      <div class="meter">
+        <div class="meter-label">CPU Load</div>
+        <div class="meter-track"><div id="bar-cpu"></div></div>
+      </div>
+      <div class="meter">
+        <div class="meter-label">Memory Pressure</div>
+        <div class="meter-track"><div id="bar-mem"></div></div>
+      </div>
+    </div>
+    <div class="hero-right">
+      <div class="health card">
+        <h3>Health Snapshot</h3>
+        <button class="btn" onclick="checkHealth()">Check /healthz</button>
+        <pre id="health-out" class="pre"></pre>
+      </div>
+      <div class="quick card">
+        <h3>Quick Actions</h3>
+        <button class="btn outline" onclick="loadIncidents()">Refresh incidents</button>
+        <button class="btn outline" onclick="loadActions()">Refresh actions</button>
+        <p class="muted">Everything is local-first. Approvals required before execution.</p>
       </div>
     </div>
   </section>
 
-  <section id="content" class="content">
-    <p>Use the nav to load Event Logs, Router Clients, or Syslog. Overview updates live.</p>
+  <section class="panel" data-panel="incidents">
+    <header class="section-header">
+      <div>
+        <h2>Incident Timeline</h2>
+        <p>Correlated events with confidence and suggested remediation.</p>
+      </div>
+      <div class="controls">
+        <button class="btn" onclick="loadIncidents()">Reload</button>
+        <input id="incidents-limit" type="number" min="1" max="200" value="50" />
+      </div>
+    </header>
+    <div id="incident-list" class="timeline"></div>
   </section>
 
-  <section id="askai" class="drawer hidden">
-    <h3>Ask AI</h3>
-    <p>Paste up to 50 error lines. They will be lightly redacted before analysis.</p>
-    <textarea id="ai-input" rows="8" placeholder="Paste logs here..."></textarea>
-    <div>
+  <section class="panel" data-panel="actions">
+    <header class="section-header">
+      <div>
+        <h2>Action Center</h2>
+        <p>Queue, approve, and execute remediations with full audit trails.</p>
+      </div>
+      <div class="controls">
+        <button class="btn" onclick="loadActions()">Reload</button>
+        <input id="actions-limit" type="number" min="1" max="200" value="50" />
+      </div>
+    </header>
+
+    <div class="action-grid">
+      <div class="card">
+        <h3>Queue Action</h3>
+        <label>Action Type</label>
+        <select id="action-type">
+          <option value="noop">noop (test)</option>
+          <option value="dns_flush">dns_flush</option>
+        </select>
+        <label>Incident ID (optional)</label>
+        <input id="action-incident" type="number" placeholder="123" />
+        <label>Requested By</label>
+        <input id="action-requested" type="text" placeholder="local-operator" />
+        <button class="btn" onclick="queueAction()">Queue</button>
+        <pre id="action-create-out" class="pre"></pre>
+      </div>
+
+      <div class="card">
+        <h3>Queued Actions</h3>
+        <div id="action-list" class="stack"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel" data-panel="telemetry">
+    <header class="section-header">
+      <div>
+        <h2>Telemetry</h2>
+        <p>Raw feeds for debugging and deeper inspection.</p>
+      </div>
+    </header>
+    <div class="telemetry-links">
+      <button class="btn outline" hx-get="/api/events?since=PT24H" hx-target="#telemetry-out" hx-swap="innerHTML">Event Logs</button>
+      <button class="btn outline" hx-get="/api/router/clients" hx-target="#telemetry-out" hx-swap="innerHTML">Router Clients</button>
+      <button class="btn outline" hx-get="/api/syslog?since=PT1H" hx-target="#telemetry-out" hx-swap="innerHTML">Syslog</button>
+    </div>
+    <section id="telemetry-out" class="content">
+      <p>Select a feed to load data.</p>
+    </section>
+  </section>
+
+  <section class="panel" data-panel="askai">
+    <header class="section-header">
+      <div>
+        <h2>Ask AI</h2>
+        <p>Paste logs and request guidance. Sensitive data is redacted before analysis.</p>
+      </div>
+    </header>
+    <div class="card">
+      <textarea id="ai-input" rows="8" placeholder="Paste logs here..."></textarea>
       <label>API Key</label>
       <input id="ai-key" type="password" placeholder="X-API-Key configured in config.json" />
+      <button class="btn" onclick="sendToAI()">Analyze</button>
+      <pre id="ai-out" class="pre"></pre>
     </div>
-    <button onclick="sendToAI()">Analyze</button>
-    <pre id="ai-out" class="pre"></pre>
   </section>
 </main>
 
 <footer>
-  <small>Local only by default. See README for hardening & service install.</small>
+  <small>Local-only by default. Action execution requires approval.</small>
 </footer>
 </body>
 </html>

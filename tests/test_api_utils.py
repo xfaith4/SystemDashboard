@@ -8,14 +8,14 @@ import time
 from flask import Flask, jsonify, request
 
 # Add the app directory to the path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'app'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from api_utils import (
+from app.api_utils import (
     APIError, error_response, success_response,
     handle_api_errors, require_json, validate_required_fields,
     cache_response, clear_cache, with_cors
 )
-from validators import ValidationError
+from app.validators import ValidationError
 
 
 @pytest.fixture

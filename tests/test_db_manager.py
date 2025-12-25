@@ -11,9 +11,9 @@ from threading import Thread
 from unittest.mock import patch, MagicMock
 
 # Add the app directory to the path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'app'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from db_manager import ConnectionPool, DatabaseManager, get_db_manager
+from app.db_manager import ConnectionPool, DatabaseManager, get_db_manager
 
 
 @pytest.fixture

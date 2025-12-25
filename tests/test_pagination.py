@@ -7,9 +7,9 @@ import os
 import sys
 
 # Add the app directory to the path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'app'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from pagination import (
+from app.pagination import (
     KeysetPaginator,
     OffsetPaginator,
     create_keyset_paginator,

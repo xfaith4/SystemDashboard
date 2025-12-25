@@ -56,3 +56,97 @@ CREATE OR REPLACE VIEW telemetry.syslog_recent AS
 SELECT *
 FROM telemetry.syslog_generic_template
 WHERE received_utc >= NOW() - INTERVAL '24 hours';
+
+-- Unified event stream
+CREATE TABLE IF NOT EXISTS telemetry.events (
+    event_id       BIGSERIAL PRIMARY KEY,
+    event_type     TEXT NOT NULL,
+    source         TEXT NOT NULL,
+    severity       TEXT,
+    subject        TEXT,
+    occurred_at    TIMESTAMPTZ NOT NULL,
+    received_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    tags           TEXT[],
+    correlation_id TEXT,
+    payload        JSONB
+);
+
+CREATE INDEX IF NOT EXISTS idx_events_occurred_at ON telemetry.events (occurred_at DESC);
+CREATE INDEX IF NOT EXISTS idx_events_type ON telemetry.events (event_type, occurred_at DESC);
+
+-- Metrics time-series
+CREATE TABLE IF NOT EXISTS telemetry.metrics (
+    metric_id    BIGSERIAL PRIMARY KEY,
+    metric_name  TEXT NOT NULL,
+    metric_value DOUBLE PRECISION NOT NULL,
+    metric_unit  TEXT,
+    source       TEXT,
+    captured_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    tags         TEXT[]
+);
+
+CREATE INDEX IF NOT EXISTS idx_metrics_captured_at ON telemetry.metrics (captured_at DESC);
+CREATE INDEX IF NOT EXISTS idx_metrics_name ON telemetry.metrics (metric_name, captured_at DESC);
+
+-- Incidents
+CREATE TABLE IF NOT EXISTS telemetry.incidents (
+    incident_id BIGSERIAL PRIMARY KEY,
+    title       TEXT NOT NULL,
+    status      TEXT NOT NULL DEFAULT 'open',
+    severity    TEXT NOT NULL DEFAULT 'info',
+    summary     TEXT,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    closed_at   TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_incidents_status ON telemetry.incidents (status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_incidents_severity ON telemetry.incidents (severity, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS telemetry.incident_links (
+    incident_id BIGINT NOT NULL REFERENCES telemetry.incidents(incident_id) ON DELETE CASCADE,
+    event_id    BIGINT NOT NULL REFERENCES telemetry.events(event_id) ON DELETE CASCADE,
+    confidence  DOUBLE PRECISION NOT NULL DEFAULT 1.0,
+    reason      TEXT,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (incident_id, event_id)
+);
+
+-- Actions + audit trail
+CREATE TABLE IF NOT EXISTS telemetry.actions (
+    action_id     BIGSERIAL PRIMARY KEY,
+    incident_id   BIGINT REFERENCES telemetry.incidents(incident_id) ON DELETE SET NULL,
+    action_type   TEXT NOT NULL,
+    status        TEXT NOT NULL DEFAULT 'requested',
+    requested_by  TEXT,
+    requested_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    approved_by   TEXT,
+    approved_at   TIMESTAMPTZ,
+    executed_at   TIMESTAMPTZ,
+    completed_at  TIMESTAMPTZ,
+    action_payload JSONB,
+    result_payload JSONB
+);
+
+CREATE INDEX IF NOT EXISTS idx_actions_status ON telemetry.actions (status, requested_at DESC);
+CREATE INDEX IF NOT EXISTS idx_actions_incident ON telemetry.actions (incident_id, requested_at DESC);
+
+CREATE TABLE IF NOT EXISTS telemetry.action_audit (
+    audit_id   BIGSERIAL PRIMARY KEY,
+    action_id  BIGINT NOT NULL REFERENCES telemetry.actions(action_id) ON DELETE CASCADE,
+    step       TEXT NOT NULL,
+    status     TEXT NOT NULL,
+    message    TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    metadata   JSONB
+);
+
+CREATE INDEX IF NOT EXISTS idx_action_audit_action ON telemetry.action_audit (action_id, created_at DESC);
+
+-- Config snapshots
+CREATE TABLE IF NOT EXISTS telemetry.config_snapshots (
+    snapshot_id    BIGSERIAL PRIMARY KEY,
+    source         TEXT NOT NULL,
+    captured_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    config_payload JSONB NOT NULL
+);

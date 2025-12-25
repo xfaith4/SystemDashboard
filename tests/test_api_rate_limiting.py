@@ -6,11 +6,11 @@ import sys
 from flask import Flask
 
 # Add the app directory to the path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'app'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 # Import the Flask app
 from app import app as flask_app
-from rate_limiter import get_rate_limiter
+from app.rate_limiter import get_rate_limiter
 
 
 @pytest.fixture

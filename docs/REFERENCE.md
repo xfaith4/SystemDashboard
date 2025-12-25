@@ -23,3 +23,11 @@
 - `Database.Host`, `Database.Port`, `Database.Database`, `Database.Username`, `Database.PasswordSecret`
 - `Service.Syslog.Port`, `Service.Syslog.BufferDirectory`
 - `Service.Asus.*` for router settings
+
+## API (Flask)
+Versioned endpoints under `/api/v1`:
+- `GET /api/v1/health`
+- `GET /api/v1/incidents`
+- `GET /api/v1/events`
+- `GET /api/v1/actions`
+- `POST /api/v1/actions`

@@ -14,7 +14,7 @@ from typing import Optional, Dict, Any, Callable
 import time
 import logging
 
-from validators import ValidationError
+from app.validators import ValidationError
 
 logger = logging.getLogger(__name__)
 

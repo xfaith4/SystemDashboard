@@ -58,10 +58,6 @@ function Resolve-PythonExe {
 function Load-DbSecrets {
     param([string]$RepoRoot)
 
-    if ($env:SYSTEMDASHBOARD_DB_PASSWORD -and $env:SYSTEMDASHBOARD_DB_READER_PASSWORD) {
-        return
-    }
-
     $connectionFile = Join-Path $RepoRoot 'var\database-connection.json'
     if (-not (Test-Path -LiteralPath $connectionFile)) {
         return
@@ -74,11 +70,11 @@ function Load-DbSecrets {
         return
     }
 
-    if (-not $env:SYSTEMDASHBOARD_DB_PASSWORD -and $connectionInfo.IngestPassword) {
+    if ($connectionInfo.IngestPassword) {
         $env:SYSTEMDASHBOARD_DB_PASSWORD = $connectionInfo.IngestPassword
     }
 
-    if (-not $env:SYSTEMDASHBOARD_DB_READER_PASSWORD -and $connectionInfo.ReaderPassword) {
+    if ($connectionInfo.ReaderPassword) {
         $env:SYSTEMDASHBOARD_DB_READER_PASSWORD = $connectionInfo.ReaderPassword
     }
 }

@@ -9,7 +9,7 @@ import json
 from unittest.mock import patch, MagicMock
 
 # Add the app directory to the path so we can import app
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'app'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 import app as flask_app
 

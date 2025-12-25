@@ -9,9 +9,9 @@ import sqlite3
 from datetime import datetime, timedelta, timezone
 
 # Add the app directory to the path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'app'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from data_retention import DataRetentionManager, get_retention_manager
+from app.data_retention import DataRetentionManager, get_retention_manager
 
 
 @pytest.fixture
