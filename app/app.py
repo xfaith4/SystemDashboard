@@ -1102,13 +1102,13 @@ def _query_lan_devices(args):
     elif state == 'inactive':
         clauses.append('d.is_active = 0')
     if tag:
-        clauses.append('LOWER(COALESCE(d.tags, "")) LIKE ?')
+        clauses.append("LOWER(COALESCE(d.tags, '')) LIKE ?")
         params.append(f"%{tag.lower()}%")
     if network_type:
         clauses.append('d.network_type = ?')
         params.append(network_type)
     if interface:
-        clauses.append('LOWER(COALESCE(s.interface, "")) LIKE ?')
+        clauses.append("LOWER(COALESCE(s.interface, '')) LIKE ?")
         params.append(f"%{interface.lower()}%")
 
     where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ''
