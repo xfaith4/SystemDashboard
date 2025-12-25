@@ -1,10 +1,11 @@
 """SystemDashboard Flask application package."""
 
-from importlib import import_module
+from importlib import import_module, reload
 
 # Load the actual implementation module once and delegate attribute access to it.
 try:
     _app_module = import_module(".app", __name__)
+    _app_module = reload(_app_module)
 except (ImportError, ModuleNotFoundError) as exc:  # pragma: no cover - import failure path
     raise ImportError("Failed to import SystemDashboard app module") from exc
 
@@ -21,4 +22,5 @@ def __dir__():
 
 
 # Preserve any explicit export list defined in the implementation module
-__all__ = getattr(_app_module, "__all__", [])
+app = _app_module.app
+__all__ = sorted(set(getattr(_app_module, "__all__", []) + ['app']))

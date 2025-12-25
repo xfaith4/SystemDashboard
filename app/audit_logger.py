@@ -232,6 +232,24 @@ def get_structured_logger(name: str, mask_sensitive: bool = True) -> StructuredL
 # Audit Trail
 # ============================================================================
 
+class _AutoCloseFileHandler(logging.Handler):
+    """Write each log record with a short-lived file handle to avoid Windows locks."""
+
+    def __init__(self, log_file: str, mode: str = 'a', encoding: str = 'utf-8'):
+        super().__init__()
+        self._log_file = log_file
+        self._mode = mode
+        self._encoding = encoding
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            message = self.format(record)
+            with open(self._log_file, self._mode, encoding=self._encoding) as handle:
+                handle.write(message + '\n')
+        except Exception:
+            self.handleError(record)
+
+
 class AuditTrail:
     """
     Audit trail for tracking configuration changes and important actions.
@@ -260,7 +278,7 @@ class AuditTrail:
             # Clear any existing handlers to avoid duplicates
             self.logger.logger.handlers = []
             
-            handler = logging.FileHandler(log_file, mode='a')
+            handler = _AutoCloseFileHandler(log_file)
             handler.setLevel(logging.INFO)
             handler.setFormatter(logging.Formatter('%(message)s'))  # JSON already formatted
             self.logger.logger.addHandler(handler)

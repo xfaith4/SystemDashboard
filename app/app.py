@@ -8,7 +8,9 @@ import html
 import urllib.request
 import socket
 import datetime
+import sqlite3
 from decimal import Decimal
+from zoneinfo import ZoneInfo
 
 try:
     import psycopg2  # type: ignore
@@ -19,7 +21,8 @@ except Exception:  # pragma: no cover - optional dependency during local dev
 if __package__ in (None, ''):
     sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from app.db_postgres import get_db_settings, get_db_connection
+from app import db_postgres
+from app.rate_limiter import rate_limit
 
 app = Flask(__name__)
 
@@ -27,8 +30,12 @@ from app.api.v1 import api_v1
 
 app.register_blueprint(api_v1)
 
+config = None
+_DB_PATH = None
+
 CHATTY_THRESHOLD = int(os.environ.get('CHATTY_THRESHOLD', '500'))
 AUTH_FAILURE_THRESHOLD = int(os.environ.get('AUTH_FAILURE_THRESHOLD', '10'))
+VALID_FEEDBACK_STATUSES = {'Pending', 'Viewed', 'Resolved'}
 
 SYSLOG_SEVERITY = {
     0: 'Emergency',
@@ -46,19 +53,118 @@ def _is_windows():
     return platform.system().lower().startswith('win')
 
 
+def load_config():
+    config_path = os.environ.get('SYSTEMDASHBOARD_CONFIG')
+    if not config_path:
+        config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config.json')
+    if not os.path.exists(config_path):
+        return {}
+    try:
+        with open(config_path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+config = load_config()
+
+
+def _get_db_path():
+    global _DB_PATH
+    pkg = sys.modules.get('app')
+    if pkg is not None and hasattr(pkg, '_DB_PATH'):
+        _DB_PATH = getattr(pkg, '_DB_PATH')
+        if _DB_PATH:
+            return _DB_PATH
+    if _DB_PATH:
+        return _DB_PATH
+    env_path = os.environ.get('DASHBOARD_DB_PATH')
+    if env_path:
+        _DB_PATH = env_path
+        return _DB_PATH
+    default_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'var', 'system_dashboard.db')
+    _DB_PATH = default_path if os.path.exists(default_path) else None
+    return _DB_PATH
+
+
+def _get_sqlite_connection():
+    path = _get_db_path()
+    if not path:
+        return None
+    conn = sqlite3.connect(path)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def get_db_settings():
+    return db_postgres.get_db_settings()
+
+
+def get_db_connection():
+    sqlite_path = _get_db_path()
+    if sqlite_path:
+        return _get_sqlite_connection()
+    return db_postgres.get_db_connection()
+
+
+def _db_is_postgres(conn) -> bool:
+    if conn is None or psycopg2 is None:
+        return False
+    try:
+        return isinstance(conn, psycopg2.extensions.connection)
+    except Exception:
+        return False
+
+
+def _db_placeholder(conn) -> str:
+    return '%s' if _db_is_postgres(conn) else '?'
+
+
+def _get_db_cursor(conn):
+    if _db_is_postgres(conn):
+        try:
+            return conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        except Exception:
+            return conn.cursor()
+    return conn.cursor()
+
+
+
+
+def _to_est_string(value):
+    if value is None:
+        return ''
+    tz = ZoneInfo("America/New_York")
+    dt = None
+
+    if isinstance(value, datetime.datetime):
+        dt = value
+    elif isinstance(value, str):
+        if value.startswith('/Date(') and value.endswith(')/'):
+            try:
+                ms = int(value[6:-2])
+                dt = datetime.datetime.fromtimestamp(ms / 1000, tz=datetime.UTC)
+            except Exception:
+                dt = None
+        else:
+            try:
+                if value.endswith('Z'):
+                    value = value.replace('Z', '+00:00')
+                dt = datetime.datetime.fromisoformat(value)
+            except Exception:
+                return value
+    else:
+        return str(value)
+
+    if dt is None:
+        return ''
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=datetime.UTC)
+    return dt.astimezone(tz).isoformat()
 
 
 def _isoformat(value):
-    if value is None:
-        return ''
-    if isinstance(value, str):
-        return value
-    if isinstance(value, datetime.datetime):
-        return value.isoformat()
-    try:
-        return str(value)
-    except Exception:
-        return ''
+    return _to_est_string(value)
 
 
 def _safe_float(value):
@@ -79,10 +185,15 @@ def _severity_to_text(value):
         return str(value) if value is not None else ''
 
 
-def get_windows_events(level: str = None, max_events: int = 50):
+def get_windows_events(level: str = None, max_events: int = 50, log_types=None, with_source: bool = False):
     """Fetch recent Windows events via PowerShell. Level can be 'Error', 'Warning', or None for any.
     Returns list of dicts with time, source, id, level, message.
     """
+    valid_logs = ['Application', 'System', 'Security']
+    requested_logs = [l for l in (log_types or valid_logs) if l in valid_logs]
+    if not requested_logs:
+        requested_logs = valid_logs
+
     if not _is_windows():
         # Return mock events for demonstration purposes on non-Windows platforms
         import datetime
@@ -92,35 +203,40 @@ def get_windows_events(level: str = None, max_events: int = 50):
                 'source': 'Application Error',
                 'id': 1001,
                 'level': 'Warning',
-                'message': 'Mock application warning - database connection timeout occurred during operation'
+                'message': 'Mock application warning - database connection timeout occurred during operation',
+                'log_type': 'Application'
             },
             {
                 'time': (datetime.datetime.now() - datetime.timedelta(hours=1)).isoformat(),
                 'source': 'Service Control Manager',
                 'id': 2001,
                 'level': 'Error',
-                'message': 'Mock system error - service failed to start due to configuration issue'
+                'message': 'Mock system error - service failed to start due to configuration issue',
+                'log_type': 'System'
             },
             {
                 'time': (datetime.datetime.now() - datetime.timedelta(hours=2)).isoformat(),
                 'source': 'DNS Client',
                 'id': 1002,
                 'level': 'Information',
-                'message': 'Mock information event - DNS resolution completed successfully for domain'
+                'message': 'Mock information event - DNS resolution completed successfully for domain',
+                'log_type': 'Security'
             },
             {
                 'time': (datetime.datetime.now() - datetime.timedelta(minutes=45)).isoformat(),
                 'source': 'Application Error',
                 'id': 1003,
                 'level': 'Error',
-                'message': 'Mock critical error - application crashed due to memory access violation'
+                'message': 'Mock critical error - application crashed due to memory access violation',
+                'log_type': 'Application'
             },
             {
                 'time': (datetime.datetime.now() - datetime.timedelta(minutes=15)).isoformat(),
                 'source': 'System',
                 'id': 3001,
                 'level': 'Warning',
-                'message': 'Mock system warning - disk space running low on drive C:'
+                'message': 'Mock system warning - disk space running low on drive C:',
+                'log_type': 'System'
             }
         ]
 
@@ -129,7 +245,9 @@ def get_windows_events(level: str = None, max_events: int = 50):
             level_lower = level.lower()
             mock_events = [e for e in mock_events if e['level'].lower() == level_lower]
 
-        return mock_events[:max_events]
+        mock_events = [e for e in mock_events if e.get('log_type') in requested_logs]
+        data = mock_events[:max_events]
+        return (data, 'mock') if with_source else data
 
     level_filter = ''
     if level:
@@ -139,7 +257,7 @@ def get_windows_events(level: str = None, max_events: int = 50):
             level_filter = f"; Level={code}"
     ps = (
         "Get-WinEvent -FilterHashtable @{"
-        "LogName='Application','System'" + level_filter + "} "
+        "LogName='" + ",".join(requested_logs) + "'" + level_filter + "} "
         f"-MaxEvents {max_events} | "
         "Select-Object TimeCreated, ProviderName, Id, LevelDisplayName, Message | "
         "ConvertTo-Json -Depth 4"
@@ -163,10 +281,22 @@ def get_windows_events(level: str = None, max_events: int = 50):
                 'id': e.get('Id'),
                 'level': e.get('LevelDisplayName'),
                 'message': e.get('Message'),
+                'log_type': e.get('LogName') or e.get('ProviderName')
             })
-        return events
+        return (events, 'powershell') if with_source else events
     except Exception:
-        return []
+        return ([], 'error') if with_source else []
+
+
+def _normalize_events(events):
+    normalized = []
+    for evt in events:
+        normalized.append({
+            **evt,
+            'time': _to_est_string(evt.get('time')),
+            'log_type': evt.get('log_type') or evt.get('log') or evt.get('logname')
+        })
+    return normalized
 
 
 def get_router_logs(max_lines: int = 100):
@@ -471,7 +601,14 @@ def get_dashboard_summary():
     finally:
         conn.close()
 
-    if not any([summary['auth'], summary['windows'], summary['router'], summary['syslog']]):
+    if not any([
+        summary['auth'],
+        summary['windows'],
+        summary['router'],
+        summary['syslog'],
+        summary['iis']['current_errors'] > 0,
+        summary['iis']['total_requests'] > 0
+    ]):
         return _mock_dashboard_summary()
 
     return summary
@@ -509,12 +646,46 @@ def wifi():
     return render_template('wifi.html', clients=get_wifi_clients(), threshold=CHATTY_THRESHOLD)
 
 
+@app.route('/lan')
+def lan_overview():
+    """Render LAN overview page."""
+    return render_template('lan_overview.html')
+
+
+@app.route('/lan/devices')
+def lan_devices():
+    """Render LAN devices inventory page."""
+    return render_template('lan_devices.html')
+
+
+@app.route('/lan/device/<int:device_id>')
+def lan_device_detail_page(device_id):
+    """Render LAN device detail page."""
+    return render_template('lan_device.html', device_id=device_id)
+
+
 @app.route('/api/events')
+@rate_limit(max_requests=60, window_seconds=60)
 def api_events():
     level = request.args.get('level')
     max_events = int(request.args.get('max', '100'))
-    data = get_windows_events(level=level, max_events=max_events)
-    return jsonify({'events': data})
+    log_types_raw = request.args.get('log_types')
+    log_types = [t.strip() for t in log_types_raw.split(',') if t.strip()] if log_types_raw else None
+    data = get_windows_events(level=level, max_events=max_events, log_types=log_types)
+    return jsonify({'events': _normalize_events(data)})
+
+
+@app.route('/api/events/summary')
+@rate_limit(max_requests=30, window_seconds=60)
+def api_events_summary():
+    log_types_raw = request.args.get('log_types')
+    log_types = [t.strip() for t in log_types_raw.split(',') if t.strip()] if log_types_raw else None
+    events = _normalize_events(get_windows_events(max_events=500, log_types=log_types))
+    severity_counts = {}
+    for e in events:
+        level = (e.get('level') or 'Unknown')
+        severity_counts[level] = severity_counts.get(level, 0) + 1
+    return jsonify({'total': len(events), 'severity_counts': severity_counts})
 
 
 def _mock_trend_data():
@@ -652,6 +823,7 @@ def get_trend_data():
 
 
 @app.route('/api/trends')
+@rate_limit(max_requests=30, window_seconds=60)
 def api_trends():
     """API endpoint to get 7-day trend data."""
     return jsonify(get_trend_data())
@@ -700,6 +872,7 @@ def call_openai_chat(prompt: str):
 
 
 @app.route('/api/ai/suggest', methods=['POST'])
+@rate_limit(max_requests=10, window_seconds=60)
 def api_ai_suggest():
     data = request.get_json(silent=True) or {}
     message = (data.get('message') or '')[:8000]
@@ -716,6 +889,402 @@ def api_ai_suggest():
     if err:
         return jsonify({'error': err}), 502
     return jsonify({'suggestion': suggestion})
+
+
+@app.route('/api/ai/explain', methods=['POST'])
+@rate_limit(max_requests=10, window_seconds=60)
+def api_ai_explain():
+    data = request.get_json(silent=True) or {}
+    if not data.get('type') or not data.get('context'):
+        return jsonify({'error': 'Missing type or context'}), 400
+    return jsonify({'status': 'ok', 'message': 'Explain endpoint not yet wired'}), 200
+
+
+def _row_to_dict(row):
+    if row is None:
+        return None
+    if isinstance(row, dict):
+        return row
+    if hasattr(row, 'keys'):
+        return {key: row[key] for key in row.keys()}
+    return dict(row)
+
+
+@app.route('/api/ai/feedback', methods=['POST'])
+@rate_limit(max_requests=30, window_seconds=60)
+def api_ai_feedback_create():
+    data = request.get_json(silent=True) or {}
+    event_message = data.get('event_message')
+    ai_response = data.get('ai_response')
+    if not event_message:
+        return jsonify({'error': 'Missing event_message'}), 400
+    if not ai_response:
+        return jsonify({'error': 'Missing ai_response'}), 400
+
+    review_status = data.get('review_status') or 'Pending'
+    if review_status not in VALID_FEEDBACK_STATUSES:
+        return jsonify({'error': f'Invalid review_status: {review_status}'}), 400
+
+    conn = get_db_connection()
+    if conn is None:
+        return jsonify({'error': 'Database not configured'}), 503
+
+    now = datetime.datetime.now(datetime.UTC).isoformat()
+    params = [
+        data.get('event_id'),
+        data.get('event_source'),
+        event_message,
+        data.get('event_log_type'),
+        data.get('event_level'),
+        data.get('event_time'),
+        ai_response,
+        review_status,
+        now,
+        now
+    ]
+    placeholder = _db_placeholder(conn)
+    insert_sql = (
+        f"INSERT INTO ai_feedback (event_id, event_source, event_message, event_log_type, event_level, event_time, "
+        f"ai_response, review_status, created_at, updated_at) "
+        f"VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, "
+        f"{placeholder}, {placeholder}, {placeholder}, {placeholder})"
+    )
+
+    try:
+        cur = _get_db_cursor(conn)
+        if _db_is_postgres(conn):
+            insert_sql += " RETURNING id, created_at, updated_at"
+        cur.execute(insert_sql, params)
+        if _db_is_postgres(conn):
+            row = cur.fetchone()
+            new_id = row.get('id') if isinstance(row, dict) else row[0]
+            created_at = row.get('created_at') if isinstance(row, dict) else row[1]
+            updated_at = row.get('updated_at') if isinstance(row, dict) else row[2]
+        else:
+            new_id = getattr(cur, 'lastrowid', None)
+            created_at = now
+            updated_at = now
+        conn.commit()
+    finally:
+        conn.close()
+
+    return jsonify({
+        'status': 'ok',
+        'id': new_id,
+        'review_status': review_status,
+        'created_at': created_at,
+        'updated_at': updated_at
+    }), 201
+
+
+@app.route('/api/ai/feedback', methods=['GET'])
+@rate_limit(max_requests=60, window_seconds=60)
+def api_ai_feedback_list():
+    conn = get_db_connection()
+    if conn is None:
+        return jsonify({'feedback': [], 'total': 0, 'source': 'unavailable'}), 200
+
+    status = request.args.get('status')
+    if status and status not in VALID_FEEDBACK_STATUSES:
+        return jsonify({'error': f'Invalid status filter: {status}'}), 400
+
+    try:
+        cur = _get_db_cursor(conn)
+        placeholder = _db_placeholder(conn)
+        limit = int(request.args.get('limit', '50'))
+
+        if status:
+            cur.execute(
+                f"SELECT COUNT(*) AS count FROM ai_feedback WHERE review_status = {placeholder}",
+                (status,)
+            )
+        else:
+            cur.execute("SELECT COUNT(*) AS count FROM ai_feedback")
+        count_row = _row_to_dict(cur.fetchone()) or {}
+        total = count_row.get('count', 0)
+
+        if status:
+            cur.execute(
+                f"SELECT * FROM ai_feedback WHERE review_status = {placeholder} "
+                "ORDER BY created_at DESC LIMIT " + str(limit),
+                (status,)
+            )
+        else:
+            cur.execute("SELECT * FROM ai_feedback ORDER BY created_at DESC LIMIT " + str(limit))
+
+        rows = cur.fetchall()
+        feedback = [_row_to_dict(row) for row in rows]
+    finally:
+        conn.close()
+
+    return jsonify({'feedback': feedback, 'total': total, 'source': 'database'})
+
+
+@app.route('/api/ai/feedback/<int:feedback_id>/status', methods=['PATCH'])
+@rate_limit(max_requests=30, window_seconds=60)
+def api_ai_feedback_update_status(feedback_id):
+    data = request.get_json(silent=True) or {}
+    status = data.get('status')
+    if not status:
+        return jsonify({'error': 'Missing status'}), 400
+    if status not in VALID_FEEDBACK_STATUSES:
+        return jsonify({'error': f'Invalid status: {status}'}), 400
+
+    conn = get_db_connection()
+    if conn is None:
+        return jsonify({'error': 'Database not configured'}), 503
+
+    now = datetime.datetime.now(datetime.UTC).isoformat()
+    placeholder = _db_placeholder(conn)
+    update_sql = (
+        f"UPDATE ai_feedback SET review_status = {placeholder}, updated_at = {placeholder} "
+        f"WHERE id = {placeholder}"
+    )
+
+    try:
+        cur = _get_db_cursor(conn)
+        cur.execute(update_sql, (status, now, feedback_id))
+        conn.commit()
+        rowcount = getattr(cur, 'rowcount', 0)
+    finally:
+        conn.close()
+
+    if rowcount == 0:
+        return jsonify({'error': 'Feedback entry not found'}), 404
+
+    return jsonify({'status': 'ok', 'id': feedback_id, 'review_status': status, 'updated_at': now})
+
+
+@app.route('/api/dashboard/summary')
+@rate_limit(max_requests=60, window_seconds=60)
+def api_dashboard_summary():
+    summary = get_dashboard_summary()
+    return jsonify(summary)
+
+
+@app.route('/api/router/logs')
+@rate_limit(max_requests=60, window_seconds=60)
+def api_router_logs():
+    logs = []
+    for entry in get_router_logs():
+        logs.append({
+            **entry,
+            'time': _to_est_string(entry.get('time'))
+        })
+    return jsonify({'logs': logs})
+
+
+@app.route('/api/router/summary')
+@rate_limit(max_requests=30, window_seconds=60)
+def api_router_summary():
+    logs = get_router_logs()
+    return jsonify({'total': len(logs)})
+
+
+def _fetch_sqlite_rows(cursor):
+    rows = cursor.fetchall()
+    return [dict(row) for row in rows]
+
+
+def _query_lan_devices(args):
+    conn = _get_sqlite_connection()
+    if conn is None:
+        return []
+    state = args.get('state')
+    tag = args.get('tag')
+    network_type = args.get('network_type')
+    interface = args.get('interface')
+
+    clauses = []
+    params = []
+    if state == 'active':
+        clauses.append('d.is_active = 1')
+    elif state == 'inactive':
+        clauses.append('d.is_active = 0')
+    if tag:
+        clauses.append('LOWER(COALESCE(d.tags, \"\")) LIKE ?')
+        params.append(f\"%{tag.lower()}%\")
+    if network_type:
+        clauses.append('d.network_type = ?')
+        params.append(network_type)
+    if interface:
+        clauses.append('LOWER(COALESCE(s.interface, \"\")) LIKE ?')
+        params.append(f\"%{interface.lower()}%\")
+
+    where_sql = f\"WHERE {' AND '.join(clauses)}\" if clauses else ''
+
+    query = f\"\"\"
+        SELECT d.device_id, d.mac_address, d.primary_ip_address, d.hostname,
+               d.nickname, d.location, d.vendor, d.first_seen_utc, d.last_seen_utc,
+               d.is_active, d.tags, d.network_type,
+               s.interface AS last_interface, s.rssi AS last_rssi,
+               s.tx_rate_mbps AS last_tx_rate_mbps, s.rx_rate_mbps AS last_rx_rate_mbps
+        FROM devices d
+        LEFT JOIN (
+            SELECT ds.*
+            FROM device_snapshots ds
+            JOIN (
+                SELECT device_id, MAX(sample_time_utc) AS max_time
+                FROM device_snapshots
+                GROUP BY device_id
+            ) latest ON latest.device_id = ds.device_id AND latest.max_time = ds.sample_time_utc
+        ) s ON s.device_id = d.device_id
+        {where_sql}
+        ORDER BY d.last_seen_utc DESC
+    \"\"\"
+
+    try:
+        cur = conn.cursor()
+        cur.execute(query, params)
+        return _fetch_sqlite_rows(cur)
+    finally:
+        conn.close()
+
+
+@app.route('/api/lan/devices')
+@rate_limit(max_requests=60, window_seconds=60)
+def api_lan_devices():
+    devices = _query_lan_devices(request.args)
+    return jsonify({'devices': devices})
+
+
+@app.route('/api/lan/devices/online')
+@rate_limit(max_requests=60, window_seconds=60)
+def api_lan_devices_online():
+    args = dict(request.args)
+    args['state'] = 'active'
+    devices = _query_lan_devices(args)
+    return jsonify({'devices': devices})
+
+
+@app.route('/api/lan/stats')
+@rate_limit(max_requests=60, window_seconds=60)
+def api_lan_stats():
+    conn = _get_sqlite_connection()
+    if conn is None:
+        return jsonify({'total_devices': 0, 'active_devices': 0, 'inactive_devices': 0})
+    try:
+        cur = conn.cursor()
+        try:
+            cur.execute("SELECT total_devices, active_devices, inactive_devices FROM lan_summary_stats")
+            row = cur.fetchone()
+            if row:
+                return jsonify(dict(row))
+        except sqlite3.Error:
+            pass
+        cur.execute("SELECT COUNT(*) AS total, SUM(CASE WHEN is_active = 1 THEN 1 ELSE 0 END) AS active FROM devices")
+        row = cur.fetchone()
+        total = row[0] if row else 0
+        active = row[1] if row else 0
+        return jsonify({'total_devices': total, 'active_devices': active, 'inactive_devices': total - active})
+    finally:
+        conn.close()
+
+
+@app.route('/api/lan/device/<int:device_id>')
+@rate_limit(max_requests=60, window_seconds=60)
+def api_lan_device_detail(device_id):
+    conn = _get_sqlite_connection()
+    if conn is None:
+        return jsonify({'error': 'Database not configured'}), 503
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM devices WHERE device_id = ?", (device_id,))
+        device = cur.fetchone()
+        if not device:
+            return jsonify({'error': 'Not found'}), 404
+        cur.execute("SELECT COUNT(*) FROM device_snapshots WHERE device_id = ?", (device_id,))
+        total_snapshots = cur.fetchone()[0]
+        payload = dict(device)
+        payload['total_snapshots'] = total_snapshots
+        return jsonify(payload)
+    finally:
+        conn.close()
+
+
+@app.route('/api/lan/device/<int:device_id>/timeline')
+@rate_limit(max_requests=60, window_seconds=60)
+def api_lan_device_timeline(device_id):
+    hours = int(request.args.get('hours', '24'))
+    conn = _get_sqlite_connection()
+    if conn is None:
+        return jsonify({'timeline': []})
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT sample_time_utc, rssi, tx_rate_mbps, rx_rate_mbps, is_online
+              FROM device_snapshots
+             WHERE device_id = ?
+             ORDER BY sample_time_utc DESC
+             LIMIT 500
+            """,
+            (device_id,)
+        )
+        timeline = _fetch_sqlite_rows(cur)
+        return jsonify({'timeline': timeline})
+    finally:
+        conn.close()
+
+
+@app.route('/api/lan/device/<int:device_id>/update', methods=['POST'])
+@rate_limit(max_requests=30, window_seconds=60)
+def api_lan_device_update(device_id):
+    conn = _get_sqlite_connection()
+    if conn is None:
+        return jsonify({'error': 'Database not configured'}), 503
+    data = request.get_json(silent=True) or {}
+    fields = []
+    params = []
+    for key in ['nickname', 'location', 'tags']:
+        if key in data:
+            fields.append(f"{key} = ?")
+            params.append(data[key])
+    if not fields:
+        return jsonify({'status': 'ok'})
+    params.append(device_id)
+    try:
+        cur = conn.cursor()
+        cur.execute(f"UPDATE devices SET {', '.join(fields)} WHERE device_id = ?", params)
+        conn.commit()
+    finally:
+        conn.close()
+    return jsonify({'status': 'ok'})
+
+
+@app.route('/api/lan/alerts')
+@rate_limit(max_requests=60, window_seconds=60)
+def api_lan_alerts():
+    conn = _get_sqlite_connection()
+    if conn is None:
+        return jsonify({'alerts': [], 'total': 0})
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT a.*, d.mac_address, d.hostname
+              FROM device_alerts a
+              LEFT JOIN devices d ON a.device_id = d.device_id
+             ORDER BY a.created_at DESC
+             LIMIT 100
+            """
+        )
+        alerts = _fetch_sqlite_rows(cur)
+        return jsonify({'alerts': alerts, 'total': len(alerts)})
+    finally:
+        conn.close()
+
+
+@app.route('/api/lan/devices/enrich-vendors', methods=['POST'])
+@rate_limit(max_requests=5, window_seconds=60)
+def api_lan_enrich_vendors():
+    return jsonify({'status': 'ok'})
+
+
+@app.route('/api/lan/device/<int:device_id>/lookup-vendor', methods=['POST'])
+@rate_limit(max_requests=10, window_seconds=60)
+def api_lan_lookup_vendor(device_id):
+    return jsonify({'status': 'ok', 'device_id': device_id})
 
 
 @app.route('/health')
