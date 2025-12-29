@@ -694,7 +694,7 @@ def _mock_trend_data():
     import datetime
     now = datetime.datetime.now(datetime.UTC)
     dates = [(now - datetime.timedelta(days=i)).strftime('%Y-%m-%d') for i in range(6, -1, -1)]
-    
+
     return {
         'dates': dates,
         'iis_errors': [random.randint(5, 50) for _ in range(7)],
@@ -709,10 +709,10 @@ def get_trend_data():
     conn = get_db_connection()
     if conn is None:
         return _mock_trend_data()
-    
+
     # Define trend metric keys
     TREND_KEYS = ['iis_errors', 'auth_failures', 'windows_errors', 'router_alerts']
-    
+
     trends = {
         'dates': [],
         'iis_errors': [],
@@ -720,14 +720,14 @@ def get_trend_data():
         'windows_errors': [],
         'router_alerts': []
     }
-    
+
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             # Generate dates for last 7 days
             now = datetime.datetime.now(datetime.UTC)
             dates = [(now - datetime.timedelta(days=i)).strftime('%Y-%m-%d') for i in range(6, -1, -1)]
             trends['dates'] = dates
-            
+
             # IIS 5xx errors by day
             try:
                 cur.execute(
@@ -746,7 +746,7 @@ def get_trend_data():
             except Exception as exc:
                 app.logger.debug('IIS trend query failed: %s', exc)
                 trends['iis_errors'] = [0] * 7
-            
+
             # Auth failures by day
             try:
                 cur.execute(
@@ -766,7 +766,7 @@ def get_trend_data():
             except Exception as exc:
                 app.logger.debug('Auth trend query failed: %s', exc)
                 trends['auth_failures'] = [0] * 7
-            
+
             # Windows errors by day
             try:
                 cur.execute(
@@ -786,7 +786,7 @@ def get_trend_data():
             except Exception as exc:
                 app.logger.debug('Windows trend query failed: %s', exc)
                 trends['windows_errors'] = [0] * 7
-            
+
             # Router alerts by day
             try:
                 cur.execute(
@@ -811,14 +811,14 @@ def get_trend_data():
             except Exception as exc:
                 app.logger.debug('Router trend query failed: %s', exc)
                 trends['router_alerts'] = [0] * 7
-    
+
     finally:
         conn.close()
-    
+
     # If all trends are empty, use mock data
     if all(sum(trends[k]) == 0 for k in TREND_KEYS):
         return _mock_trend_data()
-    
+
     return trends
 
 
@@ -1100,20 +1100,20 @@ def _query_lan_devices(args):
     if state == 'active':
         clauses.append('d.is_active = 1')
     elif state == 'inactive':
-        clauses.append('d.is_active = 0')
+        clauses.append('d.is_active = 0') # Fix: Removed extra quote
     if tag:
-        clauses.append('LOWER(COALESCE(d.tags, \"\")) LIKE ?')
-        params.append(f\"%{tag.lower()}%\")
+        clauses.append('LOWER(COALESCE(d.tags, "")) LIKE ?')
+        params.append(f"%{tag.lower()}%")
     if network_type:
         clauses.append('d.network_type = ?')
         params.append(network_type)
-    if interface:
-        clauses.append('LOWER(COALESCE(s.interface, \"\")) LIKE ?')
-        params.append(f\"%{interface.lower()}%\")
+    if interface: # Fix: Corrected escaped quotes in f-string
+        clauses.append('LOWER(COALESCE(s.interface, "")) LIKE ?')
+        params.append(f"%{interface.lower()}%")
 
-    where_sql = f\"WHERE {' AND '.join(clauses)}\" if clauses else ''
+    where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ''
 
-    query = f\"\"\"
+    query = f"""
         SELECT d.device_id, d.mac_address, d.primary_ip_address, d.hostname,
                d.nickname, d.location, d.vendor, d.first_seen_utc, d.last_seen_utc,
                d.is_active, d.tags, d.network_type,
