@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>System Dashboard</title>
   <link rel="stylesheet" href="/styles.css" />
-  <script src="https://unpkg.com/htmx.org@1.9.12" defer></script>
   <script src="/app.js" defer></script>
 </head>
 <body data-api-base="http://localhost:5000/api/v1">
@@ -126,9 +125,9 @@
       </div>
     </header>
     <div class="telemetry-links">
-      <button class="btn outline" hx-get="/api/events?since=PT24H" hx-target="#telemetry-out" hx-swap="innerHTML">Event Logs</button>
-      <button class="btn outline" hx-get="/api/router/clients" hx-target="#telemetry-out" hx-swap="innerHTML">Router Clients</button>
-      <button class="btn outline" hx-get="/api/syslog?since=PT1H" hx-target="#telemetry-out" hx-swap="innerHTML">Syslog</button>
+      <button class="btn outline" data-endpoint="/api/events?since=PT24H">Event Logs</button>
+      <button class="btn outline" data-endpoint="/api/router/clients">Router Clients</button>
+      <button class="btn outline" data-endpoint="/api/syslog?since=PT1H">Syslog</button>
     </div>
     <section id="telemetry-out" class="content">
       <p>Select a feed to load data.</p>
