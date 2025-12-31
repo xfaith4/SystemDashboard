@@ -218,7 +218,7 @@ function Get-TelemetrySyslogRows {
         $sinceTs = (Get-Date).ToUniversalTime() - [System.Xml.XmlConvert]::ToTimeSpan($Since)
         $schema = $Script:TelemetryDb.Schema ?? 'telemetry'
         $filters = @("received_utc >= '{0}'::timestamptz" -f $sinceTs.ToString('o')) # Host is a reserved keyword in PowerShell, use SourceHost instead
-        if ($Host)     { $filters += "source_host = {0}" -f (ConvertTo-SqlLiteral -Value $Host) }
+        if ($SourceHost) { $filters += "source_host = {0}" -f (ConvertTo-SqlLiteral -Value $SourceHost) }
         if ($Severity) { $filters += "severity = {0}" -f (ConvertTo-SqlLiteral -Value $Severity) }
         $where = $filters -join ' AND '
         $sql = @"
@@ -475,7 +475,7 @@ function Get-SyslogRows {
     $sinceTs = (Get-Date) - [System.Xml.XmlConvert]::ToTimeSpan($Since)
     $sql = "SELECT ts,host,facility,severity,message,tags FROM syslog WHERE ts >= @since"
     $p = @{ '@since' = $sinceTs.ToString('o') }
-    if ($Host)     { $sql += " AND host = @host"; $p['@host'] = $Host }
+    if ($SourceHost) { $sql += " AND host = @host"; $p['@host'] = $SourceHost }
     if ($Severity) { $sql += " AND severity = @sev"; $p['@sev'] = $Severity }
     $sql += " ORDER BY ts DESC LIMIT @take OFFSET @skip"
     $p['@take'] = $Take; $p['@skip'] = $Skip
@@ -711,7 +711,7 @@ function Start-SystemDashboard {
         # Security headers (basic)
         Add-PodeResponseHeader -Name 'X-Content-Type-Options' -Value 'nosniff'
         Add-PodeResponseHeader -Name 'Referrer-Policy' -Value 'no-referrer'
-        Add-PodeResponseHeader -Name 'Content-Security-Policy' -Value "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'"
+        Add-PodeResponseHeader -Name 'Content-Security-Policy' -Value "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' https://unpkg.com; connect-src 'self'"
 
         # Static files
         Add-PodeStaticRoute -Path '/' -Source (Join-Path $WebRoot 'index.html')
