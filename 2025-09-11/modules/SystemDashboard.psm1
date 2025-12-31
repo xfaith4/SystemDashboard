@@ -711,7 +711,7 @@ function Start-SystemDashboard {
         # Security headers (basic)
         Add-PodeResponseHeader -Name 'X-Content-Type-Options' -Value 'nosniff'
         Add-PodeResponseHeader -Name 'Referrer-Policy' -Value 'no-referrer'
-        Add-PodeResponseHeader -Name 'Content-Security-Policy' -Value "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' https://unpkg.com; connect-src 'self'"
+        Add-PodeResponseHeader -Name 'Content-Security-Policy' -Value "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'"
 
         # Static files
         Add-PodeStaticRoute -Path '/' -Source (Join-Path $WebRoot 'index.html')
