@@ -159,6 +159,38 @@
     loadActions();
   };
 
+  function wireTelemetryButtons(){
+    const target = document.getElementById('telemetry-out');
+    if (!target) return;
+    document.querySelectorAll('[data-endpoint]').forEach(btn => {
+      const url = btn.dataset.endpoint;
+      if (!url) return;
+      btn.addEventListener('click', async () => {
+        target.textContent = 'Loading...';
+        try {
+          const res = await fetch(url);
+          if (!res.ok) {
+            target.textContent = `Failed to fetch feed (HTTP ${res.status})`;
+            return;
+          }
+          const text = await res.text();
+          const ctype = res.headers.get('content-type') || '';
+          if (ctype.includes('json')) {
+            try {
+              target.textContent = JSON.stringify(JSON.parse(text), null, 2);
+            } catch (_error) {
+              target.textContent = text;
+            }
+          } else {
+            target.textContent = text;
+          }
+        } catch (e) {
+          target.textContent = 'Failed to fetch feed.';
+        }
+      });
+    });
+  }
+
   document.addEventListener('DOMContentLoaded', () => {
     initApiBase();
     connectSSE();
@@ -166,5 +198,6 @@
     document.querySelectorAll('.nav-item').forEach(btn => {
       btn.addEventListener('click', () => switchPanel(btn.dataset.view));
     });
+    wireTelemetryButtons();
   });
 })();
