@@ -20,7 +20,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Continue'
 
 # Import required modules
-$repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..' '..')
+$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..' '..')).Path
 $telemetryModulePath = Join-Path $repoRoot "tools\SystemDashboard.Telemetry.psm1"
 $lanModulePath = Join-Path $repoRoot "tools\LanObservability.psm1"
 
@@ -115,11 +115,54 @@ function Load-DbSecrets {
     }
 }
 
+function Ensure-LibraryExtracted {
+    param(
+        [Parameter(Mandatory)][string]$LibRoot,
+        [Parameter(Mandatory)][string]$DllName
+    )
+
+    $pkgName = [System.IO.Path]::ChangeExtension($DllName, '.nupkg')
+    $pkg = Get-ChildItem -LiteralPath $LibRoot -Recurse -Filter $pkgName -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $pkg) {
+        $pkgBase = [System.IO.Path]::GetFileNameWithoutExtension($pkgName)
+        $pkgPattern = "$pkgBase*.nupkg"
+        $pkg = Get-ChildItem -LiteralPath $LibRoot -Recurse -Filter $pkgPattern -ErrorAction SilentlyContinue | Select-Object -First 1
+    }
+    if (-not $pkg) {
+        return
+    }
+
+    $dest = Join-Path $LibRoot ([System.IO.Path]::GetFileNameWithoutExtension($pkg.Name))
+    $needsExtract = -not (Test-Path -LiteralPath $dest)
+    if (-not $needsExtract) {
+        $existing = Get-ChildItem -LiteralPath $dest -Recurse -Filter $DllName -ErrorAction SilentlyContinue | Select-Object -First 1
+        if (-not $existing) {
+            $needsExtract = $true
+        }
+    }
+    if ($needsExtract) {
+        Write-Log "Extracting package $($pkg.Name) to $dest" -Level 'INFO'
+        try {
+            if (Test-Path -LiteralPath $dest) {
+                Remove-Item -LiteralPath $dest -Recurse -Force -ErrorAction SilentlyContinue
+            }
+            Expand-Archive -LiteralPath $pkg.FullName -DestinationPath $dest -Force
+        } catch {
+            Write-Log "Failed to extract $($pkg.Name): $($_.Exception.Message)" -Level 'WARN'
+        }
+    }
+}
+
 function Get-DatabaseConnection {
     param([hashtable]$Config)
 
     try {
         $libRoot = Join-Path $repoRoot "lib"
+        if (-not (Test-Path -LiteralPath $libRoot)) {
+            Write-Log "Library directory not found: $libRoot" -Level 'ERROR'
+        } else {
+            Write-Log "Library directory: $libRoot" -Level 'DEBUG'
+        }
         $dbHost = $Config.Database.Host
         $dbPort = $Config.Database.Port
         $dbName = $Config.Database.Database
@@ -154,20 +197,8 @@ function Get-DatabaseConnection {
 
             $dll = Select-Preferred (Get-ChildItem -LiteralPath $libRoot -Recurse -Filter $DllName -ErrorAction SilentlyContinue)
             if (-not $dll) {
-                $pkgName = [System.IO.Path]::ChangeExtension($DllName, '.nupkg')
-                $pkg = Get-ChildItem -LiteralPath $libRoot -Recurse -Filter $pkgName -ErrorAction SilentlyContinue | Select-Object -First 1
-                if (-not $pkg) {
-                    $pkgBase = [System.IO.Path]::GetFileNameWithoutExtension($pkgName)
-                    $pkgPattern = "$pkgBase*.nupkg"
-                    $pkg = Get-ChildItem -LiteralPath $libRoot -Recurse -Filter $pkgPattern -ErrorAction SilentlyContinue | Select-Object -First 1
-                }
-                if ($pkg) {
-                    $dest = Join-Path $libRoot ([System.IO.Path]::GetFileNameWithoutExtension($pkg.Name))
-                    if (-not (Test-Path $dest)) {
-                        Expand-Archive -LiteralPath $pkg.FullName -DestinationPath $dest -Force
-                    }
-                    $dll = Select-Preferred (Get-ChildItem -LiteralPath $dest -Recurse -Filter $DllName -ErrorAction SilentlyContinue)
-                }
+                Ensure-LibraryExtracted -LibRoot $libRoot -DllName $DllName
+                $dll = Select-Preferred (Get-ChildItem -LiteralPath $libRoot -Recurse -Filter $DllName -ErrorAction SilentlyContinue)
             }
             if ($dll) {
                 Add-Type -Path $dll.FullName -ErrorAction Stop
@@ -185,7 +216,7 @@ function Get-DatabaseConnection {
         }
 
         if (-not (Import-LibraryAssembly -DllName "Npgsql.dll")) {
-            Write-Log "Npgsql assembly not found. Please install it or place Npgsql.dll in the lib/ directory." -Level 'ERROR'
+            Write-Log "Npgsql assembly not found in $libRoot. Please install it or place Npgsql.dll in the lib/ directory." -Level 'ERROR'
             throw "Npgsql assembly not available"
         }
 

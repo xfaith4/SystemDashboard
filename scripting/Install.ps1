@@ -65,6 +65,11 @@ if ($IsWindows) {
         if (-not (Test-Path -LiteralPath $taskScript)) {
             throw "Scheduled task setup script not found at $taskScript"
         }
+        $depsScript = Join-Path $PSScriptRoot 'setup-lan-collector-deps.ps1'
+        if (Test-Path -LiteralPath $depsScript) {
+            Write-Host 'Ensuring LAN collector dependencies...' -ForegroundColor Cyan
+            & $depsScript
+        }
         & $taskScript
     }
 }

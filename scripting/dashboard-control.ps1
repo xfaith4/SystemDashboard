@@ -478,7 +478,9 @@ function Open-DashboardInBrowser {
 }
 
 # Main execution
-if ($Action -eq "menu") {
+if ($Action -eq "restart" -or $Action -eq "restart-services") {
+    Restart-AllServices
+} elseif ($Action -eq "menu") {
     Show-DashboardMenu
 } elseif ($RouterMonitoring) {
     Enable-RouterMonitoring

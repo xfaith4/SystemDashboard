@@ -9,6 +9,7 @@
   const EVENTS_RECENT_ENDPOINT = '/api/events/recent';
   const TIMELINE_ENDPOINT = '/api/timeline';
   const DEVICES_SUMMARY_ENDPOINT = '/api/devices/summary';
+  const ROUTER_KPI_ENDPOINT = '/api/router/kpis';
   const HEALTH_ENDPOINT = '/api/health';
   const TELEMETRY_REFRESH_INTERVAL = 15000;
 
@@ -62,6 +63,14 @@
   const refreshResumeBtn = document.getElementById('refresh-resume');
   const healthBannerEl = document.getElementById('health-banner');
   const healthBannerTextEl = document.getElementById('health-banner-text');
+  const routerKpiUpdatedEl = document.getElementById('router-kpi-updated');
+  const routerKpiTotalDropEl = document.getElementById('kpi-total-drop');
+  const routerKpiIgmpDropEl = document.getElementById('kpi-igmp-drop');
+  const routerKpiRoamKicksEl = document.getElementById('kpi-roam-kicks');
+  const routerKpiRstatsErrorsEl = document.getElementById('kpi-rstats-errors');
+  const routerKpiDnsmasqSigtermEl = document.getElementById('kpi-dnsmasq-sigterm');
+  const routerKpiAvahiSigtermEl = document.getElementById('kpi-avahi-sigterm');
+  const routerKpiUpnpShutdownsEl = document.getElementById('kpi-upnp-shutdowns');
 
   if (refreshIntervalEl) {
     refreshIntervalEl.textContent = (REFRESH_INTERVAL / 1000).toString();
@@ -295,6 +304,17 @@
     }
     healthBannerTextEl.textContent = message;
     healthBannerEl.classList.add('is-visible');
+  }
+
+  function setKpiValue(element, value) {
+    if (!element) {
+      return;
+    }
+    if (value == null || Number.isNaN(value)) {
+      element.textContent = '--';
+      return;
+    }
+    element.textContent = value.toString();
   }
 
   function renderDiskTable(disks) {
@@ -888,23 +908,32 @@
       return;
     }
     try {
-      const data = await fetchJson(`${HEALTH_ENDPOINT}?_=${Date.now()}`, { cache: 'no-store' });
+      const res = await fetch(`${HEALTH_ENDPOINT}?_=${Date.now()}`, { cache: 'no-store' });
+      const payload = await res.text();
+      const data = payload ? JSON.parse(payload) : null;
       if (!data || data.ok) {
         renderHealthBanner('');
         return;
       }
       const failures = [];
+      const errorDetails = [];
       if (data.checks && typeof data.checks === 'object') {
         Object.entries(data.checks).forEach(([key, value]) => {
           if (!value || value.ok) {
             return;
           }
           failures.push(key.replace(/_/g, ' '));
+          if (value.error) {
+            errorDetails.push(`${key}: ${value.error}`);
+          }
         });
       }
-      const message = failures.length
+      let message = failures.length
         ? `Checks failing: ${failures.join(', ')}.`
         : 'Health checks are reporting issues.';
+      if (errorDetails.length) {
+        message = `${message} ${errorDetails[0]}`;
+      }
       renderHealthBanner(message);
     } catch (err) {
       if (err && err.status === 404) {
@@ -913,6 +942,38 @@
       }
       console.error('Failed to load health status', err);
       renderHealthBanner('Health checks unavailable.');
+    }
+  }
+
+  async function loadRouterKpis() {
+    if (!routerKpiTotalDropEl && !routerKpiIgmpDropEl) {
+      return;
+    }
+    try {
+      const data = await fetchJson(`${ROUTER_KPI_ENDPOINT}?_=${Date.now()}`, { cache: 'no-store' });
+      const kpis = data && data.kpis ? data.kpis : {};
+      setKpiValue(routerKpiTotalDropEl, kpis.total_drop);
+      setKpiValue(routerKpiIgmpDropEl, kpis.igmp_drops);
+      setKpiValue(routerKpiRoamKicksEl, kpis.roam_kicks);
+      setKpiValue(routerKpiRstatsErrorsEl, kpis.rstats_errors);
+      setKpiValue(routerKpiDnsmasqSigtermEl, kpis.dnsmasq_sigterm);
+      setKpiValue(routerKpiAvahiSigtermEl, kpis.avahi_sigterm);
+      setKpiValue(routerKpiUpnpShutdownsEl, kpis.upnp_shutdowns);
+      if (routerKpiUpdatedEl) {
+        routerKpiUpdatedEl.textContent = data.updated_utc ? `Updated ${formatShortTime(data.updated_utc)}` : '--';
+      }
+    } catch (err) {
+      console.error('Failed to load router KPIs', err);
+      setKpiValue(routerKpiTotalDropEl, null);
+      setKpiValue(routerKpiIgmpDropEl, null);
+      setKpiValue(routerKpiRoamKicksEl, null);
+      setKpiValue(routerKpiRstatsErrorsEl, null);
+      setKpiValue(routerKpiDnsmasqSigtermEl, null);
+      setKpiValue(routerKpiAvahiSigtermEl, null);
+      setKpiValue(routerKpiUpnpShutdownsEl, null);
+      if (routerKpiUpdatedEl) {
+        routerKpiUpdatedEl.textContent = '--';
+      }
     }
   }
 
@@ -946,6 +1007,7 @@
       return;
     }
     await Promise.all([
+      loadRouterKpis(),
       loadHealthStatus(),
       loadSyslogSummary(),
       loadSyslogRows(),

@@ -122,6 +122,12 @@ function Read-SystemDashboardConfig {
     if (-not $raw.Service.Syslog.BindAddress) { $raw.Service.Syslog.BindAddress = '0.0.0.0' }
     if (-not $raw.Service.Syslog.Port) { $raw.Service.Syslog.Port = 514 }
     if (-not $raw.Service.Syslog.MaxMessageBytes) { $raw.Service.Syslog.MaxMessageBytes = 8192 }
+    if ($raw.Service.Syslog.KpiSummaryPath) {
+        $raw.Service.Syslog.KpiSummaryPath = Resolve-SystemDashboardPath -BasePath $base -Path $raw.Service.Syslog.KpiSummaryPath
+    }
+    else {
+        $raw.Service.Syslog.KpiSummaryPath = Resolve-SystemDashboardPath -BasePath $base -Path './var/syslog/router-kpis.json'
+    }
 
     if (-not $raw.Service.Asus) {
         $raw.Service.Asus = @{}
@@ -792,6 +798,201 @@ function Invoke-SyslogIngestion {
     }
 }
 
+function Initialize-RouterSyslogKpiState {
+    param([int]$WindowHours)
+
+    return [ordered]@{
+        window_hours = $WindowHours
+        updated_utc = (Get-Date).ToUniversalTime().ToString('o')
+        drops = @()
+        roam = @()
+        rstats_errors = @()
+        dnsmasq_sigterm = @()
+        avahi_sigterm = @()
+        upnp_shutdowns = @()
+    }
+}
+
+function Load-RouterSyslogKpiState {
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [int]$WindowHours
+    )
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return Initialize-RouterSyslogKpiState -WindowHours $WindowHours
+    }
+    try {
+        $raw = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
+        if (-not $raw) {
+            return Initialize-RouterSyslogKpiState -WindowHours $WindowHours
+        }
+        if (-not $raw.window_hours) { $raw.window_hours = $WindowHours }
+        if (-not $raw.drops) { $raw.drops = @() }
+        if (-not $raw.roam) { $raw.roam = @() }
+        if (-not $raw.rstats_errors) { $raw.rstats_errors = @() }
+        if (-not $raw.dnsmasq_sigterm) { $raw.dnsmasq_sigterm = @() }
+        if (-not $raw.avahi_sigterm) { $raw.avahi_sigterm = @() }
+        if (-not $raw.upnp_shutdowns) { $raw.upnp_shutdowns = @() }
+        return $raw
+    }
+    catch {
+        return Initialize-RouterSyslogKpiState -WindowHours $WindowHours
+    }
+}
+
+function Save-RouterSyslogKpiState {
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][object]$State
+    )
+
+    $dir = Split-Path -Parent $Path
+    if (-not (Test-Path -LiteralPath $dir)) {
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+    }
+    $State | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $Path -Encoding UTF8
+}
+
+function Update-RouterSyslogKpis {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][System.Collections.IEnumerable]$Events,
+        [Parameter(Mandatory)][string]$OutputPath,
+        [int]$WindowHours = 24
+    )
+
+    $statePath = "$OutputPath.state.json"
+    $state = Load-RouterSyslogKpiState -Path $statePath -WindowHours $WindowHours
+
+    $dropPattern = 'kernel:\s+DROP\s+.*SRC=(?<src>\S+)\s+DST=(?<dst>\S+).*PROTO=(?<proto>\S+)(?:\s+SPT=(?<spt>\d+))?(?:\s+DPT=(?<dpt>\d+))?'
+    $roamPattern = 'roamast:.*(?:disconnect weak signal strength station|remove client)\s+\[(?<mac>[0-9a-f:]{17})\]'
+    $rstatsPattern = 'rstats\[\d+\]:\s+Problem loading\s+(?<file>\S+)'
+    $igmpPattern = 'kernel:\s+DROP\s+.*DST=224\.0\.0\.1.*PROTO=2'
+
+    $nowUtc = (Get-Date).ToUniversalTime()
+    $cutoff = $nowUtc.AddHours(-$WindowHours)
+
+    foreach ($evt in $Events) {
+        $msg = $evt.Message
+        if (-not $msg) { $msg = $evt.RawMessage }
+        if ([string]::IsNullOrWhiteSpace($msg)) { continue }
+        $timestamp = $evt.EventUtc
+        if (-not $timestamp) { $timestamp = $evt.ReceivedUtc }
+        if (-not $timestamp) { $timestamp = $nowUtc }
+        if ($timestamp -isnot [DateTime]) {
+            try {
+                $timestamp = [DateTime]::Parse($timestamp.ToString(), [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::AssumeUniversal)
+            }
+            catch {
+                $timestamp = $nowUtc
+            }
+        }
+        $tsIso = $timestamp.ToUniversalTime().ToString('o')
+
+        $dropMatch = [regex]::Match($msg, $dropPattern)
+        if ($dropMatch.Success) {
+            $state.drops += [pscustomobject]@{
+                ts = $tsIso
+                src = $dropMatch.Groups['src'].Value
+                dst = $dropMatch.Groups['dst'].Value
+                proto = $dropMatch.Groups['proto'].Value
+                dpt = $dropMatch.Groups['dpt'].Value
+                spt = $dropMatch.Groups['spt'].Value
+                is_igmp = [bool]($msg -match $igmpPattern)
+            }
+        }
+
+        $roamMatch = [regex]::Match($msg, $roamPattern)
+        if ($roamMatch.Success) {
+            $state.roam += [pscustomobject]@{
+                ts = $tsIso
+                mac = $roamMatch.Groups['mac'].Value.ToLowerInvariant()
+            }
+        }
+
+        if ($msg -match $rstatsPattern) {
+            $state.rstats_errors += [pscustomobject]@{ ts = $tsIso }
+        }
+        if ($msg -match 'dnsmasq\[\d+\]: exiting on receipt of SIGTERM') {
+            $state.dnsmasq_sigterm += [pscustomobject]@{ ts = $tsIso }
+        }
+        if ($msg -match 'avahi-daemon\[\d+\]: Got SIGTERM') {
+            $state.avahi_sigterm += [pscustomobject]@{ ts = $tsIso }
+        }
+        if ($msg -match 'miniupnpd\[\d+\]: shutting down MiniUPnPd') {
+            $state.upnp_shutdowns += [pscustomobject]@{ ts = $tsIso }
+        }
+    }
+
+    function Filter-Recent {
+        param([object[]]$Items)
+        if (-not $Items) { return @() }
+        return $Items | Where-Object {
+            try {
+                [DateTime]::Parse($_.ts, [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::AssumeUniversal) -ge $cutoff
+            }
+            catch {
+                $false
+            }
+        }
+    }
+
+    $state.drops = Filter-Recent -Items $state.drops
+    $state.roam = Filter-Recent -Items $state.roam
+    $state.rstats_errors = Filter-Recent -Items $state.rstats_errors
+    $state.dnsmasq_sigterm = Filter-Recent -Items $state.dnsmasq_sigterm
+    $state.avahi_sigterm = Filter-Recent -Items $state.avahi_sigterm
+    $state.upnp_shutdowns = Filter-Recent -Items $state.upnp_shutdowns
+    $state.updated_utc = $nowUtc.ToString('o')
+
+    $dropRecent = @($state.drops)
+    $roamRecent = @($state.roam)
+
+    $topDropSources = $dropRecent | Group-Object src, proto, dpt | Sort-Object Count -Descending | Select-Object -First 5 | ForEach-Object {
+        [pscustomobject]@{
+            src = $_.Group[0].src
+            proto = $_.Group[0].proto
+            dpt = $_.Group[0].dpt
+            count = $_.Count
+        }
+    }
+    $topDropDest = $dropRecent | Group-Object dst, proto, dpt | Sort-Object Count -Descending | Select-Object -First 5 | ForEach-Object {
+        [pscustomobject]@{
+            dst = $_.Group[0].dst
+            proto = $_.Group[0].proto
+            dpt = $_.Group[0].dpt
+            count = $_.Count
+        }
+    }
+    $roamCounts = $roamRecent | Group-Object mac | Sort-Object Count -Descending | Select-Object -First 5 | ForEach-Object {
+        [pscustomobject]@{
+            mac = $_.Name
+            count = $_.Count
+        }
+    }
+
+    $summary = [pscustomobject]@{
+        updated_utc = $state.updated_utc
+        window_hours = $WindowHours
+        kpis = [pscustomobject]@{
+            total_drop = $dropRecent.Count
+            igmp_drops = ($dropRecent | Where-Object { $_.is_igmp }).Count
+            rstats_errors = $state.rstats_errors.Count
+            roam_kicks = $roamRecent.Count
+            dnsmasq_sigterm = $state.dnsmasq_sigterm.Count
+            avahi_sigterm = $state.avahi_sigterm.Count
+            upnp_shutdowns = $state.upnp_shutdowns.Count
+        }
+        top_drop_sources = $topDropSources
+        top_drop_destinations = $topDropDest
+        roam_kicks = $roamCounts
+    }
+
+    Save-RouterSyslogKpiState -Path $statePath -State $state
+    $summary | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $OutputPath -Encoding UTF8
+}
+
 function Load-AsusState {
     [CmdletBinding()]
     param(
@@ -1317,6 +1518,7 @@ function Start-TelemetryService {
     $wifiBuffer = New-Object System.Collections.Generic.List[object]
     $ingestion = $config.Service.Ingestion
     $eventsConfig = $config.Service.Events
+    $kpiSummaryPath = $config.Service.Syslog.KpiSummaryPath
     $database = @{}
     $config.Database.PSObject.Properties | ForEach-Object { $database[$_.Name] = $_.Value }
 
@@ -1456,6 +1658,9 @@ function Start-TelemetryService {
                     $syslogBuffer.Clear()
                     try {
                         Invoke-SyslogIngestion -Events $batch -Ingestion $ingestion -Database $database -SourceLabel 'syslog'
+                        if ($kpiSummaryPath) {
+                            Update-RouterSyslogKpis -Events $batch -OutputPath $kpiSummaryPath -WindowHours 24
+                        }
                         Write-TelemetryLog -LogPath $logPath -Message "Ingested $($batch.Count) syslog entries." -Level 'INFO'
                     }
                     catch {
@@ -1467,6 +1672,9 @@ function Start-TelemetryService {
                     $asusBuffer.Clear()
                     try {
                         Invoke-SyslogIngestion -Events $batch -Ingestion $ingestion -Database $database -SourceLabel 'asus'
+                        if ($kpiSummaryPath) {
+                            Update-RouterSyslogKpis -Events $batch -OutputPath $kpiSummaryPath -WindowHours 24
+                        }
                         Write-TelemetryLog -LogPath $logPath -Message "Ingested $($batch.Count) ASUS log entries." -Level 'INFO'
                     }
                     catch {
@@ -1478,6 +1686,9 @@ function Start-TelemetryService {
                     $wifiBuffer.Clear()
                     try {
                         Invoke-SyslogIngestion -Events $batch -Ingestion $ingestion -Database $database -SourceLabel 'asus-wifi'
+                        if ($kpiSummaryPath) {
+                            Update-RouterSyslogKpis -Events $batch -OutputPath $kpiSummaryPath -WindowHours 24
+                        }
                         Write-TelemetryLog -LogPath $logPath -Message "Ingested $($batch.Count) WiFi scan entries." -Level 'INFO'
                     }
                     catch {
@@ -1492,6 +1703,9 @@ function Start-TelemetryService {
         if ($syslogBuffer.Count -gt 0) {
             try {
                 Invoke-SyslogIngestion -Events ($syslogBuffer.ToArray()) -Ingestion $ingestion -Database $database -SourceLabel 'syslog'
+                if ($kpiSummaryPath) {
+                    Update-RouterSyslogKpis -Events ($syslogBuffer.ToArray()) -OutputPath $kpiSummaryPath -WindowHours 24
+                }
             }
             catch {
                 Write-TelemetryLog -LogPath $logPath -Message "Final syslog ingestion failed during shutdown: $_" -Level 'ERROR'

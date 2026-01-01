@@ -14,13 +14,17 @@
     "Schema": "telemetry",
     "PsqlPath": "C:/Program Files/PostgreSQL/18/bin/psql.exe"
   },
+  "Logging": {
+    "LogLevel": "INFO"
+  },
   "Service": {
     "LogPath": "./var/log/telemetry-service.log",
     "Syslog": {
       "BindAddress": "0.0.0.0",
       "Port": 5514,
       "BufferDirectory": "./var/syslog",
-      "MaxMessageBytes": 8192
+      "MaxMessageBytes": 8192,
+      "KpiSummaryPath": "./var/syslog/router-kpis.json"
     },
     "Events": {
       "Enabled": true,

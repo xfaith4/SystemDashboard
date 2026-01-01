@@ -56,6 +56,17 @@ function Install-DashboardTasks {
 
     Write-Host "Installing System Dashboard scheduled tasks..." -ForegroundColor Green
 
+    $depsScript = Join-Path $PSScriptRoot 'setup-lan-collector-deps.ps1'
+    if (Test-Path -LiteralPath $depsScript) {
+        try {
+            Write-Host "Ensuring LAN collector dependencies..." -ForegroundColor Cyan
+            & $depsScript
+        }
+        catch {
+            Write-Warning "LAN collector dependency setup failed: $($_.Exception.Message)"
+        }
+    }
+
     foreach ($task in $Tasks) {
         $taskName = $task.Name
         $scriptPath = Join-Path $ServicesPath $task.Script
