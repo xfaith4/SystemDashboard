@@ -182,6 +182,157 @@ function Get-ContentType {
     }
 }
 
+function Resolve-SecretValue {
+    [CmdletBinding()]
+    param([string]$Secret)
+
+    if (-not $Secret) {
+        return $null
+    }
+    if ($Secret -match '^env:(.+)$') {
+        return (Get-Item "Env:$($Matches[1])" -ErrorAction SilentlyContinue).Value
+    }
+    return $Secret
+}
+
+function Get-PostgresConfig {
+    if (-not $script:Config.Database) {
+        return $null
+    }
+
+    $db = $script:Config.Database
+    $host = if ($db.Host) { [string]$db.Host } else { 'localhost' }
+    $port = if ($db.Port) { [int]$db.Port } else { 5432 }
+    $database = if ($db.Database) { [string]$db.Database } else { 'system_dashboard' }
+    $username = if ($db.Username) { [string]$db.Username } else { 'sysdash_reader' }
+    $password = Resolve-SecretValue $db.PasswordSecret
+    if (-not $password -and $db.Password) {
+        $password = [string]$db.Password
+    }
+    if (-not $password) {
+        $password = (Get-Item 'Env:SYSTEMDASHBOARD_DB_READER_PASSWORD' -ErrorAction SilentlyContinue).Value
+        if ($password -and (-not $db.Username)) {
+            $username = 'sysdash_reader'
+        }
+    }
+    $psqlPath = if ($db.PsqlPath -and (Test-Path -LiteralPath $db.PsqlPath)) {
+        $db.PsqlPath
+    } else {
+        $cmd = Get-Command psql -ErrorAction SilentlyContinue
+        if ($cmd) { $cmd.Source } else { $null }
+    }
+
+    if (-not $password -or -not $psqlPath) {
+        return $null
+    }
+
+    return @{
+        Host = $host
+        Port = $port
+        Database = $database
+        Username = $username
+        Password = $password
+        PsqlPath = $psqlPath
+    }
+}
+
+function Invoke-PostgresJsonQuery {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Sql)
+
+    $cfg = Get-PostgresConfig
+    if (-not $cfg) {
+        Write-Log -Level 'WARN' -Message 'Postgres config missing; cannot query LAN data.'
+        return $null
+    }
+
+    $previousPassword = $env:PGPASSWORD
+    $env:PGPASSWORD = $cfg.Password
+    try {
+        $output = & $cfg.PsqlPath -h $cfg.Host -p $cfg.Port -U $cfg.Username -d $cfg.Database -t -A -q -v ON_ERROR_STOP=1 -c $Sql 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Write-Log -Level 'WARN' -Message ("Postgres query failed: {0}" -f ($output -join ' '))
+            return $null
+        }
+    } finally {
+        if ($previousPassword) {
+            $env:PGPASSWORD = $previousPassword
+        } else {
+            Remove-Item Env:PGPASSWORD -ErrorAction SilentlyContinue
+        }
+    }
+
+    $json = ($output | Where-Object { $_ -and $_.Trim() -ne '' } | Select-Object -First 1)
+    if (-not $json) {
+        return '[]'
+    }
+    return $json.Trim()
+}
+
+function Test-PostgresQuery {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Sql)
+
+    $cfg = Get-PostgresConfig
+    if (-not $cfg) {
+        return @{ ok = $false; error = 'Postgres config missing or incomplete.' }
+    }
+
+    $previousPassword = $env:PGPASSWORD
+    $env:PGPASSWORD = $cfg.Password
+    try {
+        $output = & $cfg.PsqlPath -h $cfg.Host -p $cfg.Port -U $cfg.Username -d $cfg.Database -t -A -q -v ON_ERROR_STOP=1 -c $Sql 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            return @{ ok = $false; error = ($output -join ' ') }
+        }
+    } finally {
+        if ($previousPassword) {
+            $env:PGPASSWORD = $previousPassword
+        } else {
+            Remove-Item Env:PGPASSWORD -ErrorAction SilentlyContinue
+        }
+    }
+
+    return @{ ok = $true }
+}
+
+function Escape-SqlLiteral {
+    param([string]$Value)
+    return ($Value -replace "'", "''")
+}
+
+function Convert-IsoDurationToMinutes {
+    param([string]$Duration)
+
+    if (-not $Duration) {
+        return 1440
+    }
+    if ($Duration -match '^PT(?:(\d+)H)?(?:(\d+)M)?$') {
+        $hours = if ($Matches[1]) { [int]$Matches[1] } else { 0 }
+        $minutes = if ($Matches[2]) { [int]$Matches[2] } else { 0 }
+        $total = ($hours * 60) + $minutes
+        if ($total -gt 0) {
+            return $total
+        }
+    }
+    return 1440
+}
+
+function Write-JsonResponse {
+    param(
+        [Parameter(Mandatory)][System.Net.HttpListenerResponse]$Response,
+        [Parameter(Mandatory)][string]$Json,
+        [int]$StatusCode = 200
+    )
+    $buf = [Text.Encoding]::UTF8.GetBytes($Json)
+    $Response.StatusCode = $StatusCode
+    $Response.ContentType = 'application/json'
+    $Response.Headers['Cache-Control'] = 'no-store'
+    $Response.ContentLength64 = $buf.Length
+    $Response.OutputStream.Write($buf, 0, $buf.Length)
+    $Response.Close()
+}
+
 function Ensure-UrlAcl {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string] $Prefix)
@@ -382,6 +533,113 @@ function Start-SystemDashboardListener {
                 $res.ContentType = 'application/json'
                 $res.OutputStream.Write($buf,0,$buf.Length)
                 $res.Close()
+                continue
+            } elseif ($requestPath -eq '/api/devices/summary') {
+                $limit = 10
+                if ($req.QueryString['limit']) {
+                    $parsed = 0
+                    if ([int]::TryParse($req.QueryString['limit'], [ref]$parsed)) {
+                        $limit = [Math]::Max(1, [Math]::Min(100, $parsed))
+                    }
+                }
+                $sql = @"
+SELECT COALESCE(json_agg(t), '[]'::json) FROM (
+    SELECT p.mac_address,
+           p.last_seen AS last_seen,
+           p.last_rssi AS last_rssi,
+           p.last_event_type AS last_event_type,
+           COALESCE(c.events_1h, 0) AS events_1h
+    FROM telemetry.device_profiles p
+    LEFT JOIN (
+        SELECT mac_address, COUNT(*) AS events_1h
+        FROM telemetry.device_observations
+        WHERE occurred_at >= NOW() - INTERVAL '1 hour'
+        GROUP BY mac_address
+    ) c ON c.mac_address = p.mac_address
+    ORDER BY c.events_1h DESC NULLS LAST, p.last_seen DESC
+    LIMIT $limit
+) t;
+"@
+                $json = Invoke-PostgresJsonQuery -Sql $sql
+                if ($null -eq $json) {
+                    Write-Log -Level 'WARN' -Message 'Device summary query failed.'
+                    Write-JsonResponse -Response $res -Json '[]' -StatusCode 503
+                } else {
+                    Write-JsonResponse -Response $res -Json $json
+                }
+                continue
+            } elseif ($requestPath -eq '/api/timeline') {
+                $bucketMinutes = 5
+                if ($req.QueryString['bucketMinutes']) {
+                    $parsed = 0
+                    if ([int]::TryParse($req.QueryString['bucketMinutes'], [ref]$parsed)) {
+                        if ($parsed -ge 1 -and $parsed -le 60) {
+                            $bucketMinutes = $parsed
+                        }
+                    }
+                }
+
+                $sinceMinutes = Convert-IsoDurationToMinutes $req.QueryString['since']
+                $filters = @("occurred_at >= NOW() - INTERVAL '$sinceMinutes minutes'")
+
+                $mac = $req.QueryString['mac']
+                if ($mac -and ($mac -match '^[0-9a-fA-F:\-]{11,17}$')) {
+                    $filters += ("mac_address = '{0}'" -f (Escape-SqlLiteral $mac.ToUpper()))
+                }
+
+                $category = $req.QueryString['category']
+                if ($category -and ($category -match '^[a-zA-Z0-9_-]+$')) {
+                    $filters += ("LOWER(category) = '{0}'" -f (Escape-SqlLiteral $category.ToLower()))
+                }
+
+                $eventType = $req.QueryString['eventType']
+                if ($eventType -and ($eventType -match '^[a-zA-Z0-9_-]+$')) {
+                    $filters += ("event_type = '{0}'" -f (Escape-SqlLiteral $eventType))
+                }
+
+                $where = $filters -join ' AND '
+                $sql = @"
+SELECT COALESCE(json_agg(t), '[]'::json) FROM (
+    SELECT
+        date_trunc('minute', occurred_at)
+            - make_interval(mins => (EXTRACT(MINUTE FROM occurred_at)::int % $bucketMinutes)) AS bucket_start,
+        COALESCE(NULLIF(lower(category), ''), 'unknown') AS category,
+        COUNT(*) AS total
+    FROM telemetry.device_observations
+    WHERE $where
+    GROUP BY bucket_start, category
+    ORDER BY bucket_start ASC
+) t;
+"@
+                $json = Invoke-PostgresJsonQuery -Sql $sql
+                if ($null -eq $json) {
+                    Write-Log -Level 'WARN' -Message 'Timeline query failed.'
+                    Write-JsonResponse -Response $res -Json '[]' -StatusCode 503
+                } else {
+                    Write-JsonResponse -Response $res -Json $json
+                }
+                continue
+            } elseif ($requestPath -eq '/api/health') {
+                $checks = [ordered]@{}
+                $checks.postgres = Test-PostgresQuery -Sql 'SELECT 1;'
+                $checks.device_summary = Test-PostgresQuery -Sql 'SELECT COUNT(*) FROM telemetry.device_profiles;'
+                $checks.timeline = Test-PostgresQuery -Sql "SELECT COUNT(*) FROM telemetry.device_observations WHERE occurred_at >= NOW() - INTERVAL '24 hours';"
+
+                $allOk = $true
+                foreach ($entry in $checks.GetEnumerator()) {
+                    if (-not $entry.Value.ok) {
+                        $allOk = $false
+                        Write-Log -Level 'WARN' -Message ("Health check failed: {0} ({1})" -f $entry.Key, $entry.Value.error)
+                    }
+                }
+
+                $payload = @{
+                    ok = $allOk
+                    time = (Get-Date).ToString('o')
+                    checks = $checks
+                }
+                $json = $payload | ConvertTo-Json -Depth 5
+                Write-JsonResponse -Response $res -Json $json -StatusCode ($allOk ? 200 : 503)
                 continue
             }
             # Static files

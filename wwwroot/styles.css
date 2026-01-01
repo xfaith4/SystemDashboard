@@ -154,6 +154,27 @@ h1, h2 {
   background: var(--error);
 }
 
+.health-banner {
+  display: none;
+  gap: 0.6rem;
+  align-items: center;
+  padding: 0.85rem 2rem;
+  background: rgba(180, 83, 9, 0.14);
+  border-bottom: 1px solid rgba(180, 83, 9, 0.3);
+  color: var(--warn);
+  font-weight: 600;
+}
+
+.health-banner.is-visible {
+  display: flex;
+}
+
+.health-banner__title {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 0.78rem;
+}
+
 .badge {
   display: inline-flex;
   align-items: center;
