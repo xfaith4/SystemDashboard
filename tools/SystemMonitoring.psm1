@@ -1,6 +1,33 @@
 # System Dashboard Monitoring and Maintenance Module
 # Provides health checks, maintenance tasks, and system monitoring
 
+function Get-SystemDashboardConfig {
+    $configPath = Join-Path $PSScriptRoot "..\config.json"
+    if (Test-Path $configPath) {
+        try {
+            return Get-Content $configPath -Raw | ConvertFrom-Json
+        } catch {
+            return $null
+        }
+    }
+
+    return $null
+}
+
+function Resolve-PasswordSecret {
+    param([string]$Secret)
+
+    if (-not $Secret) {
+        return $null
+    }
+
+    if ($Secret -match '^env:(.+)$') {
+        return (Get-Item "Env:$($Matches[1])" -ErrorAction SilentlyContinue).Value
+    }
+
+    return $Secret
+}
+
 function Get-SystemDashboardHealth {
     Write-Host "🏥 System Dashboard Health Check" -ForegroundColor Cyan
     Write-Host "=" * 40
@@ -14,30 +41,43 @@ function Get-SystemDashboardHealth {
         Services = @{}
     }
 
+    $config = Get-SystemDashboardConfig
+    $dbHost = if ($config?.Database?.Host) { $config.Database.Host } else { "localhost" }
+    $dbPort = if ($config?.Database?.Port) { $config.Database.Port } else { 5432 }
+    $dbName = if ($config?.Database?.Database) { $config.Database.Database } else { "system_dashboard" }
+    $psqlPath = $config?.Database?.PsqlPath
+
     # 1. Database Health
     Write-Host "`n📊 Database Health:" -ForegroundColor White
     try {
-        $dbResult = docker exec postgres-container psql -U sysdash_reader -d system_dashboard -t -c "SELECT NOW();"
-        if ($dbResult) {
-            Write-Host "  ✅ PostgreSQL: Connected and responsive" -ForegroundColor Green
+        $test = Test-NetConnection -ComputerName $dbHost -Port $dbPort -WarningAction SilentlyContinue
+        if ($test.TcpTestSucceeded) {
+            Write-Host "  ✅ PostgreSQL: Reachable at $dbHost`:$dbPort" -ForegroundColor Green
             $healthStatus.Database = $true
 
-            # Check data counts
-            $counts = docker exec postgres-container psql -U sysdash_reader -d system_dashboard -t -c "
-            SELECT
-                'Windows Events: ' || COUNT(*)
-            FROM telemetry.eventlog_windows_recent
-            UNION ALL
-            SELECT
-                'IIS Requests: ' || COUNT(*)
-            FROM telemetry.iis_requests_recent
-            UNION ALL
-            SELECT
-                'Syslog Entries: ' || COUNT(*)
-            FROM telemetry.syslog_recent;"
-
-            Write-Host "  📈 Data Counts:" -ForegroundColor Gray
-            $counts | ForEach-Object { Write-Host "    $($_.Trim())" -ForegroundColor Gray }
+            if ($psqlPath -and (Test-Path $psqlPath) -and $env:SYSTEMDASHBOARD_DB_READER_PASSWORD) {
+                $countsQuery = @"
+SELECT 'Windows Events: ' || COUNT(*) FROM telemetry.events
+UNION ALL
+SELECT 'Syslog Entries: ' || COUNT(*) FROM telemetry.syslog_recent
+UNION ALL
+SELECT 'Metrics: ' || COUNT(*) FROM telemetry.metrics;
+"@
+                $previousPassword = $env:PGPASSWORD
+                $env:PGPASSWORD = $env:SYSTEMDASHBOARD_DB_READER_PASSWORD
+                $counts = & $psqlPath -h $dbHost -p $dbPort -U "sysdash_reader" -d $dbName -t -c $countsQuery 2>$null
+                if ($previousPassword) {
+                    $env:PGPASSWORD = $previousPassword
+                } else {
+                    Remove-Item Env:PGPASSWORD -ErrorAction SilentlyContinue
+                }
+                Write-Host "  📈 Data Counts:" -ForegroundColor Gray
+                $counts | ForEach-Object { Write-Host "    $($_.Trim())" -ForegroundColor Gray }
+            } else {
+                Write-Host "  ℹ️ Data counts skipped (psql/reader password not configured)" -ForegroundColor Gray
+            }
+        } else {
+            Write-Host "  ❌ PostgreSQL: Not reachable at $dbHost`:$dbPort" -ForegroundColor Red
         }
     }
     catch {
@@ -47,19 +87,20 @@ function Get-SystemDashboardHealth {
     # 2. Web Interface Health
     Write-Host "`n🌐 Web Interface Health:" -ForegroundColor White
     try {
-        $webResponse = Invoke-WebRequest -Uri "http://localhost:5000/health" -UseBasicParsing -TimeoutSec 5
-        if ($webResponse.StatusCode -eq 200) {
-            Write-Host "  ✅ Flask Dashboard: Healthy (Status: $($webResponse.StatusCode))" -ForegroundColor Green
+        $prefix = if ($config?.Prefix) { $config.Prefix } else { "http://localhost:15000/" }
+        $webResponse = Invoke-WebRequest -Uri $prefix -UseBasicParsing -TimeoutSec 5
+        if ($webResponse.StatusCode -ge 200 -and $webResponse.StatusCode -lt 400) {
+            Write-Host "  ✅ Dashboard UI: Healthy (Status: $($webResponse.StatusCode))" -ForegroundColor Green
             $healthStatus.WebInterface = $true
         }
     }
     catch {
-        Write-Host "  ❌ Flask Dashboard: Not responding" -ForegroundColor Red
+        Write-Host "  ❌ Dashboard UI: Not responding" -ForegroundColor Red
     }
 
     # 3. Scheduled Task Health
     Write-Host "`n🔄 Scheduled Services Health:" -ForegroundColor White
-    $tasks = @('SystemDashboard-Telemetry', 'SystemDashboard-WebUI')
+    $tasks = @('SystemDashboard-Telemetry', 'SystemDashboard-LegacyUI')
 
     foreach ($taskName in $tasks) {
         try {
@@ -187,23 +228,52 @@ function Invoke-MaintenanceTasks {
     # 3. Database maintenance
     Write-Host "`n🗄️ Database maintenance..." -ForegroundColor White
     try {
-        # Update table statistics
-        docker exec postgres-container psql -U postgres -d system_dashboard -c "ANALYZE;"
-        Write-Host "  ✅ Database statistics updated" -ForegroundColor Green
+        $config = Get-SystemDashboardConfig
+        $dbHost = if ($config?.Database?.Host) { $config.Database.Host } else { "localhost" }
+        $dbPort = if ($config?.Database?.Port) { $config.Database.Port } else { 5432 }
+        $dbName = if ($config?.Database?.Database) { $config.Database.Database } else { "system_dashboard" }
+        $psqlPath = $config?.Database?.PsqlPath
+        $dbUser = "postgres"
+        $dbPassword = $env:SYSTEMDASHBOARD_DB_ADMIN_PASSWORD
 
-        # Check for old partitions
-        $oldPartitions = docker exec postgres-container psql -U postgres -d system_dashboard -t -c "
-        SELECT schemaname||'.'||tablename
-        FROM pg_tables
-        WHERE schemaname = 'telemetry'
-        AND tablename ~ '_[0-9]{4}$'
-        AND tablename < 'syslog_generic_' || to_char(current_date - interval '90 days', 'YYMM');"
-
-        if ($oldPartitions -and $oldPartitions.Trim()) {
-            Write-Host "  ⚠️ Found old partitions (>90 days): Consider cleanup" -ForegroundColor Yellow
+        if (-not $dbPassword) {
+            $dbUser = if ($config?.Database?.Username) { $config.Database.Username } else { "sysdash_ingest" }
+            $dbPassword = Resolve-PasswordSecret $config?.Database?.PasswordSecret
         }
-        else {
-            Write-Host "  ✅ No old partitions requiring cleanup" -ForegroundColor Green
+
+        if (-not $psqlPath -or -not (Test-Path $psqlPath) -or -not $dbPassword) {
+            Write-Host "  ⚠️ Skipping database maintenance (psql or credentials missing)" -ForegroundColor Yellow
+        } else {
+            $previousPassword = $env:PGPASSWORD
+            $env:PGPASSWORD = $dbPassword
+            & $psqlPath -h $dbHost -p $dbPort -U $dbUser -d $dbName -c "ANALYZE;" | Out-Null
+            if ($previousPassword) {
+                $env:PGPASSWORD = $previousPassword
+            } else {
+                Remove-Item Env:PGPASSWORD -ErrorAction SilentlyContinue
+            }
+            Write-Host "  ✅ Database statistics updated" -ForegroundColor Green
+
+            $previousPassword = $env:PGPASSWORD
+            $env:PGPASSWORD = $dbPassword
+            $oldPartitions = & $psqlPath -h $dbHost -p $dbPort -U $dbUser -d $dbName -t -c "
+            SELECT schemaname||'.'||tablename
+            FROM pg_tables
+            WHERE schemaname = 'telemetry'
+            AND tablename ~ '_[0-9]{4}$'
+            AND tablename < 'syslog_generic_' || to_char(current_date - interval '90 days', 'YYMM');"
+            if ($previousPassword) {
+                $env:PGPASSWORD = $previousPassword
+            } else {
+                Remove-Item Env:PGPASSWORD -ErrorAction SilentlyContinue
+            }
+
+            if ($oldPartitions -and $oldPartitions.Trim()) {
+                Write-Host "  ⚠️ Found old partitions (>90 days): Consider cleanup" -ForegroundColor Yellow
+            }
+            else {
+                Write-Host "  ✅ No old partitions requiring cleanup" -ForegroundColor Green
+            }
         }
     }
     catch {
@@ -212,7 +282,7 @@ function Invoke-MaintenanceTasks {
 
     # 4. Service health check and restart if needed
     Write-Host "`n🔄 Service health verification..." -ForegroundColor White
-    $tasks = @('SystemDashboard-Telemetry', 'SystemDashboard-WebUI')
+    $tasks = @('SystemDashboard-Telemetry', 'SystemDashboard-LegacyUI')
 
     foreach ($taskName in $tasks) {
         try {

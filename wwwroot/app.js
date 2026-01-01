@@ -3,6 +3,13 @@
 (() => {
   const REFRESH_INTERVAL = 5000;
   const METRICS_ENDPOINT = 'metrics';
+  const SYSLOG_SUMMARY_ENDPOINT = '/api/syslog/summary';
+  const SYSLOG_RECENT_ENDPOINT = '/api/syslog/recent';
+  const EVENTS_SUMMARY_ENDPOINT = '/api/events/summary';
+  const EVENTS_RECENT_ENDPOINT = '/api/events/recent';
+  const TIMELINE_ENDPOINT = '/api/timeline';
+  const DEVICES_SUMMARY_ENDPOINT = '/api/devices/summary';
+  const TELEMETRY_REFRESH_INTERVAL = 15000;
 
   const statusEl = document.getElementById('connection-status');
   const statusDetailEl = document.getElementById('status-detail');
@@ -20,15 +27,52 @@
   const errorListEl = document.getElementById('error-list');
   const errorTotalEl = document.getElementById('error-total');
   const refreshIntervalEl = document.getElementById('refresh-interval');
+  const syslogTableBody = document.querySelector('#syslog-table tbody');
+  const syslogTotal1hEl = document.getElementById('syslog-total-1h');
+  const syslogTotal24hEl = document.getElementById('syslog-total-24h');
+  const syslogTopAppEl = document.getElementById('syslog-top-app');
+  const syslogInfoEl = document.getElementById('syslog-sev-info');
+  const syslogWarnEl = document.getElementById('syslog-sev-warn');
+  const syslogErrorEl = document.getElementById('syslog-sev-error');
+  const syslogHostInput = document.getElementById('syslog-host');
+  const syslogCategorySelect = document.getElementById('syslog-category');
+  const syslogSeveritySelect = document.getElementById('syslog-severity');
+  const syslogRefreshBtn = document.getElementById('syslog-refresh');
+  const eventTableBody = document.querySelector('#event-table tbody');
+  const eventsTotal1hEl = document.getElementById('events-total-1h');
+  const eventsTotal24hEl = document.getElementById('events-total-24h');
+  const eventsTopSourceEl = document.getElementById('events-top-source');
+  const eventsWarnEl = document.getElementById('events-sev-warn');
+  const eventsErrorEl = document.getElementById('events-sev-error');
+  const eventsInfoEl = document.getElementById('events-sev-info');
+  const eventSourceInput = document.getElementById('event-source');
+  const eventCategorySelect = document.getElementById('event-category');
+  const eventSeveritySelect = document.getElementById('event-severity');
+  const eventRefreshBtn = document.getElementById('event-refresh');
+  const timelineChartEl = document.getElementById('timeline-chart');
+  const timelineLegendEl = document.getElementById('timeline-legend');
+  const timelineMacInput = document.getElementById('timeline-mac');
+  const timelineCategorySelect = document.getElementById('timeline-category');
+  const timelineEventTypeSelect = document.getElementById('timeline-event-type');
+  const timelineRefreshBtn = document.getElementById('timeline-refresh');
+  const devicesRefreshBtn = document.getElementById('devices-refresh');
+  const deviceTableBody = document.querySelector('#device-table tbody');
+  const refreshStatusEl = document.getElementById('refresh-status');
+  const refreshResumeBtn = document.getElementById('refresh-resume');
 
   if (refreshIntervalEl) {
     refreshIntervalEl.textContent = (REFRESH_INTERVAL / 1000).toString();
   }
 
   let refreshTimer;
+  let telemetryTimer;
+  let autoRefreshPaused = false;
 
   function scheduleNext(delay = REFRESH_INTERVAL) {
     clearTimeout(refreshTimer);
+    if (autoRefreshPaused) {
+      return;
+    }
     refreshTimer = setTimeout(loadMetrics, delay);
   }
 
@@ -129,6 +173,28 @@
       return '--';
     }
     return `${used} GB used of ${total} GB`;
+  }
+
+  function truncateText(value, max = 160) {
+    if (!value) {
+      return '';
+    }
+    const text = value.toString();
+    if (text.length <= max) {
+      return text;
+    }
+    return `${text.slice(0, max - 3)}...`;
+  }
+
+  function formatShortTime(value) {
+    if (!value) {
+      return '--';
+    }
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      return value;
+    }
+    return date.toLocaleString();
   }
 
   function clearElement(element) {
@@ -259,6 +325,497 @@
     processTableBody.appendChild(fragment);
   }
 
+  function severityChipClass(label) {
+    const value = (label || '').toString().toLowerCase();
+    if (['emerg', 'alert', 'crit', 'critical', 'error'].includes(value)) {
+      return 'chip--sev-error';
+    }
+    if (['warn', 'warning'].includes(value)) {
+      return 'chip--sev-warn';
+    }
+    if (['info', 'information', 'notice'].includes(value)) {
+      return 'chip--sev-info';
+    }
+    if (value === 'debug' || value === 'verbose') {
+      return 'chip--sev-debug';
+    }
+    return '';
+  }
+
+  function categoryChipClass(category) {
+    if (!category) {
+      return 'chip--system';
+    }
+    const value = category.toString().toLowerCase();
+    switch (value) {
+      case 'wifi':
+      case 'dhcp':
+      case 'firewall':
+      case 'auth':
+      case 'update':
+      case 'service':
+      case 'security':
+      case 'application':
+      case 'dns':
+      case 'network':
+      case 'system':
+        return `chip--${value}`;
+      default:
+        return 'chip--system';
+    }
+  }
+
+  function renderSyslogSummary(summary) {
+    if (!summary) {
+      return;
+    }
+    if (syslogTotal1hEl) {
+      syslogTotal1hEl.textContent = summary.total1h != null ? summary.total1h : '--';
+    }
+    if (syslogTotal24hEl) {
+      syslogTotal24hEl.textContent = summary.total24h != null ? summary.total24h : '--';
+    }
+    if (syslogTopAppEl) {
+      const top = Array.isArray(summary.topApps) && summary.topApps.length ? summary.topApps[0].app : '--';
+      syslogTopAppEl.textContent = top || '--';
+    }
+
+    let infoTotal = 0;
+    let warnTotal = 0;
+    let errorTotal = 0;
+    if (Array.isArray(summary.bySeverity)) {
+      summary.bySeverity.forEach((entry) => {
+        const sev = Number(entry.severity);
+        const count = Number(entry.total) || 0;
+        if (!Number.isNaN(sev)) {
+          if (sev <= 3) {
+            errorTotal += count;
+          } else if (sev === 4) {
+            warnTotal += count;
+          } else {
+            infoTotal += count;
+          }
+        }
+      });
+    }
+    if (syslogInfoEl) {
+      syslogInfoEl.textContent = infoTotal.toString();
+    }
+    if (syslogWarnEl) {
+      syslogWarnEl.textContent = warnTotal.toString();
+    }
+    if (syslogErrorEl) {
+      syslogErrorEl.textContent = errorTotal.toString();
+    }
+  }
+
+  function renderSyslogRows(rows) {
+    if (!syslogTableBody) {
+      return;
+    }
+    clearElement(syslogTableBody);
+    if (!Array.isArray(rows) || rows.length === 0) {
+      setEmptyRow(syslogTableBody, 6, 'No syslog rows yet.');
+      return;
+    }
+    const fragment = document.createDocumentFragment();
+    rows.forEach((row) => {
+      const tr = document.createElement('tr');
+      const time = document.createElement('td');
+      time.textContent = formatShortTime(row.received_utc);
+      const host = document.createElement('td');
+      host.textContent = row.source_host || '—';
+      const app = document.createElement('td');
+      app.textContent = row.app_name || '—';
+      const severity = document.createElement('td');
+      const sevLabel = row.severity_label || row.severity;
+      const sevChip = document.createElement('span');
+      sevChip.className = `chip ${severityChipClass(sevLabel)}`;
+      sevChip.textContent = sevLabel || 'unknown';
+      severity.appendChild(sevChip);
+      const category = document.createElement('td');
+      const catValue = row.category || 'system';
+      const catChip = document.createElement('span');
+      catChip.className = `chip ${categoryChipClass(catValue)}`;
+      catChip.textContent = catValue;
+      category.appendChild(catChip);
+      const message = document.createElement('td');
+      message.textContent = truncateText(row.message || '', 180);
+      tr.append(time, host, app, severity, category, message);
+      fragment.appendChild(tr);
+    });
+    syslogTableBody.appendChild(fragment);
+  }
+
+  async function loadSyslogSummary() {
+    if (!syslogTotal24hEl && !syslogTotal1hEl) {
+      return;
+    }
+    try {
+      const res = await fetch(`${SYSLOG_SUMMARY_ENDPOINT}?_=${Date.now()}`, { cache: 'no-store' });
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      renderSyslogSummary(data);
+    } catch (err) {
+      if (syslogTotal24hEl) {
+        syslogTotal24hEl.textContent = '--';
+      }
+      if (syslogTotal1hEl) {
+        syslogTotal1hEl.textContent = '--';
+      }
+    }
+  }
+
+  async function loadSyslogRows() {
+    if (!syslogTableBody) {
+      return;
+    }
+    clearElement(syslogTableBody);
+    setEmptyRow(syslogTableBody, 6, 'Loading syslog…');
+    const params = new URLSearchParams();
+    const host = syslogHostInput ? syslogHostInput.value.trim() : '';
+    const category = syslogCategorySelect ? syslogCategorySelect.value : '';
+    const severity = syslogSeveritySelect ? syslogSeveritySelect.value : '';
+    if (host) {
+      params.set('host', host);
+    }
+    if (category) {
+      params.set('category', category);
+    }
+    if (severity) {
+      params.set('severity', severity);
+    }
+    params.set('limit', '50');
+    try {
+      const res = await fetch(`${SYSLOG_RECENT_ENDPOINT}?${params.toString()}`, { cache: 'no-store' });
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      renderSyslogRows(data);
+    } catch (err) {
+      clearElement(syslogTableBody);
+      setEmptyRow(syslogTableBody, 6, 'Failed to load syslog.');
+    }
+  }
+
+  function renderEventSummary(summary) {
+    if (!summary) {
+      return;
+    }
+    if (eventsTotal1hEl) {
+      eventsTotal1hEl.textContent = summary.total1h != null ? summary.total1h : '--';
+    }
+    if (eventsTotal24hEl) {
+      eventsTotal24hEl.textContent = summary.total24h != null ? summary.total24h : '--';
+    }
+    if (eventsTopSourceEl) {
+      const top = Array.isArray(summary.topSources) && summary.topSources.length ? summary.topSources[0].source : '--';
+      eventsTopSourceEl.textContent = top || '--';
+    }
+
+    let infoTotal = 0;
+    let warnTotal = 0;
+    let errorTotal = 0;
+    if (Array.isArray(summary.bySeverity)) {
+      summary.bySeverity.forEach((entry) => {
+        const label = (entry.severity || '').toString().toLowerCase();
+        const count = Number(entry.total) || 0;
+        if (label === 'warning' || label === 'warn') {
+          warnTotal += count;
+        } else if (label === 'information' || label === 'info') {
+          infoTotal += count;
+        } else if (label) {
+          errorTotal += count;
+        }
+      });
+    }
+    if (eventsWarnEl) {
+      eventsWarnEl.textContent = warnTotal.toString();
+    }
+    if (eventsErrorEl) {
+      eventsErrorEl.textContent = errorTotal.toString();
+    }
+    if (eventsInfoEl) {
+      eventsInfoEl.textContent = infoTotal.toString();
+    }
+  }
+
+  function renderEventRows(rows) {
+    if (!eventTableBody) {
+      return;
+    }
+    clearElement(eventTableBody);
+    if (!Array.isArray(rows) || rows.length === 0) {
+      setEmptyRow(eventTableBody, 6, 'No events yet.');
+      return;
+    }
+    const fragment = document.createDocumentFragment();
+    rows.forEach((row) => {
+      const tr = document.createElement('tr');
+      const time = document.createElement('td');
+      time.textContent = formatShortTime(row.occurred_at);
+      const source = document.createElement('td');
+      source.textContent = row.source || '—';
+      const severity = document.createElement('td');
+      const sevLabel = row.severity || 'unknown';
+      const sevChip = document.createElement('span');
+      sevChip.className = `chip ${severityChipClass(sevLabel)}`;
+      sevChip.textContent = sevLabel;
+      severity.appendChild(sevChip);
+      const category = document.createElement('td');
+      const catValue = row.category || 'application';
+      const catChip = document.createElement('span');
+      catChip.className = `chip ${categoryChipClass(catValue)}`;
+      catChip.textContent = catValue;
+      category.appendChild(catChip);
+      const provider = document.createElement('td');
+      provider.textContent = row.subject || '—';
+      const message = document.createElement('td');
+      message.textContent = truncateText(row.message || '', 180);
+      tr.append(time, source, severity, category, provider, message);
+      fragment.appendChild(tr);
+    });
+    eventTableBody.appendChild(fragment);
+  }
+
+  const TIMELINE_CATEGORIES = ['wifi', 'dhcp', 'firewall', 'auth', 'dns', 'network', 'system', 'unknown'];
+
+  function renderTimelineLegend() {
+    if (!timelineLegendEl) {
+      return;
+    }
+    timelineLegendEl.innerHTML = TIMELINE_CATEGORIES.map((cat) => {
+      return `<span class="legend-item"><span class="legend-dot ${cat}"></span>${cat}</span>`;
+    }).join('');
+  }
+
+  function renderTimeline(data) {
+    if (!timelineChartEl) {
+      return;
+    }
+    clearElement(timelineChartEl);
+    if (!Array.isArray(data) || data.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'timeline-empty';
+      empty.textContent = 'No activity in this window.';
+      timelineChartEl.appendChild(empty);
+      return;
+    }
+
+    const buckets = new Map();
+    data.forEach((row) => {
+      const bucket = row.bucket_start;
+      if (!buckets.has(bucket)) {
+        buckets.set(bucket, { total: 0, categories: {} });
+      }
+      const entry = buckets.get(bucket);
+      const count = Number(row.total) || 0;
+      entry.total += count;
+      const category = (row.category || 'unknown').toString().toLowerCase();
+      entry.categories[category] = (entry.categories[category] || 0) + count;
+    });
+
+    const bucketEntries = Array.from(buckets.entries());
+    const maxTotal = bucketEntries.reduce((max, [, value]) => Math.max(max, value.total), 1);
+    const fragment = document.createDocumentFragment();
+    bucketEntries.forEach(([bucket, value]) => {
+      const bar = document.createElement('div');
+      bar.className = 'timeline-bar';
+      bar.title = `${formatShortTime(bucket)} • ${value.total} events`;
+      TIMELINE_CATEGORIES.forEach((cat) => {
+        const count = value.categories[cat] || 0;
+        if (!count) {
+          return;
+        }
+        const seg = document.createElement('div');
+        seg.className = `timeline-seg category-${cat}`;
+        seg.style.height = `${(count / maxTotal) * 100}%`;
+        bar.appendChild(seg);
+      });
+      fragment.appendChild(bar);
+    });
+    timelineChartEl.appendChild(fragment);
+  }
+
+  function renderDeviceSummary(rows) {
+    if (!deviceTableBody) {
+      return;
+    }
+    clearElement(deviceTableBody);
+    if (!Array.isArray(rows) || rows.length === 0) {
+      setEmptyRow(deviceTableBody, 5, 'No device activity yet.');
+      return;
+    }
+    const fragment = document.createDocumentFragment();
+    rows.forEach((row) => {
+      const tr = document.createElement('tr');
+      const mac = document.createElement('td');
+      mac.textContent = row.mac_address || '—';
+      const lastSeen = document.createElement('td');
+      lastSeen.textContent = formatShortTime(row.last_seen);
+      const events = document.createElement('td');
+      events.textContent = row.events_1h != null ? row.events_1h : '--';
+      const rssi = document.createElement('td');
+      rssi.textContent = row.last_rssi != null ? row.last_rssi : '--';
+      const lastEvent = document.createElement('td');
+      lastEvent.textContent = row.last_event_type || '—';
+      tr.append(mac, lastSeen, events, rssi, lastEvent);
+      fragment.appendChild(tr);
+    });
+    deviceTableBody.appendChild(fragment);
+  }
+
+  async function loadTimeline() {
+    if (!timelineChartEl) {
+      return;
+    }
+    const params = new URLSearchParams();
+    const mac = timelineMacInput ? timelineMacInput.value.trim() : '';
+    const category = timelineCategorySelect ? timelineCategorySelect.value : '';
+    const eventType = timelineEventTypeSelect ? timelineEventTypeSelect.value : '';
+    if (mac) {
+      params.set('mac', mac);
+    }
+    if (category) {
+      params.set('category', category);
+    }
+    if (eventType) {
+      params.set('eventType', eventType);
+    }
+    params.set('bucketMinutes', '5');
+    params.set('since', 'PT24H');
+    try {
+      const res = await fetch(`${TIMELINE_ENDPOINT}?${params.toString()}`, { cache: 'no-store' });
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      renderTimeline(data);
+    } catch (err) {
+      clearElement(timelineChartEl);
+      const empty = document.createElement('div');
+      empty.className = 'timeline-empty';
+      empty.textContent = 'Failed to load timeline.';
+      timelineChartEl.appendChild(empty);
+    }
+  }
+
+  async function loadDeviceSummary() {
+    if (!deviceTableBody) {
+      return;
+    }
+    clearElement(deviceTableBody);
+    setEmptyRow(deviceTableBody, 5, 'Loading devices…');
+    try {
+      const res = await fetch(`${DEVICES_SUMMARY_ENDPOINT}?limit=10&_=${Date.now()}`, { cache: 'no-store' });
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      renderDeviceSummary(data);
+    } catch (err) {
+      clearElement(deviceTableBody);
+      setEmptyRow(deviceTableBody, 5, 'Failed to load devices.');
+    }
+  }
+
+  async function loadEventSummary() {
+    if (!eventsTotal24hEl && !eventsTotal1hEl) {
+      return;
+    }
+    try {
+      const res = await fetch(`${EVENTS_SUMMARY_ENDPOINT}?_=${Date.now()}`, { cache: 'no-store' });
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      renderEventSummary(data);
+    } catch (err) {
+      if (eventsTotal24hEl) {
+        eventsTotal24hEl.textContent = '--';
+      }
+      if (eventsTotal1hEl) {
+        eventsTotal1hEl.textContent = '--';
+      }
+    }
+  }
+
+  async function loadEventRows() {
+    if (!eventTableBody) {
+      return;
+    }
+    clearElement(eventTableBody);
+    setEmptyRow(eventTableBody, 5, 'Loading events…');
+    const params = new URLSearchParams();
+    const severity = eventSeveritySelect ? eventSeveritySelect.value : '';
+    const source = eventSourceInput ? eventSourceInput.value.trim() : '';
+    const category = eventCategorySelect ? eventCategorySelect.value : '';
+    if (severity) {
+      params.set('severity', severity);
+    }
+    if (source) {
+      params.set('source', source);
+    }
+    if (category) {
+      params.set('category', category);
+    }
+    params.set('limit', '50');
+    try {
+      const res = await fetch(`${EVENTS_RECENT_ENDPOINT}?${params.toString()}`, { cache: 'no-store' });
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      renderEventRows(data);
+    } catch (err) {
+      clearElement(eventTableBody);
+      setEmptyRow(eventTableBody, 5, 'Failed to load events.');
+    }
+  }
+
+  function scheduleTelemetryNext(delay = TELEMETRY_REFRESH_INTERVAL) {
+    clearTimeout(telemetryTimer);
+    if (autoRefreshPaused) {
+      return;
+    }
+    telemetryTimer = setTimeout(loadTelemetry, delay);
+  }
+
+  function setAutoRefreshPaused(paused) {
+    autoRefreshPaused = paused;
+    if (refreshStatusEl) {
+      refreshStatusEl.textContent = paused ? 'Auto-refresh: paused' : 'Auto-refresh: on';
+    }
+    if (refreshResumeBtn) {
+      refreshResumeBtn.classList.toggle('is-visible', paused);
+    }
+    if (paused) {
+      clearTimeout(refreshTimer);
+      clearTimeout(telemetryTimer);
+      return;
+    }
+    scheduleNext(200);
+    scheduleTelemetryNext(200);
+  }
+
+  async function loadTelemetry(force = false) {
+    if (autoRefreshPaused && !force) {
+      return;
+    }
+    await Promise.all([
+      loadSyslogSummary(),
+      loadSyslogRows(),
+      loadEventSummary(),
+      loadEventRows(),
+      loadTimeline(),
+      loadDeviceSummary()
+    ]);
+    scheduleTelemetryNext();
+  }
+
   function updateUI(data) {
     if (hostNameEl) {
       hostNameEl.textContent = data.ComputerName || data.Host || 'Unknown host';
@@ -287,7 +844,10 @@
     return `Last updated ${timestamp}`;
   }
 
-  async function loadMetrics() {
+  async function loadMetrics(force = false) {
+    if (autoRefreshPaused && !force) {
+      return;
+    }
     try {
       const response = await fetch(`${METRICS_ENDPOINT}?_=${Date.now()}`, {
         cache: 'no-store'
@@ -309,12 +869,56 @@
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) {
       scheduleNext(REFRESH_INTERVAL * 2);
+      scheduleTelemetryNext(TELEMETRY_REFRESH_INTERVAL * 2);
     } else {
       scheduleNext(200);
+      scheduleTelemetryNext(200);
     }
   });
+
+  window.addEventListener('scroll', () => {
+    const y = window.scrollY || document.documentElement.scrollTop || 0;
+    if (y > 200 && !autoRefreshPaused) {
+      setAutoRefreshPaused(true);
+    } else if (y < 80 && autoRefreshPaused) {
+      setAutoRefreshPaused(false);
+    }
+  }, { passive: true });
 
   setStatus('connecting', 'Waiting for first response…');
   scheduleNext(50);
   loadMetrics();
+  loadTelemetry();
+
+  if (syslogRefreshBtn) {
+    syslogRefreshBtn.addEventListener('click', () => {
+      loadSyslogSummary();
+      loadSyslogRows();
+    });
+  }
+  if (eventRefreshBtn) {
+    eventRefreshBtn.addEventListener('click', () => {
+      loadEventSummary();
+      loadEventRows();
+    });
+  }
+  if (timelineRefreshBtn) {
+    timelineRefreshBtn.addEventListener('click', () => {
+      loadTimeline();
+    });
+  }
+  if (devicesRefreshBtn) {
+    devicesRefreshBtn.addEventListener('click', () => {
+      loadDeviceSummary();
+    });
+  }
+  if (refreshResumeBtn) {
+    refreshResumeBtn.addEventListener('click', () => {
+      setAutoRefreshPaused(false);
+      loadMetrics(true);
+      loadTelemetry(true);
+    });
+  }
+
+  renderTimelineLegend();
 })();

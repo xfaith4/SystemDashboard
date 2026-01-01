@@ -8,8 +8,11 @@ param(
 )
 
 $RootPath = $env:SYSTEMDASHBOARD_ROOT
-if (-not $RootPath) {
-    $RootPath = Split-Path -Parent $PSScriptRoot
+$scriptRoot = Split-Path -Parent $PSScriptRoot
+if (-not $RootPath -or -not (Test-Path (Join-Path $RootPath "config.json"))) {
+    $RootPath = $scriptRoot
+} elseif ($RootPath -ne $scriptRoot -and (Test-Path (Join-Path $scriptRoot "config.json"))) {
+    $RootPath = $scriptRoot
 }
 
 $ServicesPath = Join-Path $PSScriptRoot "services"
@@ -17,11 +20,11 @@ $ServicesPath = Join-Path $PSScriptRoot "services"
 # Configuration
 $Tasks = @(
     @{
-        Name = "SystemDashboard-WebUI"
-        Description = "System Dashboard Flask Web Interface"
-        Script = "SystemDashboard-WebUI.ps1"
+        Name = "SystemDashboard-LegacyUI"
+        Description = "System Dashboard Legacy UI Listener"
+        Script = "SystemDashboard-LegacyUI.ps1"
         Action = "start"
-        Args = $null
+        Args = "-ConfigPath `"$RootPath\\config.json`""
     },
     @{
         Name = "SystemDashboard-LANCollector"
@@ -140,17 +143,30 @@ function Show-DashboardStatus {
     Write-Host "System Dashboard Service Status:" -ForegroundColor Cyan
     Write-Host "=================================" -ForegroundColor Cyan
 
-    # Check PostgreSQL container
+    $configPath = Join-Path $RootPath "config.json"
+    $config = $null
+    if (Test-Path $configPath) {
+        try {
+            $config = Get-Content $configPath -Raw | ConvertFrom-Json
+        } catch {
+            $config = $null
+        }
+    }
+
+    $dbHost = if ($config?.Database?.Host) { $config.Database.Host } else { "localhost" }
+    $dbPort = if ($config?.Database?.Port) { $config.Database.Port } else { 5432 }
+
+    # Check PostgreSQL connectivity
     Write-Host "`n📊 Database (PostgreSQL):" -ForegroundColor White
     try {
-        $container = docker ps --filter name=postgres-container --format "{{.Status}}"
-        if ($container) {
-            Write-Host "  ✅ Running: $container" -ForegroundColor Green
+        $test = Test-NetConnection -ComputerName $dbHost -Port $dbPort -WarningAction SilentlyContinue
+        if ($test.TcpTestSucceeded) {
+            Write-Host "  ✅ Reachable: $dbHost`:$dbPort" -ForegroundColor Green
         } else {
-            Write-Host "  ❌ Not running" -ForegroundColor Red
+            Write-Host "  ❌ Unreachable: $dbHost`:$dbPort" -ForegroundColor Red
         }
     } catch {
-        Write-Host "  ❌ Docker not available" -ForegroundColor Red
+        Write-Host "  ❌ Connection check failed: $($_.Exception.Message)" -ForegroundColor Red
     }
 
     # Check scheduled tasks
@@ -172,14 +188,16 @@ function Show-DashboardStatus {
     # Check web interface
     Write-Host "`n🌐 Web Interface:" -ForegroundColor White
     try {
-        $response = Invoke-WebRequest -Uri "http://localhost:5000/health" -UseBasicParsing -TimeoutSec 5 -ErrorAction SilentlyContinue
-        if ($response.StatusCode -eq 200) {
-            Write-Host "  ✅ Available at http://localhost:5000" -ForegroundColor Green
+        $prefix = if ($config?.Prefix) { $config.Prefix } else { "http://localhost:15000/" }
+        $response = Invoke-WebRequest -Uri $prefix -UseBasicParsing -TimeoutSec 5 -ErrorAction SilentlyContinue
+        if ($response.StatusCode -ge 200 -and $response.StatusCode -lt 400) {
+            Write-Host "  ✅ Available at $prefix" -ForegroundColor Green
         } else {
             Write-Host "  ⚠️ Responding but unhealthy (Status: $($response.StatusCode))" -ForegroundColor Yellow
         }
     } catch {
-        Write-Host "  ❌ Not responding at http://localhost:5000" -ForegroundColor Red
+        $prefix = if ($config?.Prefix) { $config.Prefix } else { "http://localhost:15000/" }
+        Write-Host "  ❌ Not responding at $prefix" -ForegroundColor Red
     }
 
     Write-Host ""

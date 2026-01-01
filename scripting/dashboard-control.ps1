@@ -443,7 +443,7 @@ function Restart-AllServices {
     Write-Host "🔄 Restarting All Services" -ForegroundColor Cyan
     Write-Host "=" * 26
 
-    $services = @('SystemDashboard-Telemetry', 'SystemDashboard-WebUI')
+    $services = @('SystemDashboard-Telemetry', 'SystemDashboard-LegacyUI')
 
     foreach ($service in $services) {
         Write-Host "Restarting $service..." -ForegroundColor Yellow
@@ -460,7 +460,19 @@ function Restart-AllServices {
 
 function Open-DashboardInBrowser {
     Write-Host "🌐 Opening System Dashboard..." -ForegroundColor Cyan
-    Start-Process "http://localhost:5000"
+    $configPath = Join-Path $repoRoot "config.json"
+    $prefix = "http://localhost:15000/"
+    if (Test-Path $configPath) {
+        try {
+            $config = Get-Content $configPath -Raw | ConvertFrom-Json
+            if ($config.Prefix) {
+                $prefix = $config.Prefix
+            }
+        } catch {
+            $prefix = "http://localhost:15000/"
+        }
+    }
+    Start-Process $prefix
     Start-Sleep 1
     Show-DashboardMenu
 }
