@@ -9,6 +9,7 @@
   const EVENTS_RECENT_ENDPOINT = '/api/events/recent';
   const TIMELINE_ENDPOINT = '/api/timeline';
   const DEVICES_SUMMARY_ENDPOINT = '/api/devices/summary';
+  const HEALTH_ENDPOINT = '/api/health';
   const TELEMETRY_REFRESH_INTERVAL = 15000;
 
   const statusEl = document.getElementById('connection-status');
@@ -59,6 +60,8 @@
   const deviceTableBody = document.querySelector('#device-table tbody');
   const refreshStatusEl = document.getElementById('refresh-status');
   const refreshResumeBtn = document.getElementById('refresh-resume');
+  const healthBannerEl = document.getElementById('health-banner');
+  const healthBannerTextEl = document.getElementById('health-banner-text');
 
   if (refreshIntervalEl) {
     refreshIntervalEl.textContent = (REFRESH_INTERVAL / 1000).toString();
@@ -197,6 +200,71 @@
     return date.toLocaleString();
   }
 
+  async function fetchJson(url, options) {
+    const res = await fetch(url, options);
+    if (!res.ok) {
+      const error = new Error(`HTTP ${res.status}`);
+      error.status = res.status;
+      throw error;
+    }
+    return res.json();
+  }
+
+  function parseIsoDurationToMinutes(value) {
+    if (!value) {
+      return 1440;
+    }
+    const match = /^PT(?:(\d+)H)?(?:(\d+)M)?$/i.exec(value);
+    if (!match) {
+      return 1440;
+    }
+    const hours = match[1] ? Number(match[1]) : 0;
+    const minutes = match[2] ? Number(match[2]) : 0;
+    const total = (hours * 60) + minutes;
+    return total > 0 ? total : 1440;
+  }
+
+  function aggregateSnapshotsToTimeline(rows, bucketMinutes) {
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return [];
+    }
+    const buckets = new Map();
+    rows.forEach((row) => {
+      const rawTime = row.sample_time_utc || row.sample_time || row.time;
+      if (!rawTime) {
+        return;
+      }
+      const date = new Date(rawTime);
+      if (Number.isNaN(date.getTime())) {
+        return;
+      }
+      date.setSeconds(0, 0);
+      const mins = date.getMinutes();
+      date.setMinutes(mins - (mins % bucketMinutes));
+      const bucket = date.toISOString();
+      const key = `${bucket}|network`;
+      const entry = buckets.get(key) || { bucket_start: bucket, category: 'network', total: 0 };
+      entry.total += 1;
+      buckets.set(key, entry);
+    });
+    return Array.from(buckets.values()).sort((a, b) => new Date(a.bucket_start) - new Date(b.bucket_start));
+  }
+
+  function mapLanDevicesToSummary(data) {
+    const rows = Array.isArray(data.devices) ? data.devices : (Array.isArray(data) ? data : []);
+    const mapped = rows.map((row) => {
+      return {
+        mac_address: row.mac_address,
+        last_seen: row.last_seen_utc || row.last_seen,
+        events_1h: row.events_1h ?? null,
+        last_rssi: row.last_rssi ?? row.current_rssi,
+        last_event_type: row.last_event_type
+      };
+    });
+    mapped.sort((a, b) => new Date(b.last_seen || 0) - new Date(a.last_seen || 0));
+    return mapped.slice(0, 10);
+  }
+
   function clearElement(element) {
     while (element && element.firstChild) {
       element.removeChild(element.firstChild);
@@ -214,6 +282,19 @@
     cell.textContent = message;
     row.appendChild(cell);
     tbody.appendChild(row);
+  }
+
+  function renderHealthBanner(message) {
+    if (!healthBannerEl || !healthBannerTextEl) {
+      return;
+    }
+    if (!message) {
+      healthBannerEl.classList.remove('is-visible');
+      healthBannerTextEl.textContent = '';
+      return;
+    }
+    healthBannerTextEl.textContent = message;
+    healthBannerEl.classList.add('is-visible');
   }
 
   function renderDiskTable(disks) {
@@ -687,14 +768,32 @@
     }
     params.set('bucketMinutes', '5');
     params.set('since', 'PT24H');
+    const sinceMinutes = parseIsoDurationToMinutes(params.get('since'));
     try {
-      const res = await fetch(`${TIMELINE_ENDPOINT}?${params.toString()}`, { cache: 'no-store' });
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}`);
-      }
-      const data = await res.json();
+      const data = await fetchJson(`${TIMELINE_ENDPOINT}?${params.toString()}`, { cache: 'no-store' });
       renderTimeline(data);
     } catch (err) {
+      console.error('Failed to load timeline', err);
+      if (err && err.status === 404 && mac) {
+        try {
+          const devicesData = await fetchJson(`/api/lan/devices?_=${Date.now()}`, { cache: 'no-store' });
+          const devices = Array.isArray(devicesData.devices) ? devicesData.devices : [];
+          const match = devices.find((row) => {
+            return (row.mac_address || '').toLowerCase() === mac.toLowerCase();
+          });
+          if (match && match.device_id != null) {
+            const hours = Math.max(1, Math.ceil(sinceMinutes / 60));
+            const timelineData = await fetchJson(`/api/lan/device/${match.device_id}/timeline?hours=${hours}`, { cache: 'no-store' });
+            const bucketValue = Number(params.get('bucketMinutes') || 5);
+            const bucketMinutes = Number.isFinite(bucketValue) && bucketValue > 0 ? bucketValue : 5;
+            const fallbackRows = aggregateSnapshotsToTimeline(timelineData.timeline || [], bucketMinutes);
+            renderTimeline(fallbackRows);
+            return;
+          }
+        } catch (fallbackErr) {
+          console.error('Fallback timeline load failed', fallbackErr);
+        }
+      }
       clearElement(timelineChartEl);
       const empty = document.createElement('div');
       empty.className = 'timeline-empty';
@@ -710,13 +809,21 @@
     clearElement(deviceTableBody);
     setEmptyRow(deviceTableBody, 5, 'Loading devices…');
     try {
-      const res = await fetch(`${DEVICES_SUMMARY_ENDPOINT}?limit=10&_=${Date.now()}`, { cache: 'no-store' });
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}`);
-      }
-      const data = await res.json();
-      renderDeviceSummary(data);
+      const data = await fetchJson(`${DEVICES_SUMMARY_ENDPOINT}?limit=10&_=${Date.now()}`, { cache: 'no-store' });
+      const rows = Array.isArray(data) ? data : (Array.isArray(data.devices) ? data.devices : data);
+      renderDeviceSummary(rows);
     } catch (err) {
+      console.error('Failed to load devices summary', err);
+      if (err && err.status === 404) {
+        try {
+          const fallbackData = await fetchJson(`/api/lan/devices?_=${Date.now()}`, { cache: 'no-store' });
+          const mapped = mapLanDevicesToSummary(fallbackData);
+          renderDeviceSummary(mapped);
+          return;
+        } catch (fallbackErr) {
+          console.error('Fallback device summary load failed', fallbackErr);
+        }
+      }
       clearElement(deviceTableBody);
       setEmptyRow(deviceTableBody, 5, 'Failed to load devices.');
     }
@@ -776,6 +883,39 @@
     }
   }
 
+  async function loadHealthStatus() {
+    if (!healthBannerEl || !healthBannerTextEl) {
+      return;
+    }
+    try {
+      const data = await fetchJson(`${HEALTH_ENDPOINT}?_=${Date.now()}`, { cache: 'no-store' });
+      if (!data || data.ok) {
+        renderHealthBanner('');
+        return;
+      }
+      const failures = [];
+      if (data.checks && typeof data.checks === 'object') {
+        Object.entries(data.checks).forEach(([key, value]) => {
+          if (!value || value.ok) {
+            return;
+          }
+          failures.push(key.replace(/_/g, ' '));
+        });
+      }
+      const message = failures.length
+        ? `Checks failing: ${failures.join(', ')}.`
+        : 'Health checks are reporting issues.';
+      renderHealthBanner(message);
+    } catch (err) {
+      if (err && err.status === 404) {
+        renderHealthBanner('');
+        return;
+      }
+      console.error('Failed to load health status', err);
+      renderHealthBanner('Health checks unavailable.');
+    }
+  }
+
   function scheduleTelemetryNext(delay = TELEMETRY_REFRESH_INTERVAL) {
     clearTimeout(telemetryTimer);
     if (autoRefreshPaused) {
@@ -806,6 +946,7 @@
       return;
     }
     await Promise.all([
+      loadHealthStatus(),
       loadSyslogSummary(),
       loadSyslogRows(),
       loadEventSummary(),
