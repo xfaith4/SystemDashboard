@@ -7,12 +7,12 @@
   "RouterIP": "192.168.50.1",
   "Database": {
     "Host": "localhost",
-    "Port": 5432,
+    "Port": 5433,
     "Database": "system_dashboard",
     "Username": "sysdash_ingest",
     "PasswordSecret": "env:SYSTEMDASHBOARD_DB_PASSWORD",
     "Schema": "telemetry",
-    "PsqlPath": "C:/Program Files/PostgreSQL/16/bin/psql.exe"
+    "PsqlPath": "C:/Program Files/PostgreSQL/18/bin/psql.exe"
   },
   "Service": {
     "LogPath": "./var/log/telemetry-service.log",
@@ -21,6 +21,23 @@
       "Port": 5514,
       "BufferDirectory": "./var/syslog",
       "MaxMessageBytes": 8192
+    },
+    "Events": {
+      "Enabled": true,
+      "LogNames": [
+        "System",
+        "Application",
+        "Security"
+      ],
+      "Levels": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "PollIntervalSeconds": 120,
+      "MaxEvents": 200,
+      "StatePath": "./var/events/state.json"
     },
     "Asus": {
       "Enabled": true,

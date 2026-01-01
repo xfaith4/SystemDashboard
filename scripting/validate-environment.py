@@ -11,6 +11,15 @@ import subprocess
 from pathlib import Path
 
 
+def get_repo_root() -> Path:
+    """
+    Resolve the repository root regardless of the current working directory.
+
+    This script lives under ./scripting, so the repo root is one level up.
+    """
+    return Path(__file__).resolve().parent.parent
+
+
 def check_python_environment():
     """Check Python environment and dependencies."""
     print("🐍 Checking Python environment...")
@@ -53,7 +62,7 @@ def check_router_logs():
         print("   export ROUTER_LOG_PATH='/path/to/router.log'")
 
         # Check for sample file
-        sample_path = Path(__file__).parent / 'sample-router.log'
+        sample_path = get_repo_root() / 'sample-router.log'
         if sample_path.exists():
             print(f"   Or use sample: export ROUTER_LOG_PATH='{sample_path}'")
         return False
@@ -234,7 +243,8 @@ def check_flask_app():
     """Check Flask application setup."""
     print("\n🌐 Checking Flask application...")
 
-    app_path = Path(__file__).parent / 'app' / 'app.py'
+    repo_root = get_repo_root()
+    app_path = repo_root / 'app' / 'app.py'
     if not app_path.exists():
         print(f"❌ Flask app not found: {app_path}")
         return False
@@ -242,7 +252,7 @@ def check_flask_app():
     print(f"✅ Flask app found: {app_path}")
 
     # Check if we can import the app
-    sys.path.insert(0, str(app_path.parent))
+    sys.path.insert(0, str(repo_root))
     try:
         import app
         print("✅ Flask app imports successfully")
@@ -268,7 +278,7 @@ def check_powershell_module():
     """Check PowerShell module availability."""
     print("\n⚙️  Checking PowerShell module...")
 
-    module_path = Path(__file__).parent / 'Start-SystemDashboard.psm1'
+    module_path = get_repo_root() / 'Start-SystemDashboard.psm1'
     if not module_path.exists():
         print(f"❌ PowerShell module not found: {module_path}")
         return False

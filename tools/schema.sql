@@ -3,7 +3,7 @@ CREATE SCHEMA IF NOT EXISTS telemetry;
 
 -- Base template table for syslog style data
 CREATE TABLE IF NOT EXISTS telemetry.syslog_generic_template (
-    id              BIGSERIAL PRIMARY KEY,
+    id              BIGSERIAL NOT NULL,
     received_utc    TIMESTAMPTZ NOT NULL,
     event_utc       TIMESTAMPTZ,
     source_host     TEXT,
@@ -14,7 +14,8 @@ CREATE TABLE IF NOT EXISTS telemetry.syslog_generic_template (
     raw_message     TEXT,
     remote_endpoint TEXT,
     source          TEXT NOT NULL DEFAULT 'syslog',
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (id, received_utc)
 ) PARTITION BY RANGE (received_utc);
 
 -- Helper function to create monthly partitions on demand
@@ -56,6 +57,46 @@ CREATE OR REPLACE VIEW telemetry.syslog_recent AS
 SELECT *
 FROM telemetry.syslog_generic_template
 WHERE received_utc >= NOW() - INTERVAL '24 hours';
+
+-- Device profiles inferred from syslog (MAC-level activity)
+CREATE TABLE IF NOT EXISTS telemetry.device_profiles (
+    mac_address    TEXT PRIMARY KEY,
+    first_seen     TIMESTAMPTZ NOT NULL,
+    last_seen      TIMESTAMPTZ NOT NULL,
+    last_event_type TEXT,
+    last_category  TEXT,
+    last_source_host TEXT,
+    last_app_name  TEXT,
+    last_rssi      INTEGER,
+    vendor_oui     TEXT,
+    last_ip        INET,
+    total_events   BIGINT NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS telemetry.device_observations (
+    observation_id BIGSERIAL PRIMARY KEY,
+    occurred_at    TIMESTAMPTZ NOT NULL,
+    received_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    mac_address    TEXT NOT NULL,
+    event_type     TEXT,
+    category       TEXT,
+    source_host    TEXT,
+    app_name       TEXT,
+    rssi           INTEGER,
+    ip_address     INET,
+    message        TEXT,
+    raw_message    TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_device_obs_mac_time ON telemetry.device_observations (mac_address, occurred_at DESC);
+CREATE INDEX IF NOT EXISTS idx_device_obs_category ON telemetry.device_observations (category, occurred_at DESC);
+CREATE INDEX IF NOT EXISTS idx_device_obs_event_type ON telemetry.device_observations (event_type, occurred_at DESC);
+CREATE INDEX IF NOT EXISTS idx_device_obs_time ON telemetry.device_observations (occurred_at DESC);
+
+CREATE OR REPLACE VIEW telemetry.device_observations_recent AS
+SELECT *
+FROM telemetry.device_observations
+WHERE occurred_at >= NOW() - INTERVAL '24 hours';
 
 -- Unified event stream
 CREATE TABLE IF NOT EXISTS telemetry.events (

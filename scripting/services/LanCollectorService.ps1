@@ -71,6 +71,50 @@ function Write-Log {
     Write-Host $logMessage
 }
 
+function Get-ConfigValue {
+    param(
+        [Parameter(Mandatory)][object]$Object,
+        [Parameter(Mandatory)][string[]]$Path
+    )
+
+    $current = $Object
+    foreach ($key in $Path) {
+        if ($null -eq $current) { return $null }
+        if ($current -is [hashtable]) {
+            if (-not $current.ContainsKey($key)) { return $null }
+            $current = $current[$key]
+        } else {
+            $prop = $current.PSObject.Properties[$key]
+            if (-not $prop) { return $null }
+            $current = $prop.Value
+        }
+    }
+    return $current
+}
+
+function Load-DbSecrets {
+    $connectionFile = Join-Path $repoRoot 'var' 'database-connection.json'
+    if (-not (Test-Path -LiteralPath $connectionFile)) {
+        return
+    }
+
+    try {
+        $connectionInfo = Get-Content -LiteralPath $connectionFile -Raw | ConvertFrom-Json
+    }
+    catch {
+        Write-Log "Failed to read database connection info from $connectionFile" -Level 'WARN'
+        return
+    }
+
+    if ($connectionInfo.IngestPassword -and -not $env:SYSTEMDASHBOARD_DB_PASSWORD) {
+        $env:SYSTEMDASHBOARD_DB_PASSWORD = $connectionInfo.IngestPassword
+    }
+
+    if ($connectionInfo.ReaderPassword -and -not $env:SYSTEMDASHBOARD_DB_READER_PASSWORD) {
+        $env:SYSTEMDASHBOARD_DB_READER_PASSWORD = $connectionInfo.ReaderPassword
+    }
+}
+
 function Get-DatabaseConnection {
     param([hashtable]$Config)
 
@@ -112,6 +156,11 @@ function Get-DatabaseConnection {
             if (-not $dll) {
                 $pkgName = [System.IO.Path]::ChangeExtension($DllName, '.nupkg')
                 $pkg = Get-ChildItem -LiteralPath $libRoot -Recurse -Filter $pkgName -ErrorAction SilentlyContinue | Select-Object -First 1
+                if (-not $pkg) {
+                    $pkgBase = [System.IO.Path]::GetFileNameWithoutExtension($pkgName)
+                    $pkgPattern = "$pkgBase*.nupkg"
+                    $pkg = Get-ChildItem -LiteralPath $libRoot -Recurse -Filter $pkgPattern -ErrorAction SilentlyContinue | Select-Object -First 1
+                }
                 if ($pkg) {
                     $dest = Join-Path $libRoot ([System.IO.Path]::GetFileNameWithoutExtension($pkg.Name))
                     if (-not (Test-Path $dest)) {
@@ -207,8 +256,25 @@ try {
     Write-Log "LAN Collector Service starting"
 
     # Load configuration
+    Load-DbSecrets
+    $defaultConfig = Join-Path $repoRoot "config.json"
     if (-not $ConfigPath) {
-        $ConfigPath = Join-Path $repoRoot "config.json"
+        $ConfigPath = $defaultConfig
+    }
+    if (-not (Test-Path -LiteralPath $ConfigPath)) {
+        $ConfigPath = $defaultConfig
+    }
+    if (Test-Path -LiteralPath $ConfigPath) {
+        try {
+            $candidate = Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Json
+            $hasDatabase = $candidate.PSObject.Properties.Name -contains 'Database'
+            if (-not $hasDatabase) {
+                $ConfigPath = $defaultConfig
+            }
+        }
+        catch {
+            $ConfigPath = $defaultConfig
+        }
     }
 
     Write-Log "Loading configuration from: $ConfigPath"
@@ -219,8 +285,12 @@ try {
     $config = $configJson | ConvertFrom-Json -AsHashtable
 
     $configuredLevel = $env:SYSTEMDASHBOARD_LOG_LEVEL
-    if (-not $configuredLevel -and $config.Logging.LogLevel) { $configuredLevel = $config.Logging.LogLevel }
-    elseif (-not $configuredLevel -and $config.Service.LogLevel) { $configuredLevel = $config.Service.LogLevel }
+    if (-not $configuredLevel) {
+        $configuredLevel = Get-ConfigValue -Object $config -Path @('Logging','LogLevel')
+    }
+    if (-not $configuredLevel) {
+        $configuredLevel = Get-ConfigValue -Object $config -Path @('Service','LogLevel')
+    }
     if ($configuredLevel) {
         $candidate = $configuredLevel.ToUpperInvariant()
         if ($LogLevels.ContainsKey($candidate)) {
@@ -230,8 +300,9 @@ try {
     Write-Log "Log level set to $script:EffectiveLogLevel" -Level 'INFO'
 
     # Get poll interval from config or use parameter
-    if ($config.Service.Asus.PollIntervalSeconds) {
-        $PollIntervalSeconds = $config.Service.Asus.PollIntervalSeconds
+    $pollInterval = Get-ConfigValue -Object $config -Path @('Service','Asus','PollIntervalSeconds')
+    if ($pollInterval) {
+        $PollIntervalSeconds = $pollInterval
     }
 
     Write-Log "Poll interval: $PollIntervalSeconds seconds"

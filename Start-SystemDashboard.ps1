@@ -79,6 +79,42 @@ function Load-DbSecrets {
     }
 }
 
+function Set-DashboardDbEnvironment {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$ConfigPath
+    )
+
+    try {
+        $cfg = Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Json
+    } catch {
+        Write-Warning "Failed to parse config file at $ConfigPath. $_"
+        return
+    }
+
+    $db = $cfg.Database
+    if (-not $db) {
+        return
+    }
+
+    $env:DASHBOARD_DB_HOST = if ($db.Host) { [string]$db.Host } else { 'localhost' }
+    $env:DASHBOARD_DB_PORT = [string]($db.Port ?? 5432)
+    $env:DASHBOARD_DB_NAME = if ($db.Database) { [string]$db.Database } else { 'system_dashboard' }
+    $env:DASHBOARD_DB_USER = 'sysdash_reader'
+
+    $readerPassword = $env:SYSTEMDASHBOARD_DB_READER_PASSWORD
+    if (-not $readerPassword) {
+        if ($env:SYSTEMDASHBOARD_DB_PASSWORD) {
+            Write-Warning "SYSTEMDASHBOARD_DB_READER_PASSWORD is not set; falling back to SYSTEMDASHBOARD_DB_PASSWORD (may not work for reader user)."
+            $readerPassword = $env:SYSTEMDASHBOARD_DB_PASSWORD
+        }
+    }
+
+    if ($readerPassword) {
+        $env:DASHBOARD_DB_PASSWORD = $readerPassword
+    }
+}
+
 if (-not (Test-Path -LiteralPath $ConfigPath)) {
     throw "Config file not found at $ConfigPath"
 }
@@ -92,6 +128,7 @@ if (-not $SkipPreflight) {
     }
 
     Load-DbSecrets -RepoRoot $repoRoot
+    Set-DashboardDbEnvironment -ConfigPath $ConfigPath
 
     if (-not $SkipInstall) {
         $pythonExe = Resolve-PythonExe -RepoRoot $repoRoot
@@ -166,7 +203,32 @@ switch ($Mode) {
         if (-not (Test-Path -LiteralPath $entry)) {
             throw "Unified entrypoint not found at $entry"
         }
-        & $entry -ConfigPath $ConfigPath
+        try {
+            if ($PSBoundParameters.ContainsKey('ConfigPath')) {
+                Write-Warning "Unified mode expects the 2025-09-11 config schema; you passed -ConfigPath, so ensure it's compatible."
+                & $entry -ConfigPath $ConfigPath
+            }
+            else {
+                & $entry
+            }
+        }
+        catch {
+            Write-Warning "Unified mode failed to start. This is commonly caused by missing dependencies (ex: the 'Pode' PowerShell module)."
+            Write-Warning "To run the Postgres-backed dashboard in this repo, use: pwsh -NoProfile -File .\\Start-SystemDashboard.ps1 -Mode Legacy"
+            Write-Warning "To run the Flask dashboard directly, use: pwsh -NoProfile -File .\\Start-SystemDashboard.ps1 -Mode Flask"
+
+            if (-not $PSBoundParameters.ContainsKey('Mode')) {
+                Write-Warning "Falling back to Legacy mode (because -Mode was not explicitly provided)."
+                $modulePath = Join-Path $repoRoot 'Start-SystemDashboard.psm1'
+                if (-not (Get-Module -Name 'Start-SystemDashboard' -ErrorAction SilentlyContinue)) {
+                    Import-Module $modulePath -Force
+                }
+                Start-SystemDashboard -ConfigPath $ConfigPath
+                break
+            }
+
+            throw
+        }
     }
     'Legacy' {
         $modulePath = Join-Path $repoRoot 'Start-SystemDashboard.psm1'

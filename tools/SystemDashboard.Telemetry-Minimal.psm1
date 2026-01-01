@@ -10,6 +10,9 @@ function Write-TelemetryLog {
         [Parameter()][ValidateSet('INFO', 'WARN', 'ERROR', 'DEBUG')][string]$Level = 'INFO'
     )
 
+    $maxBytes = 50MB
+    $maxFiles = 5
+
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     $logEntry = "[$timestamp] [$Level] $Message"
 
@@ -17,6 +20,36 @@ function Write-TelemetryLog {
     $logDir = Split-Path $LogPath -Parent
     if (-not (Test-Path $logDir)) {
         New-Item -ItemType Directory -Path $logDir -Force | Out-Null
+    }
+
+    if (Test-Path -LiteralPath $LogPath) {
+        try {
+            $currentSize = (Get-Item -LiteralPath $LogPath -ErrorAction Stop).Length
+            if ($currentSize -ge $maxBytes) {
+                $name = [System.IO.Path]::GetFileNameWithoutExtension($LogPath)
+                $ext = [System.IO.Path]::GetExtension($LogPath)
+                $stamp = (Get-Date).ToString('yyyyMMdd-HHmmss')
+                $archive = Join-Path $logDir "$name.$stamp$ext"
+                try {
+                    Move-Item -LiteralPath $LogPath -Destination $archive -Force -ErrorAction Stop
+                }
+                catch {
+                    $archive = Join-Path $logDir "$name.$stamp.$([Guid]::NewGuid().ToString('N'))$ext"
+                    Move-Item -LiteralPath $LogPath -Destination $archive -Force -ErrorAction Stop
+                }
+
+                $archives = @(Get-ChildItem -LiteralPath $logDir -Filter "$name.*$ext" -File -ErrorAction SilentlyContinue |
+                    Sort-Object LastWriteTime -Descending)
+                if ($archives.Count -gt $maxFiles) {
+                    $archives | Select-Object -Skip $maxFiles | ForEach-Object {
+                        Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue
+                    }
+                }
+            }
+        }
+        catch {
+            # Best-effort rotation only; do not fail the service due to log I/O.
+        }
     }
 
     Add-Content -Path $LogPath -Value $logEntry -ErrorAction SilentlyContinue

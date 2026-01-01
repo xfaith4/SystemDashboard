@@ -235,14 +235,52 @@ def get_structured_logger(name: str, mask_sensitive: bool = True) -> StructuredL
 class _AutoCloseFileHandler(logging.Handler):
     """Write each log record with a short-lived file handle to avoid Windows locks."""
 
-    def __init__(self, log_file: str, mode: str = 'a', encoding: str = 'utf-8'):
+    def __init__(self, log_file: str, mode: str = 'a', encoding: str = 'utf-8', max_bytes: int = 50 * 1024 * 1024, backup_count: int = 5):
         super().__init__()
         self._log_file = log_file
         self._mode = mode
         self._encoding = encoding
+        self._max_bytes = max_bytes
+        self._backup_count = backup_count
+
+    def _rotate_if_needed(self) -> None:
+        if not self._log_file:
+            return
+        try:
+            if not os.path.exists(self._log_file):
+                return
+            size = os.path.getsize(self._log_file)
+            if size < self._max_bytes:
+                return
+
+            log_dir = os.path.dirname(self._log_file) or '.'
+            base, ext = os.path.splitext(os.path.basename(self._log_file))
+            ext = ext or '.log'
+            timestamp = datetime.utcnow().strftime('%Y%m%d-%H%M%S')
+            rotated = os.path.join(log_dir, f"{base}.{timestamp}{ext}")
+            try:
+                os.replace(self._log_file, rotated)
+            except OSError:
+                rotated = os.path.join(log_dir, f"{base}.{timestamp}.{os.getpid()}{ext}")
+                os.replace(self._log_file, rotated)
+
+            pattern = re.compile(rf"^{re.escape(base)}\\.\\d{{8}}-\\d{{6}}.*{re.escape(ext)}$")
+            candidates = []
+            for name in os.listdir(log_dir):
+                if pattern.match(name):
+                    candidates.append(os.path.join(log_dir, name))
+            candidates.sort(key=lambda p: os.path.getmtime(p), reverse=True)
+            for old_path in candidates[self._backup_count:]:
+                try:
+                    os.remove(old_path)
+                except OSError:
+                    pass
+        except Exception:
+            return
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
+            self._rotate_if_needed()
             message = self.format(record)
             with open(self._log_file, self._mode, encoding=self._encoding) as handle:
                 handle.write(message + '\n')
@@ -278,7 +316,12 @@ class AuditTrail:
             # Clear any existing handlers to avoid duplicates
             self.logger.logger.handlers = []
             
-            handler = _AutoCloseFileHandler(log_file)
+            rotation = get_log_rotation_config()
+            handler = _AutoCloseFileHandler(
+                log_file,
+                max_bytes=int(rotation.get('maxBytes', 50 * 1024 * 1024)),
+                backup_count=int(rotation.get('backupCount', 5)),
+            )
             handler.setLevel(logging.INFO)
             handler.setFormatter(logging.Formatter('%(message)s'))  # JSON already formatted
             self.logger.logger.addHandler(handler)
@@ -461,7 +504,7 @@ def get_log_rotation_config() -> Dict[str, Any]:
         Dictionary with log rotation settings
     """
     return {
-        'maxBytes': 10 * 1024 * 1024,  # 10 MB
+        'maxBytes': 50 * 1024 * 1024,  # 50 MB
         'backupCount': 5,  # Keep 5 backup files
         'encoding': 'utf-8',
         'delay': False
