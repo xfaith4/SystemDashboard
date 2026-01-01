@@ -211,12 +211,12 @@ function Get-ListeningPortsForService {
             $results = @()
             foreach ($line in $lines) {
                 if ($line -match '^\\s*TCP\\s+(\\S+):(\\d+)\\s+(\\S+):(\\S+)\\s+LISTENING\\s+(\\d+)\\s*$') {
-                    $pid = [int]$Matches[5]
-                    if ($pid -eq $servicePid) {
+                    $ownerPid = [int]$Matches[5]
+                    if ($ownerPid -eq $servicePid) {
                         $results += [pscustomobject]@{
                             LocalAddress  = $Matches[1]
                             LocalPort     = [int]$Matches[2]
-                            OwningProcess = $pid
+                            OwningProcess = $ownerPid
                         }
                     }
                 }
