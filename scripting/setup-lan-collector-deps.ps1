@@ -36,6 +36,39 @@ function Download-Package {
     Write-Host "Saved: $targetPath" -ForegroundColor Green
 }
 
+function Ensure-PackageExtracted {
+    param(
+        [Parameter(Mandatory)][string]$Id,
+        [Parameter(Mandatory)][string]$Version,
+        [Parameter(Mandatory)][string]$OutDir
+    )
+
+    $packageName = "$Id.$Version"
+    $packagePath = Join-Path $OutDir "$packageName.nupkg"
+    if (-not (Test-Path -LiteralPath $packagePath)) {
+        Write-Host "Package not found: $packagePath" -ForegroundColor Yellow
+        return
+    }
+
+    $extractDir = Join-Path $OutDir $packageName
+    $needsExtract = -not (Test-Path -LiteralPath $extractDir)
+    if (-not $needsExtract) {
+        $dll = Get-ChildItem -LiteralPath $extractDir -Recurse -Filter "$Id.dll" -ErrorAction SilentlyContinue | Select-Object -First 1
+        if (-not $dll) {
+            $needsExtract = $true
+        }
+    }
+
+    if ($needsExtract) {
+        Write-Host "Extracting $packageName..." -ForegroundColor Cyan
+        if (Test-Path -LiteralPath $extractDir) {
+            Remove-Item -LiteralPath $extractDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+        Expand-Archive -LiteralPath $packagePath -DestinationPath $extractDir -Force
+        Write-Host "Extracted to: $extractDir" -ForegroundColor Green
+    }
+}
+
 if (-not (Test-Path $Destination)) {
     New-Item -ItemType Directory -Path $Destination -Force | Out-Null
 }
@@ -43,5 +76,9 @@ if (-not (Test-Path $Destination)) {
 Download-Package -Id 'Npgsql' -Version $NpgsqlVersion -OutDir $Destination
 Download-Package -Id 'Microsoft.Extensions.Logging.Abstractions' -Version $LoggingVersion -OutDir $Destination
 Download-Package -Id 'System.Diagnostics.DiagnosticSource' -Version $DiagnosticSourceVersion -OutDir $Destination
+
+Ensure-PackageExtracted -Id 'Npgsql' -Version $NpgsqlVersion -OutDir $Destination
+Ensure-PackageExtracted -Id 'Microsoft.Extensions.Logging.Abstractions' -Version $LoggingVersion -OutDir $Destination
+Ensure-PackageExtracted -Id 'System.Diagnostics.DiagnosticSource' -Version $DiagnosticSourceVersion -OutDir $Destination
 
 Write-Host "Done. Restart the LAN collector scheduled task." -ForegroundColor Green

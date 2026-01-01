@@ -338,6 +338,7 @@ function Ensure-UrlAcl {
     param([Parameter(Mandatory)][string] $Prefix)
     if (-not $IsWindows) { return }
     try {
+        Remove-UrlAcl -Prefix $Prefix
         $exists = netsh http show urlacl | Select-String -SimpleMatch $Prefix -Quiet    
         if (-not $exists) {      
             $user = "$env:USERDOMAIN\$env:USERNAME"      
@@ -531,6 +532,27 @@ function Start-SystemDashboardListener {
                 $json = $logs | ConvertTo-Json -Depth 5
                 $buf  = [Text.Encoding]::UTF8.GetBytes($json)
                 $res.ContentType = 'application/json'
+                $res.OutputStream.Write($buf,0,$buf.Length)
+                $res.Close()
+                continue
+            } elseif ($requestPath -eq '/api/router/kpis') {
+                $kpiPath = $script:Config?.Service?.Syslog?.KpiSummaryPath
+                if (-not $kpiPath) {
+                    $kpiPath = Resolve-ConfigPathValue './var/syslog/router-kpis.json'
+                } else {
+                    $kpiPath = Resolve-ConfigPathValue $kpiPath
+                }
+
+                $json = if ($kpiPath -and (Test-Path -LiteralPath $kpiPath)) {
+                    Get-Content -LiteralPath $kpiPath -Raw
+                } else {
+                    '{}'
+                }
+
+                $buf  = [Text.Encoding]::UTF8.GetBytes($json)
+                $res.ContentType = 'application/json'
+                $res.Headers['Cache-Control'] = 'no-store'
+                $res.ContentLength64 = $buf.Length
                 $res.OutputStream.Write($buf,0,$buf.Length)
                 $res.Close()
                 continue

@@ -9,7 +9,8 @@ param(
     [switch]$SkipInstall,
     [switch]$SkipDatabaseCheck,
     [switch]$SkipPreflight,
-    [switch]$SkipLaunch
+    [switch]$SkipLaunch,
+    [switch]$RestartTasks
 )
 
 Set-StrictMode -Version Latest
@@ -115,6 +116,27 @@ function Set-DashboardDbEnvironment {
     }
 }
 
+function Restart-SystemDashboardTasks {
+    $tasks = @('SystemDashboard-Telemetry', 'SystemDashboard-LegacyUI')
+    foreach ($task in $tasks) {
+        try {
+            $taskInfo = Get-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue
+            if (-not $taskInfo) {
+                continue
+            }
+            if ($taskInfo.State -eq 'Running') {
+                Write-Host "Stopping scheduled task $task..." -ForegroundColor Yellow
+                Stop-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue
+                Start-Sleep -Seconds 2
+            }
+            Write-Host "Starting scheduled task $task..." -ForegroundColor Yellow
+            Start-ScheduledTask -TaskName $task
+        } catch {
+            Write-Warning "Failed to restart scheduled task $($task): $($_.Exception.Message)"
+        }
+    }
+}
+
 if (-not (Test-Path -LiteralPath $ConfigPath)) {
     throw "Config file not found at $ConfigPath"
 }
@@ -195,6 +217,13 @@ if (-not $SkipPreflight) {
 if ($SkipLaunch) {
     Write-Host "✅ Preflight complete. Launch skipped by request." -ForegroundColor Green
     return
+}
+
+if ($RestartTasks) {
+    if ($IsWindows -and -not (Test-Administrator)) {
+        Write-Warning "Restarting scheduled tasks may require an elevated session."
+    }
+    Restart-SystemDashboardTasks
 }
 
 switch ($Mode) {

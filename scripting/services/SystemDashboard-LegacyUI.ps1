@@ -6,7 +6,7 @@ param(
     [string]$ConfigPath = (Join-Path $PSScriptRoot "..\..\config.json")
 )
 
-$RootPath = Resolve-Path (Join-Path $PSScriptRoot '..' '..')
+$RootPath = (Resolve-Path (Join-Path $PSScriptRoot '..' '..')).Path
 $LogDir = Join-Path $RootPath "var\log"
 $RunDir = Join-Path $RootPath "var\run"
 $LogFile = Join-Path $LogDir "dashboard-ui.log"
@@ -32,20 +32,78 @@ function Get-DashboardProcess {
     }
     $pid = Get-Content -LiteralPath $PidFile -ErrorAction SilentlyContinue
     if (-not $pid) { return $null }
-    return Get-Process -Id $pid -ErrorAction SilentlyContinue
+    $proc = Get-Process -Id $pid -ErrorAction SilentlyContinue
+    if (-not $proc) {
+        return $null
+    }
+
+    $scriptPath = (Resolve-Path -LiteralPath $PSCommandPath).Path
+    try {
+        $processInfo = Get-CimInstance Win32_Process -Filter "ProcessId = $pid" -ErrorAction SilentlyContinue
+        $cmdLine = $processInfo.CommandLine
+        if ($cmdLine -and ($cmdLine -match [regex]::Escape($scriptPath) -or $cmdLine -match 'SystemDashboard-LegacyUI\.ps1')) {
+            return $proc
+        }
+    }
+    catch {
+        # Fall back to trusting the PID if we can't inspect the command line.
+        return $proc
+    }
+
+    Write-ServiceLog "Stale PID file detected (PID: $pid); removing."
+    Remove-Item -LiteralPath $PidFile -Force -ErrorAction SilentlyContinue
+    return $null
+}
+
+function Test-DashboardHealth {
+    param([string]$ConfigPath)
+
+    $prefix = 'http://localhost:15000/'
+    if ($ConfigPath -and (Test-Path -LiteralPath $ConfigPath)) {
+        try {
+            $cfg = Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Json
+            if ($cfg.Prefix) {
+                $prefix = [string]$cfg.Prefix
+            }
+        }
+        catch {
+            # Keep default
+        }
+    }
+
+    $url = ($prefix.TrimEnd('/') + '/metrics')
+    try {
+        $response = Invoke-WebRequest -Uri $url -TimeoutSec 3 -UseBasicParsing -ErrorAction Stop
+        return ($response.StatusCode -ge 200 -and $response.StatusCode -lt 400)
+    }
+    catch {
+        return $false
+    }
 }
 
 function Start-DashboardService {
     $existing = Get-DashboardProcess
     if ($existing) {
-        Write-ServiceLog "Dashboard already running (PID: $($existing.Id))"
-        return
+        if (Test-DashboardHealth -ConfigPath $ConfigPath) {
+            Write-ServiceLog "Dashboard already running (PID: $($existing.Id))"
+            return
+        }
+        Write-ServiceLog "Stale dashboard process detected (PID: $($existing.Id)); restarting."
+        Stop-Process -Id $existing.Id -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 1
     }
 
     $defaultConfig = Join-Path $RootPath "config.json"
     $resolvedConfig = $ConfigPath
 
-    if (-not (Test-Path -LiteralPath $resolvedConfig)) {
+    if ($resolvedConfig -and (Test-Path -LiteralPath $resolvedConfig)) {
+        $resolvedConfig = (Resolve-Path -LiteralPath $resolvedConfig).Path
+    } else {
+        $resolvedConfig = $defaultConfig
+    }
+
+    if ($resolvedConfig -and (-not ($resolvedConfig.StartsWith($RootPath, [System.StringComparison]::OrdinalIgnoreCase)))) {
+        Write-ServiceLog "WARNING: Ignoring config outside repo root: $resolvedConfig"
         $resolvedConfig = $defaultConfig
     }
 
@@ -72,6 +130,25 @@ function Start-DashboardService {
 
     $env:SYSTEMDASHBOARD_ROOT = $RootPath
     $env:SYSTEMDASHBOARD_CONFIG = $resolvedConfig
+
+    $autoHealScript = Join-Path $RootPath 'scripting\auto-heal.ps1'
+    if (Test-Path -LiteralPath $autoHealScript) {
+        try {
+            $enabled = $env:SYSTEMDASHBOARD_AUTOHEAL_ENABLED
+            if (-not $enabled -or $enabled.ToLower() -notin @('0','false','no')) {
+                Write-ServiceLog "Launching auto-heal check..."
+                Start-Process -FilePath 'pwsh.exe' -ArgumentList @(
+                    '-NoProfile',
+                    '-File',
+                    $autoHealScript,
+                    '-ConfigPath',
+                    $resolvedConfig
+                ) -WindowStyle Hidden | Out-Null
+            }
+        } catch {
+            Write-ServiceLog "WARNING: Auto-heal launch failed: $($_.Exception.Message)"
+        }
+    }
 
     Write-ServiceLog "Starting legacy dashboard listener..."
     Write-ServiceLog "Config: $resolvedConfig"

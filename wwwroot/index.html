@@ -300,6 +300,25 @@
           </table>
         </div>
       </article>
+
+      <article class="card">
+        <header class="card__header">
+          <div>
+            <h2>Router KPIs</h2>
+            <p class="muted">Summary of key syslog patterns (last 24h).</p>
+          </div>
+          <span class="muted" id="router-kpi-updated">--</span>
+        </header>
+        <div class="kpi-list" id="router-kpi-list">
+          <div class="kpi-item"><span>Total drops</span><span class="badge badge--warn" id="kpi-total-drop">--</span></div>
+          <div class="kpi-item"><span>IGMP drops</span><span class="badge badge--warn" id="kpi-igmp-drop">--</span></div>
+          <div class="kpi-item"><span>Roam kicks</span><span class="badge badge--info" id="kpi-roam-kicks">--</span></div>
+          <div class="kpi-item"><span>Rstats errors</span><span class="badge badge--error" id="kpi-rstats-errors">--</span></div>
+          <div class="kpi-item"><span>dnsmasq SIGTERM</span><span class="badge badge--error" id="kpi-dnsmasq-sigterm">--</span></div>
+          <div class="kpi-item"><span>avahi SIGTERM</span><span class="badge badge--error" id="kpi-avahi-sigterm">--</span></div>
+          <div class="kpi-item"><span>UPnP shutdowns</span><span class="badge badge--warn" id="kpi-upnp-shutdowns">--</span></div>
+        </div>
+      </article>
     </section>
 
     <section class="grid two-column telemetry-grid">

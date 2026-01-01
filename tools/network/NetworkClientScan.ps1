@@ -14,8 +14,7 @@ $env:ProgramData\OUI\oui.csv (from IEEE: Assignment,Organization Name)
 - Optional: run Update-OuiCache to download latest vendor list.
 #>
 
-Set-StrictMode -Version Latest
-$ErrorActionPreference = 'Stop'
+
 
 [CmdletBinding()]
 param(
@@ -26,7 +25,8 @@ param(
     [string]$SyslogPath = "F:\Logs\syslog.log",
     [switch]$SkipDependencyCheck
 )
-
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
 # Defaults derived from timestamp/desktop if not provided
 $TimeStamp = Get-Date -Format yyyyMMdd-HHmm
 if (-not $OutDir) { $OutDir = Join-Path $env:USERPROFILE "Desktop\SubnetScan-$TimeStamp" }
