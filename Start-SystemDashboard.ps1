@@ -107,6 +107,7 @@ function Set-DashboardDbEnvironment {
     if (-not $readerPassword) {
         if ($env:SYSTEMDASHBOARD_DB_PASSWORD) {
             Write-Warning "SYSTEMDASHBOARD_DB_READER_PASSWORD is not set; falling back to SYSTEMDASHBOARD_DB_PASSWORD (may not work for reader user)."
+            Write-Host "SYSTEMDASHBOARD_DB_READER_PASSWORD is not set; falling back to SYSTEMDASHBOARD_DB_PASSWORD (may not work for reader user)."
             $readerPassword = $env:SYSTEMDASHBOARD_DB_PASSWORD
         }
     }
@@ -133,6 +134,7 @@ function Restart-SystemDashboardTasks {
             Start-ScheduledTask -TaskName $task
         } catch {
             Write-Warning "Failed to restart scheduled task $($task): $($_.Exception.Message)"
+            Write-Host "Failed to restart scheduled task $($task): $($_.Exception.Message)" -ForegroundColor Red
         }
     }
 }
@@ -235,6 +237,7 @@ switch ($Mode) {
         try {
             if ($PSBoundParameters.ContainsKey('ConfigPath')) {
                 Write-Warning "Unified mode expects the 2025-09-11 config schema; you passed -ConfigPath, so ensure it's compatible."
+                Write-Host "Unified mode expects the 2025-09-11 config schema; you passed -ConfigPath, so ensure it's compatible."
                 & $entry -ConfigPath $ConfigPath
             }
             else {
@@ -245,6 +248,7 @@ switch ($Mode) {
             Write-Warning "Unified mode failed to start. This is commonly caused by missing dependencies (ex: the 'Pode' PowerShell module)."
             Write-Warning "To run the Postgres-backed dashboard in this repo, use: pwsh -NoProfile -File .\\Start-SystemDashboard.ps1 -Mode Legacy"
             Write-Warning "To run the Flask dashboard directly, use: pwsh -NoProfile -File .\\Start-SystemDashboard.ps1 -Mode Flask"
+            Write-Host "Unified mode failed to start. This is commonly caused by missing dependencies (ex: the 'Pode' PowerShell module)."
 
             if (-not $PSBoundParameters.ContainsKey('Mode')) {
                 Write-Warning "Falling back to Legacy mode (because -Mode was not explicitly provided)."
