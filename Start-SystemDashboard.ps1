@@ -18,6 +18,11 @@ $ErrorActionPreference = 'Stop'
 
 $repoRoot = $PSScriptRoot
 $scriptingRoot = Join-Path $repoRoot 'scripting'
+$scriptingModule = Join-Path $scriptingRoot 'SystemDashboard.Scripting.psm1'
+if (-not (Test-Path -LiteralPath $scriptingModule)) {
+    throw "Scripting module not found at $scriptingModule"
+}
+Import-Module $scriptingModule -Force
 
 if (-not $env:SYSTEMDASHBOARD_ROOT) {
     $env:SYSTEMDASHBOARD_ROOT = $repoRoot
@@ -167,13 +172,8 @@ if (-not $SkipPreflight) {
         }
 
         if (-not (Test-Path -LiteralPath $venvPython)) {
-            $installScript = Join-Path $scriptingRoot 'Install.ps1'
-            if (-not (Test-Path -LiteralPath $installScript)) {
-                throw "Install script not found at $installScript"
-            }
-
             Write-Host "🔧 Installing dependencies..." -ForegroundColor Cyan
-            & $installScript -ConfigPath $ConfigPath
+            Install-SystemDashboard -ConfigPath $ConfigPath
         }
     }
 
@@ -191,18 +191,13 @@ if (-not $SkipPreflight) {
         Write-Host "🔍 Verifying database connectivity..." -ForegroundColor Cyan
         & $pythonExe $dbTest
         if ($LASTEXITCODE -ne 0 -and $DatabaseMode -ne 'skip') {
-            $dbScript = if ($DatabaseMode -eq 'docker') {
-                Join-Path $scriptingRoot 'setup-database-docker.ps1'
-            } else {
-                Join-Path $scriptingRoot 'setup-database.ps1'
-            }
-
-            if (-not (Test-Path -LiteralPath $dbScript)) {
-                throw "Database setup script not found at $dbScript"
-            }
-
             Write-Host "⚙️  Database check failed; attempting setup via $DatabaseMode..." -ForegroundColor Yellow
-            & $dbScript
+            if ($DatabaseMode -eq 'docker') {
+                Initialize-SystemDashboardDockerDatabase
+            }
+            else {
+                Initialize-SystemDashboardDatabase
+            }
 
             Write-Host "🔁 Re-checking database connectivity..." -ForegroundColor Cyan
             & $pythonExe $dbTest
