@@ -372,11 +372,12 @@ function Get-MacAddressesFromText {
     param([string]$Text)
 
     if ([string]::IsNullOrWhiteSpace($Text)) { return @() }
-    $matches = [regex]::Matches($Text, '(?i)([0-9a-f]{2}[:-]){5}[0-9a-f]{2}')
-    $macs = foreach ($match in $matches) {
+    $macMatches = [regex]::Matches($Text, '(?i)([0-9a-f]{2}[:-]){5}[0-9a-f]{2}')
+    $macs = foreach ($match in $macMatches) {
         Normalize-MacAddress -Mac $match.Value
     }
-    return $macs | Where-Object { $_ } | Select-Object -Unique
+    $unique = @($macs | Where-Object { $_ } | Select-Object -Unique)
+    return ,$unique
 }
 
 function Get-RssiFromText {
@@ -544,7 +545,7 @@ function Invoke-PostgresDeviceObservationCopy {
         throw "psql executable '$psqlPath' not found in PATH. Set Database.PsqlPath in config.json."
     }
 
-    $host = (Get-DbSetting $Database 'Host') ?? 'localhost'
+    $dbHost = (Get-DbSetting $Database 'Host') ?? 'localhost'
     $port = (Get-DbSetting $Database 'Port') ?? 5432
     $databaseName = (Get-DbSetting $Database 'Database') ?? (Get-DbSetting $Database 'Name')
     $username = (Get-DbSetting $Database 'Username') ?? (Get-DbSetting $Database 'User')
@@ -562,7 +563,7 @@ function Invoke-PostgresDeviceObservationCopy {
 
     $schema = (Get-DbSetting $Database 'Schema') ?? 'telemetry'
     $copyCommand = "\copy $schema.device_observations (occurred_at, received_at, mac_address, event_type, category, source_host, app_name, rssi, ip_address, message, raw_message) FROM '$CsvPath' WITH (FORMAT csv, HEADER true, DELIMITER ',')"
-    $argsBase = @('-h', $host, '-p', [string]$port, '-U', $username, '-d', $databaseName, '-c', $copyCommand)
+    $argsBase = @('-h', $dbHost, '-p', [string]$port, '-U', $username, '-d', $databaseName, '-c', $copyCommand)
 
     $attempt = 0
     do {
@@ -1181,7 +1182,7 @@ function Invoke-PostgresEventCopy {
         throw "psql executable '$psqlPath' not found in PATH. Set Database.PsqlPath in config.json."
     }
 
-    $host = (Get-DbSetting $Database 'Host') ?? 'localhost'
+    $dbHost = (Get-DbSetting $Database 'Host') ?? 'localhost'
     $port = (Get-DbSetting $Database 'Port') ?? 5432
     $databaseName = (Get-DbSetting $Database 'Database') ?? (Get-DbSetting $Database 'Name')
     $username = (Get-DbSetting $Database 'Username') ?? (Get-DbSetting $Database 'User')
@@ -1199,7 +1200,7 @@ function Invoke-PostgresEventCopy {
 
     $schema = (Get-DbSetting $Database 'Schema') ?? 'telemetry'
     $copyCommand = "\copy $schema.events (event_type, source, severity, subject, occurred_at, received_at, correlation_id, payload) FROM '$CsvPath' WITH (FORMAT csv, HEADER true, DELIMITER ',')"
-    $argsBase = @('-h', $host, '-p', [string]$port, '-U', $username, '-d', $databaseName, '-c', $copyCommand)
+    $argsBase = @('-h', $dbHost, '-p', [string]$port, '-U', $username, '-d', $databaseName, '-c', $copyCommand)
 
     $attempt = 0
     do {
@@ -1306,28 +1307,28 @@ function Get-WindowsEventBatch {
 function Convert-WinEventToTelemetryEvent {
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory)][System.Diagnostics.Eventing.Reader.EventRecord]$Event
+        [Parameter(Mandatory)][Alias('Event')][System.Diagnostics.Eventing.Reader.EventRecord]$WinEvent
     )
 
     $payload = [ordered]@{
-        log_name   = $Event.LogName
-        provider   = $Event.ProviderName
-        event_id   = $Event.Id
-        record_id  = $Event.RecordId
-        level      = $Event.LevelDisplayName
-        task       = $Event.TaskDisplayName
-        machine    = $Event.MachineName
-        message    = $Event.Message
+        log_name   = $WinEvent.LogName
+        provider   = $WinEvent.ProviderName
+        event_id   = $WinEvent.Id
+        record_id  = $WinEvent.RecordId
+        level      = $WinEvent.LevelDisplayName
+        task       = $WinEvent.TaskDisplayName
+        machine    = $WinEvent.MachineName
+        message    = $WinEvent.Message
     } | ConvertTo-Json -Compress
 
     return [pscustomobject]@{
         EventType     = 'windows_event'
-        Source        = $Event.LogName
-        Severity      = ConvertTo-EventSeverity -LevelDisplayName $Event.LevelDisplayName -Level $Event.Level
-        Subject       = $Event.ProviderName
-        OccurredAt    = $Event.TimeCreated
+        Source        = $WinEvent.LogName
+        Severity      = ConvertTo-EventSeverity -LevelDisplayName $WinEvent.LevelDisplayName -Level $WinEvent.Level
+        Subject       = $WinEvent.ProviderName
+        OccurredAt    = $WinEvent.TimeCreated
         ReceivedAt    = (Get-Date).ToUniversalTime()
-        CorrelationId = "$($Event.LogName):$($Event.RecordId)"
+        CorrelationId = "$($WinEvent.LogName):$($WinEvent.RecordId)"
         Payload       = $payload
     }
 }
@@ -1538,6 +1539,14 @@ function Start-TelemetryService {
     $kpiSummaryPath = $config.Service.Syslog.KpiSummaryPath
     $database = @{}
     $config.Database.PSObject.Properties | ForEach-Object { $database[$_.Name] = $_.Value }
+    try {
+        $monthStart = (Get-Date).ToUniversalTime().ToString('yyyy-MM-01')
+        Invoke-PostgresStatement -Database $database -Sql "SELECT telemetry.ensure_syslog_partition('$monthStart'::date);"
+        Write-TelemetryLog -LogPath $logPath -Message "Ensured syslog partition for $monthStart." -Level 'INFO'
+    }
+    catch {
+        Write-TelemetryLog -LogPath $logPath -Message "Failed to ensure syslog partition at startup: $_" -Level 'WARN'
+    }
 
     $eventsStateDir = $null
     if ($eventsConfig.StatePath) {

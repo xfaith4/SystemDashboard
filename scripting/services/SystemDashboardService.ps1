@@ -8,8 +8,8 @@ $repoRoot = Join-Path $PSScriptRoot '..' '..'
 
 function Import-TelemetryModule {
     $candidates = @(
-        (Join-Path $repoRoot 'telemetry' 'SystemDashboard.Telemetry.psm1'),
         (Join-Path $repoRoot 'tools' 'SystemDashboard.Telemetry.psm1'),
+        (Join-Path $repoRoot 'telemetry' 'SystemDashboard.Telemetry.psm1'),
         (Join-Path $repoRoot 'tools' 'SystemDashboard.Telemetry-Minimal.psm1')
     )
 

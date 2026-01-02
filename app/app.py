@@ -21,12 +21,19 @@ except Exception:  # pragma: no cover - optional dependency during local dev
 if __package__ in (None, ''):
     sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from app import db_postgres
-from app.rate_limiter import rate_limit
+try:
+    from . import db_postgres
+    from .rate_limiter import rate_limit
+except ImportError:
+    import db_postgres
+    from rate_limiter import rate_limit
 
 app = Flask(__name__)
 
-from app.api.v1 import api_v1
+try:
+    from .api.v1 import api_v1
+except ImportError:
+    from app.api.v1 import api_v1
 
 app.register_blueprint(api_v1)
 
