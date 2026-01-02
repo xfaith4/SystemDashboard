@@ -16,6 +16,15 @@ Import-Module $TelemetryModulePath -Force -Global
 $RootPath = $env:SYSTEMDASHBOARD_ROOT
 if (-not $RootPath) {
     $RootPath = Resolve-Path (Join-Path $PSScriptRoot '..' '..')
+} else {
+    $RootPath = Resolve-Path -LiteralPath $RootPath
+}
+
+if ($RootPath -and ($RootPath -like '*\\wwwroot' -or $RootPath -like '*/wwwroot')) {
+    $candidate = Resolve-Path (Join-Path $RootPath '..')
+    if (Test-Path -LiteralPath (Join-Path $candidate 'config.json')) {
+        $RootPath = $candidate
+    }
 }
 
 $AppPath = Join-Path $RootPath "app"

@@ -403,6 +403,7 @@ function Start-SystemDashboardListener {
     if (-not (Test-Path -LiteralPath $Root -PathType Container)) {
         throw "Root path not found: $Root"
     }
+    $AppJsFile = Join-Path (Split-Path -Parent $IndexHtml) 'app.js'
     foreach ($asset in @($IndexHtml, $CssFile)) {
         if (-not (Test-Path -LiteralPath $asset -PathType Leaf)) {
             throw "Static asset not found: $asset"
@@ -538,30 +539,199 @@ function Start-SystemDashboardListener {
                 $res.Close()
                 continue
             } elseif ($requestPath -eq '/api/syslog/summary') {
-                $payload = @{
-                    total1h = 0
-                    total24h = 0
-                    topApps = @()
-                    bySeverity = @()
+                $sql = @"
+SELECT json_build_object(
+    'total1h', (SELECT COUNT(*) FROM telemetry.syslog_generic_template WHERE received_utc >= NOW() - INTERVAL '1 hour'),
+    'total24h', (SELECT COUNT(*) FROM telemetry.syslog_generic_template WHERE received_utc >= NOW() - INTERVAL '24 hours'),
+    'topApps', COALESCE((
+        SELECT json_agg(t)
+        FROM (
+            SELECT app_name AS app, COUNT(*) AS total
+            FROM telemetry.syslog_generic_template
+            WHERE received_utc >= NOW() - INTERVAL '24 hours'
+            GROUP BY app_name
+            ORDER BY total DESC NULLS LAST
+            LIMIT 5
+        ) t
+    ), '[]'::json),
+    'bySeverity', COALESCE((
+        SELECT json_agg(t)
+        FROM (
+            SELECT CASE severity
+                WHEN 0 THEN 'emerg'
+                WHEN 1 THEN 'alert'
+                WHEN 2 THEN 'critical'
+                WHEN 3 THEN 'error'
+                WHEN 4 THEN 'warning'
+                WHEN 5 THEN 'notice'
+                WHEN 6 THEN 'info'
+                WHEN 7 THEN 'debug'
+                ELSE 'unknown'
+            END AS severity,
+            COUNT(*) AS total
+            FROM telemetry.syslog_generic_template
+            WHERE received_utc >= NOW() - INTERVAL '24 hours'
+            GROUP BY 1
+            ORDER BY total DESC
+        ) t
+    ), '[]'::json)
+);
+"@
+                $json = Invoke-PostgresJsonQuery -Sql $sql
+                if ($null -eq $json) {
+                    Write-Log -Level 'WARN' -Message 'Syslog summary query failed.'
+                    Write-JsonResponse -Response $res -Json '{}' -StatusCode 503
+                } else {
+                    Write-JsonResponse -Response $res -Json $json
                 }
-                $json = $payload | ConvertTo-Json -Depth 5
-                Write-JsonResponse -Response $res -Json $json
                 continue
             } elseif ($requestPath -eq '/api/syslog/recent') {
-                Write-JsonResponse -Response $res -Json '[]'
+                $limit = 50
+                if ($req.QueryString['limit']) {
+                    $parsed = 0
+                    if ([int]::TryParse($req.QueryString['limit'], [ref]$parsed)) {
+                        $limit = [Math]::Max(1, [Math]::Min(200, $parsed))
+                    }
+                }
+
+                $filters = @("received_utc >= NOW() - INTERVAL '24 hours'")
+                $host = $req.QueryString['host']
+                if ($host) {
+                    $hostSafe = Escape-SqlLiteral $host.ToLowerInvariant()
+                    $filters += ("LOWER(source_host) LIKE '%{0}%'" -f $hostSafe)
+                }
+
+                $category = $req.QueryString['category']
+                $categorySafe = if ($category) { Escape-SqlLiteral $category.ToLowerInvariant() } else { $null }
+
+                $severityFilter = $null
+                if ($req.QueryString['severity']) {
+                    $sevParsed = 0
+                    if ([int]::TryParse($req.QueryString['severity'], [ref]$sevParsed)) {
+                        $severityFilter = $sevParsed
+                    }
+                }
+
+                $categoryExpr = @"
+CASE
+    WHEN (app_name ILIKE '%wlceventd%' OR message ILIKE '%wifi%' OR message ILIKE '%wlan%') THEN 'wifi'
+    WHEN (app_name ILIKE '%dnsmasq%' OR message ILIKE '%dhcp%' OR message ILIKE '%udhcpd%') THEN 'dhcp'
+    WHEN (message ILIKE '%firewall%' OR message ILIKE '%iptables%' OR message ILIKE '%drop%') THEN 'firewall'
+    WHEN (message ILIKE '%auth%' OR message ILIKE '%login%' OR message ILIKE '%ssh%' OR message ILIKE '%vpn%') THEN 'auth'
+    WHEN (message ILIKE '%dns%' OR message ILIKE '%resolver%' OR message ILIKE '%named%') THEN 'dns'
+    WHEN (message ILIKE '%network%' OR message ILIKE '%link%') THEN 'network'
+    ELSE 'system'
+END
+"@
+
+                $where = $filters -join ' AND '
+                $sql = @"
+WITH rows AS (
+    SELECT received_utc,
+           source_host,
+           app_name,
+           severity,
+           message,
+           $categoryExpr AS category,
+           CASE severity
+                WHEN 0 THEN 'emerg'
+                WHEN 1 THEN 'alert'
+                WHEN 2 THEN 'critical'
+                WHEN 3 THEN 'error'
+                WHEN 4 THEN 'warning'
+                WHEN 5 THEN 'notice'
+                WHEN 6 THEN 'info'
+                WHEN 7 THEN 'debug'
+                ELSE 'unknown'
+           END AS severity_label
+    FROM telemetry.syslog_generic_template
+    WHERE $where
+)
+SELECT COALESCE(json_agg(t), '[]'::json) FROM (
+    SELECT *
+    FROM rows
+    WHERE 1=1
+    $(if ($severityFilter -ne $null) { "AND severity = $severityFilter" } else { "" })
+    $(if ($categorySafe) { "AND category = '$categorySafe'" } else { "" })
+    ORDER BY received_utc DESC
+    LIMIT $limit
+) t;
+"@
+
+                $json = Invoke-PostgresJsonQuery -Sql $sql
+                if ($null -eq $json) {
+                    Write-Log -Level 'WARN' -Message 'Syslog recent query failed.'
+                    Write-JsonResponse -Response $res -Json '[]' -StatusCode 503
+                } else {
+                    Write-JsonResponse -Response $res -Json $json
+                }
                 continue
             } elseif ($requestPath -eq '/api/events/summary') {
-                $payload = @{
-                    total1h = 0
-                    total24h = 0
-                    topSources = @()
-                    bySeverity = @()
+                $sql = @"
+SELECT json_build_object(
+    'total1h', (SELECT COUNT(*) FROM telemetry.events WHERE occurred_at >= NOW() - INTERVAL '1 hour'),
+    'total24h', (SELECT COUNT(*) FROM telemetry.events WHERE occurred_at >= NOW() - INTERVAL '24 hours'),
+    'topSources', COALESCE((
+        SELECT json_agg(t)
+        FROM (
+            SELECT source, COUNT(*) AS total
+            FROM telemetry.events
+            WHERE occurred_at >= NOW() - INTERVAL '24 hours'
+            GROUP BY source
+            ORDER BY total DESC NULLS LAST
+            LIMIT 5
+        ) t
+    ), '[]'::json),
+    'bySeverity', COALESCE((
+        SELECT json_agg(t)
+        FROM (
+            SELECT severity, COUNT(*) AS total
+            FROM telemetry.events
+            WHERE occurred_at >= NOW() - INTERVAL '24 hours'
+            GROUP BY severity
+            ORDER BY total DESC
+        ) t
+    ), '[]'::json)
+);
+"@
+                $json = Invoke-PostgresJsonQuery -Sql $sql
+                if ($null -eq $json) {
+                    Write-Log -Level 'WARN' -Message 'Event summary query failed.'
+                    Write-JsonResponse -Response $res -Json '{}' -StatusCode 503
+                } else {
+                    Write-JsonResponse -Response $res -Json $json
                 }
-                $json = $payload | ConvertTo-Json -Depth 5
-                Write-JsonResponse -Response $res -Json $json
                 continue
             } elseif ($requestPath -eq '/api/events/recent') {
-                Write-JsonResponse -Response $res -Json '[]'
+                $limit = 50
+                if ($req.QueryString['limit']) {
+                    $parsed = 0
+                    if ([int]::TryParse($req.QueryString['limit'], [ref]$parsed)) {
+                        $limit = [Math]::Max(1, [Math]::Min(200, $parsed))
+                    }
+                }
+
+                $sql = @"
+SELECT COALESCE(json_agg(t), '[]'::json) FROM (
+    SELECT occurred_at,
+           source,
+           severity,
+           event_type AS category,
+           subject,
+           COALESCE(payload->>'message', '') AS message
+    FROM telemetry.events
+    WHERE occurred_at >= NOW() - INTERVAL '24 hours'
+    ORDER BY occurred_at DESC NULLS LAST
+    LIMIT $limit
+) t;
+"@
+                $json = Invoke-PostgresJsonQuery -Sql $sql
+                if ($null -eq $json) {
+                    Write-Log -Level 'WARN' -Message 'Event recent query failed.'
+                    Write-JsonResponse -Response $res -Json '[]' -StatusCode 503
+                } else {
+                    Write-JsonResponse -Response $res -Json $json
+                }
                 continue
             } elseif ($requestPath -eq '/api/router/kpis') {
                 $kpiPath = $null
@@ -664,12 +834,15 @@ SELECT COALESCE(json_agg(t), '[]'::json) FROM (
     ORDER BY bucket_start ASC
 ) t;
 "@
-                $json = Invoke-PostgresJsonQuery -Sql $sql
-                if ($null -eq $json) {
-                    Write-Log -Level 'WARN' -Message 'Timeline query failed.'
-                    Write-JsonResponse -Response $res -Json '[]' -StatusCode 503
-                } else {
+                try {
+                    $json = Invoke-PostgresJsonQuery -Sql $sql
+                    if ([string]::IsNullOrWhiteSpace($json)) {
+                        $json = '[]'
+                    }
                     Write-JsonResponse -Response $res -Json $json
+                } catch {
+                    Write-Log -Level 'WARN' -Message "Timeline query failed: $($_.Exception.Message)"
+                    Write-JsonResponse -Response $res -Json '[]' -StatusCode 503
                 }
                 continue
             } elseif ($requestPath -eq '/api/health') {
@@ -700,6 +873,13 @@ SELECT COALESCE(json_agg(t), '[]'::json) FROM (
                 '/'           { $IndexHtml }
                 '/index.html' { $IndexHtml }
                 '/styles.css' { $CssFile }
+                '/app.js' {
+                    if (Test-Path -LiteralPath $AppJsFile -PathType Leaf) {
+                        $AppJsFile
+                    } else {
+                        $null
+                    }
+                }
                 Default {
                     $relative = $requestPath.TrimStart('/')
                     if ([string]::IsNullOrWhiteSpace($relative)) {

@@ -3,7 +3,7 @@
   "Root": "./wwwroot",
   "IndexHtml": "./wwwroot/index.html",
   "CssFile": "./wwwroot/styles.css",
-  "PingTarget": "1.1.1.1",
+  "PingTarget": "8.8.8.8",
   "RouterIP": "192.168.50.1",
   "Database": {
     "Host": "localhost",
@@ -21,7 +21,7 @@
     "LogPath": "./var/log/telemetry-service.log",
     "Syslog": {
       "BindAddress": "0.0.0.0",
-      "Port": 5514,
+      "Port": 5515,
       "BufferDirectory": "./var/syslog",
       "MaxMessageBytes": 8192,
       "KpiSummaryPath": "./var/syslog/router-kpis.json"
@@ -46,7 +46,7 @@
     "Asus": {
       "Enabled": true,
       "Uri": "http://192.168.50.1/syslog.txt",
-      "HostName": "asus-router",
+      "HostName": "192.168.50.1",
       "Username": "xfaith",
       "PasswordSecret": "env:ASUS_ROUTER_PASSWORD",
       "PollIntervalSeconds": 60,
@@ -57,7 +57,7 @@
         "Host": "192.168.50.1",
         "Username": "xfaith",
         "PasswordSecret": "env:ASUS_ROUTER_PASSWORD",
-        "Port": 22,
+        "Port": 1099,
         "TimeoutSeconds": 30
       }
     },
@@ -68,8 +68,8 @@
     }
   },
   "Actions": {
-    "AllowAutoExecute": false,
-    "RequireApproval": true,
+    "AllowAutoExecute": true,
+    "RequireApproval": false,
     "SafeActions": [
       "dns_flush",
       "noop"

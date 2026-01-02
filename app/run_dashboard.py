@@ -6,6 +6,7 @@ Flask App Wrapper - Sets database environment variables explicitly
 import os
 import sys
 import json
+import importlib
 from pathlib import Path
 
 
@@ -59,11 +60,14 @@ if __name__ == '__main__':
     repo_root = Path(app_dir).parent
     ensure_postgres_env(repo_root)
 
-    # Import the Flask app
-    from app import app
+    if str(repo_root) not in sys.path:
+        sys.path.insert(0, str(repo_root))
+
+    app_module = importlib.import_module('app.app')
+    app = app_module.app
 
     # Test database connection before starting
-    from app import get_db_connection
+    get_db_connection = app_module.get_db_connection
 
     try:
         print("Testing database connection...")
