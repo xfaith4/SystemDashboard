@@ -766,20 +766,37 @@ function Invoke-SyslogIngestion {
         return $(if ($prop) { $prop.Value } else { $null })
     }
 
-    try {
-        $monthStart = (Get-Date).ToUniversalTime().ToString('yyyy-MM-01')
-        Invoke-PostgresStatement -Database $Database -Sql "SELECT telemetry.ensure_syslog_partition('$monthStart'::date);"
-    }
-    catch {
-        Write-Verbose "Failed to ensure syslog partition: $_"
-    }
-
     $stagingDir = Get-IngestionSetting $Ingestion 'StagingDirectory'
     if (-not $stagingDir) { $stagingDir = './var/staging' }
     $csvPath = Write-BatchToCsv -Events $batch -TargetDirectory $stagingDir -Prefix $SourceLabel
     try {
         $table = Get-PartitionTableName -BaseName 'syslog_generic' -Timestamp (Get-Date)
-        Invoke-PostgresCopy -Database $Database -TableName $table -CsvPath $csvPath
+        try {
+            $monthStart = (Get-Date).ToUniversalTime().ToString('yyyy-MM-01')
+            Invoke-PostgresStatement -Database $Database -Sql "SELECT telemetry.ensure_syslog_partition('$monthStart'::date);"
+        }
+        catch {
+            Write-Verbose "Failed to ensure syslog partition: $_"
+        }
+
+        try {
+            Invoke-PostgresCopy -Database $Database -TableName $table -CsvPath $csvPath
+        }
+        catch {
+            $errorText = $_.Exception.Message
+            if ($errorText -match 'relation .* does not exist') {
+                try {
+                    Invoke-PostgresStatement -Database $Database -Sql "SELECT telemetry.ensure_syslog_partition('$monthStart'::date);"
+                    Invoke-PostgresCopy -Database $Database -TableName $table -CsvPath $csvPath
+                }
+                catch {
+                    throw
+                }
+            }
+            else {
+                throw
+            }
+        }
     }
     finally {
         Remove-Item -LiteralPath $csvPath -ErrorAction SilentlyContinue

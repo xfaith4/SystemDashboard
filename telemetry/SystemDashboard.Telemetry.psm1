@@ -276,10 +276,10 @@ function ConvertFrom-SyslogLine {
 
     if ($rest -match '^(?<timestamp>[A-Za-z]{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2})\s+(?<host>[^\s]+)\s*(?<app>[^:]+)?:?\s*(?<msg>.*)$') {
         $timestamp = $Matches['timestamp']
-        $host = $Matches['host']
+        $sourceHost = $Matches['host']
         $app = ($Matches['app'] ?? '').Trim()
         $msg = ($Matches['msg'] ?? '').Trim()
-        $result.SourceHost = if ($host) { $host } else { $null }
+        $result.SourceHost = if ($sourceHost) { $sourceHost } else { $null }
         if ($app) { $result.AppName = $app }
         if ($msg) { $result.Message = $msg }
         try {
@@ -421,8 +421,8 @@ function Get-MacAddressesFromText {
     param([string]$Text)
 
     if ([string]::IsNullOrWhiteSpace($Text)) { return @() }
-    $matches = [regex]::Matches($Text, '(?i)([0-9a-f]{2}[:-]){5}[0-9a-f]{2}')
-    $macs = foreach ($match in $matches) {
+    $macMatches = [regex]::Matches($Text, '(?i)([0-9a-f]{2}[:-]){5}[0-9a-f]{2}')
+    $macs = foreach ($match in $macMatches) {
         Normalize-MacAddress -Mac $match.Value
     }
     return $macs | Where-Object { $_ } | Select-Object -Unique
@@ -593,7 +593,7 @@ function Invoke-PostgresDeviceObservationCopy {
         throw "psql executable '$psqlPath' not found in PATH. Set Database.PsqlPath in config.json."
     }
 
-    $host = (Get-DbSetting $Database 'Host') ?? 'localhost'
+    $dbHost = (Get-DbSetting $Database 'Host') ?? 'localhost'
     $port = (Get-DbSetting $Database 'Port') ?? 5432
     $databaseName = (Get-DbSetting $Database 'Database') ?? (Get-DbSetting $Database 'Name')
     $username = (Get-DbSetting $Database 'Username') ?? (Get-DbSetting $Database 'User')
@@ -611,7 +611,7 @@ function Invoke-PostgresDeviceObservationCopy {
 
     $schema = (Get-DbSetting $Database 'Schema') ?? 'telemetry'
     $copyCommand = "\copy $schema.device_observations (occurred_at, received_at, mac_address, event_type, category, source_host, app_name, rssi, ip_address, message, raw_message) FROM '$CsvPath' WITH (FORMAT csv, HEADER true, DELIMITER ',')"
-    $argsBase = @('-h', $host, '-p', [string]$port, '-U', $username, '-d', $databaseName, '-c', $copyCommand)
+    $argsBase = @('-h', $dbHost, '-p', [string]$port, '-U', $username, '-d', $databaseName, '-c', $copyCommand)
 
     $attempt = 0
     do {
@@ -709,7 +709,7 @@ function Invoke-PostgresCopy {
         throw "psql executable '$psqlPath' not found in PATH. Set Database.PsqlPath in config.json."
     }
 
-    $host = (Get-DbSetting $Database 'Host') ?? 'localhost'
+    $dbHost = (Get-DbSetting $Database 'Host') ?? 'localhost'
     $port = (Get-DbSetting $Database 'Port') ?? 5432
     $databaseName = (Get-DbSetting $Database 'Database') ?? (Get-DbSetting $Database 'Name')
     $username = (Get-DbSetting $Database 'Username') ?? (Get-DbSetting $Database 'User')
@@ -733,7 +733,7 @@ function Invoke-PostgresCopy {
         $table = $TableName
     }
     $copyCommand = "\copy $table (received_utc, event_utc, source_host, app_name, facility, severity, message, raw_message, remote_endpoint, source) FROM '$CsvPath' WITH (FORMAT csv, HEADER true, DELIMITER ',')"
-    $argsBase = @('-h', $host, '-p', [string]$port, '-U', $username, '-d', $databaseName, '-c', $copyCommand)
+    $argsBase = @('-h', $dbHost, '-p', [string]$port, '-U', $username, '-d', $databaseName, '-c', $copyCommand)
 
     $attempt = 0
     do {
@@ -780,7 +780,7 @@ function Invoke-PostgresStatement {
         throw "psql executable '$psqlPath' not found in PATH. Set Database.PsqlPath in config.json."
     }
 
-    $host = (Get-DbSetting $Database 'Host') ?? 'localhost'
+    $dbHost = (Get-DbSetting $Database 'Host') ?? 'localhost'
     $port = (Get-DbSetting $Database 'Port') ?? 5432
     $databaseName = (Get-DbSetting $Database 'Database') ?? (Get-DbSetting $Database 'Name')
     $username = (Get-DbSetting $Database 'Username') ?? (Get-DbSetting $Database 'User')
@@ -793,7 +793,7 @@ function Invoke-PostgresStatement {
         throw 'Database password is not configured. Provide Database.Password or Database.PasswordSecret.'
     }
 
-    $argsBase = @('-h', $host, '-p', [string]$port, '-U', $username, '-d', $databaseName, '-c', $Sql)
+    $argsBase = @('-h', $dbHost, '-p', [string]$port, '-U', $username, '-d', $databaseName, '-c', $Sql)
     $attempt = 0
     do {
         $attempt++
@@ -868,7 +868,7 @@ function Invoke-SyslogIngestion {
     }
 }
 
-function Load-AsusState {
+function Get-AsusState {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$Path
@@ -884,6 +884,9 @@ function Load-AsusState {
         return @{}
     }
 }
+
+# Back-compat alias (previous name used an unapproved verb per PSScriptAnalyzer).
+Set-Alias -Name Load-AsusState -Value Get-AsusState -Scope Script
 
 function Save-AsusState {
     [CmdletBinding()]
@@ -1039,7 +1042,7 @@ function Invoke-PostgresEventCopy {
         throw "psql executable '$psqlPath' not found in PATH. Set Database.PsqlPath in config.json."
     }
 
-    $host = (Get-DbSetting $Database 'Host') ?? 'localhost'
+    $dbHost = (Get-DbSetting $Database 'Host') ?? 'localhost'
     $port = (Get-DbSetting $Database 'Port') ?? 5432
     $databaseName = (Get-DbSetting $Database 'Database') ?? (Get-DbSetting $Database 'Name')
     $username = (Get-DbSetting $Database 'Username') ?? (Get-DbSetting $Database 'User')
@@ -1057,7 +1060,7 @@ function Invoke-PostgresEventCopy {
 
     $schema = (Get-DbSetting $Database 'Schema') ?? 'telemetry'
     $copyCommand = "\copy $schema.events (event_type, source, severity, subject, occurred_at, received_at, correlation_id, payload) FROM '$CsvPath' WITH (FORMAT csv, HEADER true, DELIMITER ',')"
-    $argsBase = @('-h', $host, '-p', [string]$port, '-U', $username, '-d', $databaseName, '-c', $copyCommand)
+    $argsBase = @('-h', $dbHost, '-p', [string]$port, '-U', $username, '-d', $databaseName, '-c', $copyCommand)
 
     $attempt = 0
     do {
@@ -1164,28 +1167,28 @@ function Get-WindowsEventBatch {
 function Convert-WinEventToTelemetryEvent {
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory)][System.Diagnostics.Eventing.Reader.EventRecord]$Event
+        [Parameter(Mandatory)][System.Diagnostics.Eventing.Reader.EventRecord]$WinEvent
     )
 
     $payload = [ordered]@{
-        log_name   = $Event.LogName
-        provider   = $Event.ProviderName
-        event_id   = $Event.Id
-        record_id  = $Event.RecordId
-        level      = $Event.LevelDisplayName
-        task       = $Event.TaskDisplayName
-        machine    = $Event.MachineName
-        message    = $Event.Message
+        log_name   = $WinEvent.LogName
+        provider   = $WinEvent.ProviderName
+        event_id   = $WinEvent.Id
+        record_id  = $WinEvent.RecordId
+        level      = $WinEvent.LevelDisplayName
+        task       = $WinEvent.TaskDisplayName
+        machine    = $WinEvent.MachineName
+        message    = $WinEvent.Message
     } | ConvertTo-Json -Compress
 
     return [pscustomobject]@{
         EventType     = 'windows_event'
-        Source        = $Event.LogName
-        Severity      = ConvertTo-EventSeverity -LevelDisplayName $Event.LevelDisplayName -Level $Event.Level
-        Subject       = $Event.ProviderName
-        OccurredAt    = $Event.TimeCreated
+        Source        = $WinEvent.LogName
+        Severity      = ConvertTo-EventSeverity -LevelDisplayName $WinEvent.LevelDisplayName -Level $WinEvent.Level
+        Subject       = $WinEvent.ProviderName
+        OccurredAt    = $WinEvent.TimeCreated
         ReceivedAt    = (Get-Date).ToUniversalTime()
-        CorrelationId = "$($Event.LogName):$($Event.RecordId)"
+        CorrelationId = "$($WinEvent.LogName):$($WinEvent.RecordId)"
         Payload       = $payload
     }
 }
@@ -1342,7 +1345,7 @@ function Start-TelemetryService {
     $nextFlush = (Get-Date).AddSeconds($ingestion.BatchIntervalSeconds)
     $nextAsus = (Get-Date)
     $nextEvents = (Get-Date)
-    $asusState = Load-AsusState -Path $config.Service.Asus.StatePath
+    $asusState = Get-AsusState -Path $config.Service.Asus.StatePath
     $eventsState = Load-EventIngestionState -Path $eventsConfig.StatePath
 
     try {
@@ -1353,7 +1356,7 @@ function Start-TelemetryService {
                 if ($bytes.Length -gt 0) {
                     $text = [System.Text.Encoding]::UTF8.GetString($bytes)
                     $parsed = ConvertFrom-SyslogLine -Line $text
-                    $event = [pscustomobject]@{
+                    $telemetryEvent = [pscustomobject]@{
                         ReceivedUtc    = [DateTime]::UtcNow
                         EventUtc       = $parsed.EventUtc
                         SourceHost     = $parsed.SourceHost
@@ -1365,7 +1368,7 @@ function Start-TelemetryService {
                         RemoteEndpoint = $remote.ToString()
                         Source         = 'syslog'
                     }
-                    $syslogBuffer.Add($event) | Out-Null
+                    $syslogBuffer.Add($telemetryEvent) | Out-Null
                 }
             }
             catch [System.Net.Sockets.SocketException] {
@@ -1403,7 +1406,7 @@ function Start-TelemetryService {
                         $batchInfo = Get-WindowsEventBatch -Config $eventsConfig -State $eventsState
                         $winEvents = @($batchInfo.Events)
                         if ($winEvents.Count -gt 0) {
-                            $payload = $winEvents | ForEach-Object { Convert-WinEventToTelemetryEvent -Event $_ }
+                            $payload = $winEvents | ForEach-Object { Convert-WinEventToTelemetryEvent -WinEvent $_ }
                             Invoke-EventIngestion -Events $payload -Ingestion $ingestion -Database $database
                             $eventsState = $batchInfo.NextState
                             Save-EventIngestionState -State $eventsState -Path $eventsConfig.StatePath
