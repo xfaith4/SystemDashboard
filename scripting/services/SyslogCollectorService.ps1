@@ -15,7 +15,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..' '..')
+$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..' '..')).Path
 $telemetryModulePath = Join-Path $repoRoot "tools" "SystemDashboard.Telemetry.psm1"
 
 if (-not (Test-Path -LiteralPath $telemetryModulePath)) {
@@ -24,12 +24,37 @@ if (-not (Test-Path -LiteralPath $telemetryModulePath)) {
 
 Import-Module $telemetryModulePath -Force -Global
 
+function Load-DbSecrets {
+    $connectionFile = Join-Path $repoRoot 'var' 'database-connection.json'
+    if (-not (Test-Path -LiteralPath $connectionFile)) {
+        return
+    }
+
+    try {
+        $connectionInfo = Get-Content -LiteralPath $connectionFile -Raw | ConvertFrom-Json
+    }
+    catch {
+        Write-Warning "Failed to read database connection info from $connectionFile"
+        return
+    }
+
+    if ($connectionInfo.IngestPassword -and -not $env:SYSTEMDASHBOARD_DB_PASSWORD) {
+        $env:SYSTEMDASHBOARD_DB_PASSWORD = $connectionInfo.IngestPassword
+    }
+
+    if ($connectionInfo.ReaderPassword -and -not $env:SYSTEMDASHBOARD_DB_READER_PASSWORD) {
+        $env:SYSTEMDASHBOARD_DB_READER_PASSWORD = $connectionInfo.ReaderPassword
+    }
+}
+
 # Load and override config so this service only handles syslog
 try {
     $config = Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Json
 } catch {
     throw "Failed to read config file at $($ConfigPath): $($_.Exception.Message)"
 }
+
+Load-DbSecrets
 
 # Ensure log directory
 $logDir = Join-Path $repoRoot "var" "log"

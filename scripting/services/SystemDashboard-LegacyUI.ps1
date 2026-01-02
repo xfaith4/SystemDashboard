@@ -30,16 +30,16 @@ function Get-DashboardProcess {
     if (-not (Test-Path $PidFile)) {
         return $null
     }
-    $pid = Get-Content -LiteralPath $PidFile -ErrorAction SilentlyContinue
-    if (-not $pid) { return $null }
-    $proc = Get-Process -Id $pid -ErrorAction SilentlyContinue
+    $dashboardPid = Get-Content -LiteralPath $PidFile -ErrorAction SilentlyContinue
+    if (-not $dashboardPid) { return $null }
+    $proc = Get-Process -Id $dashboardPid -ErrorAction SilentlyContinue
     if (-not $proc) {
         return $null
     }
 
     $scriptPath = (Resolve-Path -LiteralPath $PSCommandPath).Path
     try {
-        $processInfo = Get-CimInstance Win32_Process -Filter "ProcessId = $pid" -ErrorAction SilentlyContinue
+        $processInfo = Get-CimInstance Win32_Process -Filter "ProcessId = $dashboardPid" -ErrorAction SilentlyContinue
         $cmdLine = $processInfo.CommandLine
         if ($cmdLine -and ($cmdLine -match [regex]::Escape($scriptPath) -or $cmdLine -match 'SystemDashboard-LegacyUI\.ps1')) {
             return $proc
@@ -50,7 +50,7 @@ function Get-DashboardProcess {
         return $proc
     }
 
-    Write-ServiceLog "Stale PID file detected (PID: $pid); removing."
+    Write-ServiceLog "Stale PID file detected (PID: $dashboardPid); removing."
     Remove-Item -LiteralPath $PidFile -Force -ErrorAction SilentlyContinue
     return $null
 }
@@ -71,13 +71,46 @@ function Test-DashboardHealth {
         }
     }
 
-    $url = ($prefix.TrimEnd('/') + '/metrics')
+    $metricsUrl = ($prefix.TrimEnd('/') + '/metrics')
+    $appUrl = ($prefix.TrimEnd('/') + '/app.js')
     try {
-        $response = Invoke-WebRequest -Uri $url -TimeoutSec 3 -UseBasicParsing -ErrorAction Stop
-        return ($response.StatusCode -ge 200 -and $response.StatusCode -lt 400)
+        $metricsResponse = Invoke-WebRequest -Uri $metricsUrl -TimeoutSec 3 -UseBasicParsing -ErrorAction Stop
+        if ($metricsResponse.StatusCode -lt 200 -or $metricsResponse.StatusCode -ge 400) {
+            return $false
+        }
+        $appResponse = Invoke-WebRequest -Uri $appUrl -TimeoutSec 3 -UseBasicParsing -ErrorAction Stop
+        return ($appResponse.StatusCode -ge 200 -and $appResponse.StatusCode -lt 400)
     }
     catch {
         return $false
+    }
+}
+
+function Clear-UrlAclConflicts {
+    param([int]$Port)
+
+    if (-not $IsWindows) {
+        return
+    }
+    try {
+        $entries = netsh http show urlacl | Select-String -Pattern "http.*:$Port/" | ForEach-Object {
+            $line = $_.Line
+            if ($line -match 'Reserved URL\s*:\s*(\S+)') {
+                return $Matches[1]
+            }
+            if ($line -match '(http[s]?://\S+)') {
+                return $Matches[1]
+            }
+            return $null
+        } | Where-Object { $_ }
+
+        foreach ($url in ($entries | Sort-Object -Unique)) {
+            Write-ServiceLog "Removing URLACL: $url"
+            Start-Process -FilePath netsh -ArgumentList @('http','delete','urlacl',"url=$url") -Wait -WindowStyle Hidden | Out-Null
+        }
+    }
+    catch {
+        Write-ServiceLog "WARNING: Failed to clear URLACL conflicts: $($_.Exception.Message)"
     }
 }
 
@@ -86,11 +119,12 @@ function Start-DashboardService {
     if ($existing) {
         if (Test-DashboardHealth -ConfigPath $ConfigPath) {
             Write-ServiceLog "Dashboard already running (PID: $($existing.Id))"
-            return
         }
-        Write-ServiceLog "Stale dashboard process detected (PID: $($existing.Id)); restarting."
-        Stop-Process -Id $existing.Id -Force -ErrorAction SilentlyContinue
-        Start-Sleep -Seconds 1
+        else {
+            Write-ServiceLog "Stale dashboard process detected (PID: $($existing.Id)); restarting."
+            Stop-Process -Id $existing.Id -Force -ErrorAction SilentlyContinue
+            Start-Sleep -Seconds 1
+        }
     }
 
     $defaultConfig = Join-Path $RootPath "config.json"
@@ -128,7 +162,7 @@ function Start-DashboardService {
         exit 1
     }
 
-    $env:SYSTEMDASHBOARD_ROOT = $RootPath
+    $env:SYSTEMDASHBOARD_ROOT = Join-Path $RootPath 'wwwroot'
     $env:SYSTEMDASHBOARD_CONFIG = $resolvedConfig
 
     $autoHealScript = Join-Path $RootPath 'scripting\auto-heal.ps1'
@@ -152,16 +186,63 @@ function Start-DashboardService {
 
     Write-ServiceLog "Starting legacy dashboard listener..."
     Write-ServiceLog "Config: $resolvedConfig"
-    try {
-        Set-Content -LiteralPath $PidFile -Value $PID -Encoding ascii
-        & (Join-Path $RootPath 'Start-SystemDashboard.ps1') -Mode Legacy -ConfigPath $resolvedConfig -SkipPreflight -SkipDatabaseCheck -SkipInstall
-    }
-    catch {
-        Write-ServiceLog "ERROR: Legacy dashboard failed: $($_.Exception.Message)"
+
+    $launcher = Join-Path $RootPath 'Start-SystemDashboard.ps1'
+    if (-not (Test-Path -LiteralPath $launcher)) {
+        Write-ServiceLog "ERROR: Launcher not found at $launcher"
         exit 1
     }
-    finally {
+
+    Clear-UrlAclConflicts -Port 15000
+
+    $args = @(
+        '-NoProfile',
+        '-File',
+        $launcher,
+        '-Mode',
+        'Legacy',
+        '-ConfigPath',
+        $resolvedConfig,
+        '-SkipPreflight',
+        '-SkipDatabaseCheck',
+        '-SkipInstall'
+    )
+
+    $failCount = 0
+    while ($true) {
+        try {
+            $proc = Start-Process -FilePath 'pwsh.exe' -ArgumentList $args -WorkingDirectory $RootPath -PassThru
+            Set-Content -LiteralPath $PidFile -Value $proc.Id -Encoding ascii
+            Write-ServiceLog "Legacy dashboard process started (PID: $($proc.Id))"
+        }
+        catch {
+            Write-ServiceLog "ERROR: Legacy dashboard failed to start: $($_.Exception.Message)"
+            Start-Sleep -Seconds 10
+            continue
+        }
+
+        while ($true) {
+            Start-Sleep -Seconds 10
+            $proc.Refresh()
+            if ($proc.HasExited) {
+                Write-ServiceLog "Legacy dashboard process exited (code: $($proc.ExitCode))."
+                break
+            }
+            if (-not (Test-DashboardHealth -ConfigPath $resolvedConfig)) {
+                $failCount += 1
+                Write-ServiceLog "Legacy dashboard health check failed ($failCount)."
+                if ($failCount -ge 3) {
+                    Write-ServiceLog "Restarting legacy dashboard process due to failed health checks."
+                    try { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue } catch {}
+                    break
+                }
+            }
+            else {
+                $failCount = 0
+            }
+        }
         Remove-Item -LiteralPath $PidFile -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 2
     }
 }
 
