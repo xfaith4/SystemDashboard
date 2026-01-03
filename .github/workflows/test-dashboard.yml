@@ -56,7 +56,9 @@ jobs:
           }
           finally {
             if ($job) {
-              try { Stop-Job $job -ErrorAction Stop } catch { Write-Warning "Failed to stop dashboard job: $($_.Exception.Message)" }
+              if ($job.State -eq 'Running') {
+                try { Stop-Job $job -ErrorAction Stop } catch { Write-Warning "Failed to stop dashboard job: $($_.Exception.Message)" }
+              }
               try { Remove-Job $job -ErrorAction Stop } catch { Write-Warning "Failed to remove dashboard job: $($_.Exception.Message)" }
             }
           }
