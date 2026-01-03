@@ -17,6 +17,10 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $repoRoot = $PSScriptRoot
+$localConfigPath = Join-Path $repoRoot 'config.local.json'
+if (-not $PSBoundParameters.ContainsKey('ConfigPath') -and (Test-Path -LiteralPath $localConfigPath)) {
+    $ConfigPath = $localConfigPath
+}
 $scriptingRoot = Join-Path $repoRoot 'scripting'
 $scriptingModule = Join-Path $scriptingRoot 'SystemDashboard.Scripting.psm1'
 if (-not (Test-Path -LiteralPath $scriptingModule)) {

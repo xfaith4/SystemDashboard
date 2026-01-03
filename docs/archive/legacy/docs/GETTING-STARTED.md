@@ -30,7 +30,7 @@ Before you begin, ensure you have:
 1. **Clone the repository**
 
    ```powershell
-   git clone https://github.com/xfaith4/SystemDashboard.git
+   git clone https://github.com/your-username/SystemDashboard.git
    cd SystemDashboard
    ```
 
@@ -360,7 +360,7 @@ Now that you have SystemDashboard running:
 - **Check Logs**: Most issues are explained in log files under `var/log/`
 - **Health Check**: Visit http://localhost:5000/health/detailed for system status
 - **Documentation**: See the `docs/` directory for detailed guides
-- **Issues**: Report bugs at https://github.com/xfaith4/SystemDashboard/issues
+- **Issues**: Report bugs at https://github.com/your-username/SystemDashboard/issues
 
 ## Quick Reference Card
 

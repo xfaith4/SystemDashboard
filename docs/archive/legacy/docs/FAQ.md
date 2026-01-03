@@ -476,7 +476,7 @@ For lower specs, reduce collection frequency and enable aggressive data retentio
 
 1. Check logs for error messages
 2. Run health check: http://localhost:5000/health/detailed
-3. Create an issue at: https://github.com/xfaith4/SystemDashboard/issues
+3. Create an issue at: https://github.com/your-username/SystemDashboard/issues
 
 Include:
 - SystemDashboard version (check git commit)

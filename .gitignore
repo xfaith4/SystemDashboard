@@ -88,6 +88,12 @@ var/**
 .DS_Store
 Thumbs.db
 
+# Env files
+.env
+
 # Repo-specific archives
 SystemDashboard-1.zip
 SystemDashboard.zip
+
+# Local config overrides
+config.local.json

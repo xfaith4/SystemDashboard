@@ -63,7 +63,7 @@ Before contributing, ensure you have:
 
 3. **Add upstream remote**:
    ```powershell
-   git remote add upstream https://github.com/xfaith4/SystemDashboard.git
+   git remote add upstream https://github.com/your-username/SystemDashboard.git
    ```
 
 4. **Set up development environment**:

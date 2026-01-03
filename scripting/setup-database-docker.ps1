@@ -17,7 +17,7 @@ Name of the database to create (default: system_dashboard)
 PostgreSQL admin user (default: postgres)
 
 .PARAMETER AdminPassword
-PostgreSQL admin password (default: mysecretpassword)
+PostgreSQL admin password (default: ChangeMe123!)
 
 .PARAMETER IngestUser
 Database user for data ingestion (default: sysdash_ingest)
@@ -52,7 +52,7 @@ param(
     [string]$AdminUser = "postgres",
 
     [Parameter(HelpMessage="PostgreSQL admin password")]
-    [string]$AdminPassword = "mysecretpassword",
+    [string]$AdminPassword = "ChangeMe123!",
 
     [Parameter(HelpMessage="Database user for data ingestion")]
     [string]$IngestUser = "sysdash_ingest",

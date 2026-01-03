@@ -105,4 +105,4 @@ If you encounter issues:
 1. Check the [Troubleshooting Guide](TROUBLESHOOTING.md)
 2. Review service logs in `var/log/`
 3. Run the environment validator: `python validate-environment.py`
-4. Check the [GitHub Issues](https://github.com/xfaith4/SystemDashboard/issues)
+4. Check the [GitHub Issues](https://github.com/your-username/SystemDashboard/issues)

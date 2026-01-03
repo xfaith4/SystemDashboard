@@ -21,8 +21,11 @@ $script:ModuleRoot = if ($PSScriptRoot) {
     Get-Location
 }
 
+$localConfigPath = Join-Path $script:ModuleRoot 'config.local.json'
 $ConfigPath = if ($env:SYSTEMDASHBOARD_CONFIG) {
     $env:SYSTEMDASHBOARD_CONFIG
+} elseif (Test-Path -LiteralPath $localConfigPath) {
+    $localConfigPath
 } else {
     Join-Path $script:ModuleRoot 'config.json'
 }

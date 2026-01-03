@@ -52,7 +52,7 @@ function Get-RouterClientListViaHttp {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$RouterIP,
-        [Parameter()][string]$Username = 'xfaith',
+        [Parameter()][string]$Username = 'admin',
         [string] $Password = $env:ASUS_ROUTER_PASSWORD,
         [Parameter()][int]$TimeoutSeconds = 30
     )
@@ -73,7 +73,7 @@ function Get-RouterClientListViaSsh {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$RouterIP,
-        [Parameter()][string]$Username = 'xfaith',
+        [Parameter()][string]$Username = 'admin',
         [Parameter()][string] $Password = $env:ASUS_ROUTER_PASSWORD,
         [Parameter()][int]$TimeoutSeconds = 30,
         [Parameter()][int]$Port = 1099

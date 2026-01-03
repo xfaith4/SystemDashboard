@@ -62,7 +62,7 @@ function Initialize-SystemDashboardDockerDatabase {
         [string]$ContainerName = "postgres-container",
         [string]$DatabaseName = "system_dashboard",
         [string]$AdminUser = "postgres",
-        [string]$AdminPassword = "mysecretpassword",
+        [string]$AdminPassword = "ChangeMe123!",
         [string]$IngestUser = "sysdash_ingest",
         [string]$ReaderUser = "sysdash_reader",
         [string]$DatabaseHost = "localhost",

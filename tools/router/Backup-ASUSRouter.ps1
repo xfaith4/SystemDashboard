@@ -1,8 +1,8 @@
 param(
     [Parameter(Mandatory)] 
     [string]$RouterIP,
-    [string]$User = 'xfaith',
-    [int]$Port = 1099,  # <-- your port
+    [string]$User = 'admin',
+    [int]$Port = 22,
     [string]$OutDir = "$PWD\RouterBackup_$((Get-Date).ToString('yyyyMMdd_HHmmss'))"
 )
 

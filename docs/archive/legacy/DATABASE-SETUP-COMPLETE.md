@@ -9,7 +9,7 @@ Your System Dashboard database has been successfully created using Docker Postgr
 - **Container**: `postgres-container`
 - **Database**: `system_dashboard`
 - **Host**: `localhost:5432`
-- **Admin User**: `postgres` (password: `mysecretpassword`)
+- **Admin User**: `postgres` (password: `ChangeMe123!`)
 
 ### Service Users Created
 

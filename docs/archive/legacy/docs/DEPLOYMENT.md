@@ -103,7 +103,7 @@ New-Item -ItemType Directory -Path "C:\SystemDashboard" -Force
 cd C:\SystemDashboard
 
 # Clone repository
-git clone https://github.com/xfaith4/SystemDashboard.git .
+git clone https://github.com/your-username/SystemDashboard.git .
 
 # Verify clone
 Test-Path .\app\app.py  # Should return True

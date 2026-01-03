@@ -13,7 +13,7 @@ This guide covers installation, configuration, and permanent setup of the System
 ### 1. Clone and Configure
 
 ```powershell
-git clone https://github.com/xfaith4/SystemDashboard.git
+git clone https://github.com/your-username/SystemDashboard.git
 cd SystemDashboard
 ```
 

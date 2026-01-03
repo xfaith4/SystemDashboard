@@ -542,7 +542,7 @@ catch {
 2. **Install prerequisites** (PowerShell, Python, Git)
 3. **Clone repository**:
    ```powershell
-   git clone https://github.com/xfaith4/SystemDashboard.git C:\SystemDashboard
+   git clone https://github.com/your-username/SystemDashboard.git C:\SystemDashboard
    cd C:\SystemDashboard
    ```
 

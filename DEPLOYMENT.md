@@ -57,7 +57,8 @@
   ```
 
 ## Configuration notes
-- Default config lives at `config.json`; override with `-ConfigPath` where provided.
+- Default config lives at `config.json`. If you create `config.local.json`, the launcher will prefer it automatically.
+- Override with `-ConfigPath` where provided.
 - Database passwords can be supplied via `SYSTEMDASHBOARD_DB_PASSWORD` / `SYSTEMDASHBOARD_DB_READER_PASSWORD` or `var/database-connection.json`.
 - LAN collector dependencies download to `lib/` via `Ensure-SystemDashboardLanDependencies`.
 

@@ -9,20 +9,20 @@ This captures the working setup that successfully loads telemetry in the legacy 
   - If 15000 is reserved, the listener auto-tries 15001-15009 and logs the chosen prefix.
 
 ## Configuration file
-The source of truth is `config.json` (used by both PowerShell and Flask). Current values:
+The source of truth is `config.json` (used by both PowerShell and Flask). If `config.local.json` exists, the launcher prefers it automatically. Current values:
 - Prefix: `http://localhost:15000/`
 - Root: `./wwwroot`
 - IndexHtml: `./wwwroot/index.html`
 - CssFile: `./wwwroot/styles.css`
-- RouterIP: `192.168.50.1`
+- RouterIP: `192.168.1.1`
 - Database:
   - Host: `localhost`
-  - Port: `5433`
+  - Port: `5432`
   - Database: `system_dashboard`
   - Schema: `telemetry`
   - Username (ingest): `sysdash_ingest`
   - PasswordSecret: `env:SYSTEMDASHBOARD_DB_PASSWORD`
-  - PsqlPath: `C:/Program Files/PostgreSQL/18/bin/psql.exe`
+  - PsqlPath: `psql`
 
 ## Secrets and environment variables
 The launcher sets these for the UI and API paths:

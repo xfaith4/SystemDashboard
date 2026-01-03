@@ -12,7 +12,7 @@
     "provider": "AsuswrtSsh",
     "host": "192.168.1.1",
     "port": 22,
-    "user": "xfaith4"
+    "user": "admin"
   },
   "syslog": {
     "paths": [
@@ -48,7 +48,7 @@
       "enabled": false,
       "uri": "http://192.168.50.1/syslog.txt",
       "hostName": "asus-router",
-      "username": "xfaith4",
+      "username": "admin",
       "passwordSecret": "env:ASUS_ROUTER_PASSWORD",
       "pollIntervalSeconds": 60,
       "downloadPath": ".\\var\\asus",
