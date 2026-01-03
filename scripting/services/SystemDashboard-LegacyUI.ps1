@@ -72,7 +72,7 @@ function Get-PrefixCandidates {
     try {
         $uri = [System.Uri]$Prefix
         $scheme = $uri.Scheme
-        $host = $uri.Host
+        $hostname = $uri.Host
         $port = if ($uri.Port -gt 0) { $uri.Port } else { 15000 }
     } catch {
         return @($Prefix)
@@ -80,7 +80,7 @@ function Get-PrefixCandidates {
 
     $candidates = @()
     for ($i = 0; $i -lt $MaxPorts; $i++) {
-        $candidates += ('{0}://{1}:{2}/' -f $scheme, $host, ($port + $i))
+        $candidates += ('{0}://{1}:{2}/' -f $scheme, $hostname, ($port + $i))
     }
 
     return $candidates
@@ -237,6 +237,22 @@ function Start-DashboardService {
 
     $env:SYSTEMDASHBOARD_ROOT = Join-Path $RootPath 'wwwroot'
     $env:SYSTEMDASHBOARD_CONFIG = $resolvedConfig
+    $env:SYSTEMDASHBOARD_LISTENER_LOG = Join-Path $LogDir 'dashboard-listener.log'
+
+    $connectionFile = Join-Path $RootPath 'var\database-connection.json'
+    if (Test-Path -LiteralPath $connectionFile) {
+        try {
+            $connectionInfo = Get-Content -LiteralPath $connectionFile -Raw | ConvertFrom-Json
+            if ($connectionInfo.IngestPassword -and -not $env:SYSTEMDASHBOARD_DB_PASSWORD) {
+                $env:SYSTEMDASHBOARD_DB_PASSWORD = $connectionInfo.IngestPassword
+            }
+            if ($connectionInfo.ReaderPassword -and -not $env:SYSTEMDASHBOARD_DB_READER_PASSWORD) {
+                $env:SYSTEMDASHBOARD_DB_READER_PASSWORD = $connectionInfo.ReaderPassword
+            }
+        } catch {
+            Write-ServiceLog "WARNING: Failed to load database secrets: $($_.Exception.Message)"
+        }
+    }
 
     $autoHealScript = Join-Path $RootPath 'scripting\auto-heal.ps1'
     if (Test-Path -LiteralPath $autoHealScript) {
@@ -270,7 +286,7 @@ function Start-DashboardService {
     $configuredPort = Get-PrefixPort -Prefix $configuredPrefix
     Clear-UrlAclConflicts -Port $configuredPort
 
-    $args = @(
+    $launcherArgs = @(
         '-NoProfile',
         '-File',
         $launcher,
@@ -286,7 +302,7 @@ function Start-DashboardService {
     $failCount = 0
     while ($true) {
         try {
-            $proc = Start-Process -FilePath 'pwsh.exe' -ArgumentList $args -WorkingDirectory $RootPath -PassThru
+            $proc = Start-Process -FilePath 'pwsh.exe' -ArgumentList $launcherArgs -WorkingDirectory $RootPath -PassThru
             Set-Content -LiteralPath $PidFile -Value $proc.Id -Encoding ascii
             Write-ServiceLog "Legacy dashboard process started (PID: $($proc.Id))"
         }

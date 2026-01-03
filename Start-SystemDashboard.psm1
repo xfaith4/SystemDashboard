@@ -50,7 +50,20 @@ function Write-Log {
         [ValidateSet('INFO','WARN','ERROR')][string]$Level = 'INFO'
     )
     $ts = Get-Date -Format o
-    Write-Information "[$ts] [$Level] $Message" -InformationAction Continue
+    $line = "[$ts] [$Level] $Message"
+    Write-Information $line -InformationAction Continue
+
+    $logPath = $env:SYSTEMDASHBOARD_LISTENER_LOG
+    if (-not $logPath -and $script:Config -and $script:Config.Logging -and $script:Config.Logging.LogPath) {
+        $logPath = Resolve-ConfigPathValue $script:Config.Logging.LogPath
+    }
+    if ($logPath) {
+        try {
+            $line | Out-File -FilePath $logPath -Append -Encoding utf8
+        } catch {
+            # Avoid logging loops if the log path is invalid.
+        }
+    }
 }
 
 function Get-MockSystemMetrics {
@@ -457,6 +470,7 @@ function Start-SystemDashboardListener {
             $res = $context.Response
             $rawPath = $req.RawUrl.Split('?',2)[0]
             $requestPath = [System.Uri]::UnescapeDataString($rawPath)
+            try {
             if ($requestPath -eq '/metrics') {
                 # Try to collect real metrics on Windows, fallback to mock data otherwise
                 try {
@@ -954,6 +968,17 @@ SELECT COALESCE(json_agg(t), '[]'::json) FROM (
                 $res.StatusDescription = 'Not Found'
             }
             $res.Close()
+            } catch {
+                $pathLabel = if ($requestPath) { $requestPath } else { $req.RawUrl }
+                Write-Log -Level 'ERROR' -Message ("Request failed for {0}: {1}" -f $pathLabel, $_.Exception.Message)
+                try {
+                    if ($res) {
+                        Write-JsonResponse -Response $res -Json '{"error":"request failed"}' -StatusCode 500
+                    }
+                } catch {
+                    try { $res.Close() } catch {}
+                }
+            }
         }
     } catch {
         Write-Log -Level 'ERROR' -Message $_
