@@ -11,6 +11,8 @@ $LogDir = Join-Path $RootPath "var\log"
 $RunDir = Join-Path $RootPath "var\run"
 $LogFile = Join-Path $LogDir "dashboard-ui.log"
 $PidFile = Join-Path $RunDir "dashboard-legacy.pid"
+$PrefixFile = Join-Path $RunDir "dashboard-legacy.prefix"
+$script:ActivePrefix = $null
 
 if (-not (Test-Path $LogDir)) {
     New-Item -ItemType Directory -Path $LogDir -Force | Out-Null
@@ -24,6 +26,81 @@ function Write-ServiceLog {
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     "$timestamp - $Message" | Out-File -FilePath $LogFile -Append -Encoding utf8
     Write-Host "$timestamp - $Message"
+}
+
+function Resolve-ConfiguredPrefix {
+    param([string]$ConfigPath)
+
+    $defaultPrefix = 'http://localhost:15000/'
+    if (-not $ConfigPath -or -not (Test-Path -LiteralPath $ConfigPath)) {
+        return $defaultPrefix
+    }
+
+    try {
+        $cfg = Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Json
+        if ($cfg.Prefix) {
+            return [string]$cfg.Prefix
+        }
+    } catch {
+        return $defaultPrefix
+    }
+
+    return $defaultPrefix
+}
+
+function Get-PrefixPort {
+    param([string]$Prefix)
+
+    try {
+        $uri = [System.Uri]$Prefix
+        if ($uri.Port -gt 0) {
+            return $uri.Port
+        }
+    } catch {
+        # ignore
+    }
+
+    return 15000
+}
+
+function Get-PrefixCandidates {
+    param(
+        [string]$Prefix,
+        [int]$MaxPorts = 10
+    )
+
+    try {
+        $uri = [System.Uri]$Prefix
+        $scheme = $uri.Scheme
+        $host = $uri.Host
+        $port = if ($uri.Port -gt 0) { $uri.Port } else { 15000 }
+    } catch {
+        return @($Prefix)
+    }
+
+    $candidates = @()
+    for ($i = 0; $i -lt $MaxPorts; $i++) {
+        $candidates += ('{0}://{1}:{2}/' -f $scheme, $host, ($port + $i))
+    }
+
+    return $candidates
+}
+
+function Test-PrefixHealth {
+    param([string]$Prefix)
+
+    $metricsUrl = ($Prefix.TrimEnd('/') + '/metrics')
+    $appUrl = ($Prefix.TrimEnd('/') + '/app.js')
+    try {
+        $metricsResponse = Invoke-WebRequest -Uri $metricsUrl -TimeoutSec 3 -UseBasicParsing -ErrorAction Stop
+        if ($metricsResponse.StatusCode -lt 200 -or $metricsResponse.StatusCode -ge 400) {
+            return $false
+        }
+        $appResponse = Invoke-WebRequest -Uri $appUrl -TimeoutSec 3 -UseBasicParsing -ErrorAction Stop
+        return ($appResponse.StatusCode -ge 200 -and $appResponse.StatusCode -lt 400)
+    } catch {
+        return $false
+    }
 }
 
 function Get-DashboardProcess {
@@ -58,32 +135,28 @@ function Get-DashboardProcess {
 function Test-DashboardHealth {
     param([string]$ConfigPath)
 
-    $prefix = 'http://localhost:15000/'
-    if ($ConfigPath -and (Test-Path -LiteralPath $ConfigPath)) {
-        try {
-            $cfg = Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Json
-            if ($cfg.Prefix) {
-                $prefix = [string]$cfg.Prefix
+    $prefix = Resolve-ConfiguredPrefix -ConfigPath $ConfigPath
+    $candidates = Get-PrefixCandidates -Prefix $prefix
+    if ($script:ActivePrefix) {
+        $candidates = @($script:ActivePrefix) + ($candidates | Where-Object { $_ -ne $script:ActivePrefix })
+    }
+
+    foreach ($candidate in $candidates) {
+        if (Test-PrefixHealth -Prefix $candidate) {
+            if ($script:ActivePrefix -ne $candidate) {
+                $script:ActivePrefix = $candidate
+                try {
+                    Set-Content -LiteralPath $PrefixFile -Value $candidate -Encoding ascii
+                } catch {
+                    # ignore logging failures
+                }
+                Write-ServiceLog "Detected legacy dashboard listener at $candidate"
             }
-        }
-        catch {
-            # Keep default
+            return $true
         }
     }
 
-    $metricsUrl = ($prefix.TrimEnd('/') + '/metrics')
-    $appUrl = ($prefix.TrimEnd('/') + '/app.js')
-    try {
-        $metricsResponse = Invoke-WebRequest -Uri $metricsUrl -TimeoutSec 3 -UseBasicParsing -ErrorAction Stop
-        if ($metricsResponse.StatusCode -lt 200 -or $metricsResponse.StatusCode -ge 400) {
-            return $false
-        }
-        $appResponse = Invoke-WebRequest -Uri $appUrl -TimeoutSec 3 -UseBasicParsing -ErrorAction Stop
-        return ($appResponse.StatusCode -ge 200 -and $appResponse.StatusCode -lt 400)
-    }
-    catch {
-        return $false
-    }
+    return $false
 }
 
 function Clear-UrlAclConflicts {
@@ -193,7 +266,9 @@ function Start-DashboardService {
         exit 1
     }
 
-    Clear-UrlAclConflicts -Port 15000
+    $configuredPrefix = Resolve-ConfiguredPrefix -ConfigPath $resolvedConfig
+    $configuredPort = Get-PrefixPort -Prefix $configuredPrefix
+    Clear-UrlAclConflicts -Port $configuredPort
 
     $args = @(
         '-NoProfile',
