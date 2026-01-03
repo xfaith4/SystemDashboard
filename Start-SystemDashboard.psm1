@@ -264,10 +264,11 @@ function Invoke-PostgresJsonQuery {
         }
     }
 
-    $json = ($output | Where-Object { $_ -and $_.Trim() -ne '' } | Select-Object -First 1)
-    if (-not $json) {
+    $lines = @($output | Where-Object { $_ -and $_.Trim() -ne '' } | ForEach-Object { $_.TrimEnd() })
+    if (-not $lines) {
         return '[]'
     }
+    $json = $lines -join "`n"
     return $json.Trim()
 }
 
@@ -409,10 +410,39 @@ function Start-SystemDashboardListener {
             throw "Static asset not found: $asset"
         }
     }
-    Ensure-UrlAcl -Prefix $Prefix
-    $l = [System.Net.HttpListener]::new()
-    $l.Prefixes.Add($Prefix)
-    $l.Start()
+    $listener = $null
+    $started = $false
+    $attempts = 0
+    $maxAttempts = 10
+    $basePrefix = $Prefix
+    $baseUri = [System.Uri]$basePrefix
+    $port = $baseUri.Port
+    $prefixTemplate = '{0}://{1}:{2}/' -f $baseUri.Scheme, $baseUri.Host, '{0}'
+    while (-not $started -and $attempts -lt $maxAttempts) {
+        $candidatePrefix = if ($attempts -eq 0) { $basePrefix } else { ($prefixTemplate -f ($port + $attempts)) }
+        try {
+            Ensure-UrlAcl -Prefix $candidatePrefix
+            $listener = [System.Net.HttpListener]::new()
+            $listener.Prefixes.Add($candidatePrefix)
+            $listener.Start()
+            $started = $true
+            $Prefix = $candidatePrefix
+            if ($attempts -gt 0) {
+                Write-Log -Level 'WARN' -Message ("Prefix {0} unavailable; switched to {1}" -f $basePrefix, $candidatePrefix)
+            }
+        } catch {
+            if ($listener) {
+                $listener.Close()
+            }
+            $listener = $null
+            Write-Log -Level 'WARN' -Message ("Failed to listen on prefix {0}: {1}" -f $candidatePrefix, $_.Exception.Message)
+        }
+        $attempts += 1
+    }
+    if (-not $started -or -not $listener) {
+        throw ("Failed to listen on prefix '{0}' after {1} attempts." -f $basePrefix, $maxAttempts)
+    }
+    $l = $listener
     Write-Log -Message "Listening on $Prefix"
     # Cache for network deltas
     $prevNet = @{}

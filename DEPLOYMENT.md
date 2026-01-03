@@ -38,10 +38,11 @@
    ```
 
 ## Launch and verification
-- Start the dashboard with preflight checks:
+- Start the dashboard with preflight checks (known-good legacy path):
   ```
-  pwsh -NoProfile -File .\Start-SystemDashboard.ps1 [-DatabaseMode docker]
+  pwsh -NoProfile -File .\Start-SystemDashboard.ps1 -Mode Legacy [-DatabaseMode docker]
   ```
+- If port 15000 is reserved, the listener auto-tries 15001-15009 and logs the chosen prefix.
 - Check database connectivity as the reader account:
   ```
   Test-SystemDashboardTelemetryDatabase -ConfigPath .\config.json

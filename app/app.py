@@ -108,10 +108,13 @@ def get_db_settings():
 
 
 def get_db_connection():
+    pg_conn = db_postgres.get_db_connection()
+    if pg_conn is not None:
+        return pg_conn
     sqlite_path = _get_db_path()
     if sqlite_path:
         return _get_sqlite_connection()
-    return db_postgres.get_db_connection()
+    return None
 
 
 def _db_is_postgres(conn) -> bool:

@@ -24,6 +24,8 @@ SystemDashboard ingests system, syslog, and router telemetry and exposes dashboa
 
 ## Documentation
 - Deployment guide: [DEPLOYMENT.md](./DEPLOYMENT.md)
+- Current working configuration: [CURRENT_CONFIGURATION.md](./CURRENT_CONFIGURATION.md)
+- Lessons learned: [LESSONS_LEARNED.md](./LESSONS_LEARNED.md)
 - Change log: [CHANGELOG.md](./CHANGELOG.md)
 - Legacy and in-depth references are preserved under `docs/_Archive/` and `docs/archive/legacy/`.
 - Retired helper scripts remain available under `scripting/_Archive/`.
