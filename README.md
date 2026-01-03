@@ -44,6 +44,13 @@ See `docs/screenshots/README.md` for naming and capture guidance.
 - `Invoke-SystemDashboardAutoHeal` – run the one-time health probe with optional AI suggestions.
 - `Test-SystemDashboardTelemetryDatabase` – verify reader connectivity to Postgres.
 
+## Resiliency & diagnostics
+- Listener degrades gracefully when assets/config are missing; check `/api/status` for startup issues and last error.
+- Database calls use connect/query timeouts plus a circuit breaker; tune with `SYSTEMDASHBOARD_DB_CONNECT_TIMEOUT`, `SYSTEMDASHBOARD_DB_STATEMENT_TIMEOUT`, and `SYSTEMDASHBOARD_DB_CIRCUIT_*`.
+- Service restart backoff and crash history live in `var/log/dashboard-crash-history.log`; adjust with `SYSTEMDASHBOARD_RESTART_*`.
+- Listener/service logs: `var/log/dashboard-listener.log`, `var/log/dashboard-ui.log`, and per-run stdout/stderr `dashboard-listener-*.out.log` / `dashboard-listener-*.err.log`.
+- Optional structured logs and rotation via `SYSTEMDASHBOARD_LOG_FORMAT`, `SYSTEMDASHBOARD_LOG_MAX_MB`, `SYSTEMDASHBOARD_LOG_MAX_FILES`, `SYSTEMDASHBOARD_SERVICE_LOG_MAX_MB`, and `SYSTEMDASHBOARD_SERVICE_LOG_MAX_FILES`.
+
 ## Documentation
 - Deployment guide: [DEPLOYMENT.md](./DEPLOYMENT.md)
 - Current working configuration: [CURRENT_CONFIGURATION.md](./CURRENT_CONFIGURATION.md)

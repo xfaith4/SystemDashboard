@@ -11,6 +11,7 @@
   const DEVICES_SUMMARY_ENDPOINT = '/api/devices/summary';
   const ROUTER_KPI_ENDPOINT = '/api/router/kpis';
   const HEALTH_ENDPOINT = '/api/health';
+  const STATUS_ENDPOINT = '/api/status';
   const TELEMETRY_REFRESH_INTERVAL = 15000;
   const SYSLOG_PAGE_SIZE = 12;
   const EVENTS_PAGE_SIZE = 12;
@@ -73,6 +74,8 @@
   const refreshResumeBtn = document.getElementById('refresh-resume');
   const healthBannerEl = document.getElementById('health-banner');
   const healthBannerTextEl = document.getElementById('health-banner-text');
+  const serviceBannerEl = document.getElementById('service-banner');
+  const serviceBannerTextEl = document.getElementById('service-banner-text');
   const routerKpiUpdatedEl = document.getElementById('router-kpi-updated');
   const routerKpiTotalDropEl = document.getElementById('kpi-total-drop');
   const routerKpiIgmpDropEl = document.getElementById('kpi-igmp-drop');
@@ -177,6 +180,25 @@
       parts.push(`${minutes}m`);
     }
     return parts.length ? parts.join(' ') : '0m';
+  }
+
+  function formatDurationSeconds(totalSeconds) {
+    if (typeof totalSeconds !== 'number' || !isFinite(totalSeconds) || totalSeconds < 0) {
+      return '--';
+    }
+    const total = Math.floor(totalSeconds);
+    const days = Math.floor(total / 86400);
+    const hours = Math.floor((total % 86400) / 3600);
+    const minutes = Math.floor((total % 3600) / 60);
+    const parts = [];
+    if (days > 0) {
+      parts.push(`${days}d`);
+    }
+    if (hours > 0 || parts.length) {
+      parts.push(`${hours}h`);
+    }
+    parts.push(`${minutes}m`);
+    return parts.join(' ');
   }
 
   function formatTimestamp(value) {
@@ -361,6 +383,20 @@
     }
     healthBannerTextEl.textContent = message;
     healthBannerEl.classList.add('is-visible');
+  }
+
+  function renderServiceBanner(message, isWarning = false) {
+    if (!serviceBannerEl || !serviceBannerTextEl) {
+      return;
+    }
+    if (!message) {
+      serviceBannerEl.classList.remove('is-visible', 'service-banner--warn');
+      serviceBannerTextEl.textContent = '';
+      return;
+    }
+    serviceBannerTextEl.textContent = message;
+    serviceBannerEl.classList.add('is-visible');
+    serviceBannerEl.classList.toggle('service-banner--warn', Boolean(isWarning));
   }
 
   function setKpiValue(element, value) {
@@ -1018,6 +1054,46 @@
     }
   }
 
+  async function loadServiceStatus() {
+    if (!serviceBannerEl || !serviceBannerTextEl) {
+      return;
+    }
+    try {
+      const res = await fetch(`${STATUS_ENDPOINT}?_=${Date.now()}`, { cache: 'no-store' });
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      const parts = [];
+      const prefix = data?.listener?.prefix || `${window.location.origin}/`;
+      const uptime = data?.listener?.uptime_seconds;
+      if (prefix) {
+        parts.push(`Listener ${prefix}`);
+      }
+      if (typeof uptime === 'number') {
+        parts.push(`Uptime ${formatDurationSeconds(uptime)}`);
+      }
+      if (Array.isArray(data?.startup_issues) && data.startup_issues.length) {
+        parts.push(`Startup: ${truncateText(data.startup_issues[0], 120)}`);
+      }
+      if (data?.db?.circuit_open) {
+        parts.push('DB circuit open');
+      }
+      if (data?.last_error?.message) {
+        parts.push(`Last error: ${truncateText(data.last_error.message, 140)}`);
+      }
+      const isWarning = Boolean(
+        (data?.startup_issues && data.startup_issues.length) ||
+        data?.db?.circuit_open ||
+        data?.last_error?.message
+      );
+      renderServiceBanner(parts.join(' • '), isWarning);
+    } catch (err) {
+      console.error('Failed to load service status', err);
+      renderServiceBanner('Listener status unavailable.', true);
+    }
+  }
+
   async function loadRouterKpis() {
     if (!routerKpiTotalDropEl && !routerKpiIgmpDropEl) {
       return;
@@ -1082,6 +1158,7 @@
     await Promise.all([
       loadRouterKpis(),
       loadHealthStatus(),
+      loadServiceStatus(),
       loadSyslogSummary(),
       loadSyslogRows(),
       loadEventSummary(),

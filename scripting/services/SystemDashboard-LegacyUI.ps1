@@ -12,6 +12,13 @@ $RunDir = Join-Path $RootPath "var\run"
 $LogFile = Join-Path $LogDir "dashboard-ui.log"
 $PidFile = Join-Path $RunDir "dashboard-legacy.pid"
 $PrefixFile = Join-Path $RunDir "dashboard-legacy.prefix"
+$CrashLog = Join-Path $LogDir "dashboard-crash-history.log"
+$ServiceLogMaxMB = if ($env:SYSTEMDASHBOARD_SERVICE_LOG_MAX_MB) { [int]$env:SYSTEMDASHBOARD_SERVICE_LOG_MAX_MB } else { 5 }
+$ServiceLogMaxFiles = if ($env:SYSTEMDASHBOARD_SERVICE_LOG_MAX_FILES) { [int]$env:SYSTEMDASHBOARD_SERVICE_LOG_MAX_FILES } else { 5 }
+$RestartWindowSeconds = if ($env:SYSTEMDASHBOARD_RESTART_WINDOW_SECONDS) { [int]$env:SYSTEMDASHBOARD_RESTART_WINDOW_SECONDS } else { 300 }
+$RestartBaseDelaySeconds = if ($env:SYSTEMDASHBOARD_RESTART_BASE_SECONDS) { [int]$env:SYSTEMDASHBOARD_RESTART_BASE_SECONDS } else { 2 }
+$RestartMaxDelaySeconds = if ($env:SYSTEMDASHBOARD_RESTART_MAX_SECONDS) { [int]$env:SYSTEMDASHBOARD_RESTART_MAX_SECONDS } else { 60 }
+$script:CrashTimes = New-Object 'System.Collections.Generic.List[DateTime]'
 $script:ActivePrefix = $null
 
 if (-not (Test-Path $LogDir)) {
@@ -21,11 +28,95 @@ if (-not (Test-Path $RunDir)) {
     New-Item -ItemType Directory -Path $RunDir -Force | Out-Null
 }
 
+function Rotate-LogFile {
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [int]$MaxSizeMB = 5,
+        [int]$MaxFiles = 5
+    )
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return
+    }
+
+    $info = Get-Item -LiteralPath $Path -ErrorAction SilentlyContinue
+    if (-not $info -or $info.Length -lt ($MaxSizeMB * 1MB)) {
+        return
+    }
+
+    $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
+    $archivePath = "{0}.{1}.log" -f $Path, $timestamp
+    try {
+        Move-Item -LiteralPath $Path -Destination $archivePath -Force
+    } catch {
+        return
+    }
+
+    if ($MaxFiles -le 0) {
+        return
+    }
+
+    $dir = Split-Path -Parent $Path
+    $base = [System.IO.Path]::GetFileName($Path)
+    $archives = Get-ChildItem -LiteralPath $dir -Filter "$base.*.log" -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTime -Descending
+
+    if ($archives.Count -gt $MaxFiles) {
+        $archives | Select-Object -Skip $MaxFiles | Remove-Item -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Write-ServiceLog {
     param([string]$Message)
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    Rotate-LogFile -Path $LogFile -MaxSizeMB $ServiceLogMaxMB -MaxFiles $ServiceLogMaxFiles
     "$timestamp - $Message" | Out-File -FilePath $LogFile -Append -Encoding utf8
     Write-Host "$timestamp - $Message"
+}
+
+function Write-CrashEvent {
+    param(
+        [string]$EventType,
+        [string]$Reason,
+        [int]$ExitCode,
+        [int]$ProcessId,
+        [string]$Prefix,
+        [string]$StdoutLog,
+        [string]$StderrLog
+    )
+
+    Rotate-LogFile -Path $CrashLog -MaxSizeMB $ServiceLogMaxMB -MaxFiles $ServiceLogMaxFiles
+    $entry = [ordered]@{
+        timestamp = (Get-Date).ToString('o')
+        event = $EventType
+        reason = $Reason
+        exit_code = $ExitCode
+        pid = $ProcessId
+        prefix = $Prefix
+        stdout_log = $StdoutLog
+        stderr_log = $StderrLog
+    }
+    ($entry | ConvertTo-Json -Compress) | Out-File -FilePath $CrashLog -Append -Encoding utf8
+}
+
+function Register-Crash {
+    $script:CrashTimes.Add((Get-Date))
+}
+
+function Get-RestartDelaySeconds {
+    $now = Get-Date
+    while ($script:CrashTimes.Count -gt 0 -and ($now - $script:CrashTimes[0]).TotalSeconds -gt $RestartWindowSeconds) {
+        $script:CrashTimes.RemoveAt(0)
+    }
+
+    $count = $script:CrashTimes.Count
+    if ($count -le 1) {
+        return $RestartBaseDelaySeconds
+    }
+
+    $exp = [Math]::Min($count - 1, 6)
+    $delay = [Math]::Min($RestartBaseDelaySeconds * [Math]::Pow(2, $exp), $RestartMaxDelaySeconds)
+    return [int][Math]::Round($delay)
 }
 
 function Resolve-ConfiguredPrefix {
@@ -89,15 +180,20 @@ function Get-PrefixCandidates {
 function Test-PrefixHealth {
     param([string]$Prefix)
 
+    $statusUrl = ($Prefix.TrimEnd('/') + '/api/status')
     $metricsUrl = ($Prefix.TrimEnd('/') + '/metrics')
-    $appUrl = ($Prefix.TrimEnd('/') + '/app.js')
+    try {
+        $statusResponse = Invoke-WebRequest -Uri $statusUrl -TimeoutSec 3 -UseBasicParsing -ErrorAction Stop
+        if ($statusResponse.StatusCode -ge 200 -and $statusResponse.StatusCode -lt 400) {
+            return $true
+        }
+    } catch {
+        # fall through to metrics check
+    }
+
     try {
         $metricsResponse = Invoke-WebRequest -Uri $metricsUrl -TimeoutSec 3 -UseBasicParsing -ErrorAction Stop
-        if ($metricsResponse.StatusCode -lt 200 -or $metricsResponse.StatusCode -ge 400) {
-            return $false
-        }
-        $appResponse = Invoke-WebRequest -Uri $appUrl -TimeoutSec 3 -UseBasicParsing -ErrorAction Stop
-        return ($appResponse.StatusCode -ge 200 -and $appResponse.StatusCode -lt 400)
+        return ($metricsResponse.StatusCode -ge 200 -and $metricsResponse.StatusCode -lt 400)
     } catch {
         return $false
     }
@@ -300,15 +396,33 @@ function Start-DashboardService {
     )
 
     $failCount = 0
+    $restartDelay = 0
     while ($true) {
+        if ($restartDelay -gt 0) {
+            Write-ServiceLog "Delaying restart for $restartDelay seconds..."
+            Start-Sleep -Seconds $restartDelay
+        }
+
+        $runStamp = Get-Date -Format "yyyyMMdd-HHmmss"
+        $stdoutLog = Join-Path $LogDir "dashboard-listener-$runStamp.out.log"
+        $stderrLog = Join-Path $LogDir "dashboard-listener-$runStamp.err.log"
+        $restartReason = $null
+        $exitCode = $null
+
         try {
-            $proc = Start-Process -FilePath 'pwsh.exe' -ArgumentList $launcherArgs -WorkingDirectory $RootPath -PassThru
+            $proc = Start-Process -FilePath 'pwsh.exe' -ArgumentList $launcherArgs -WorkingDirectory $RootPath -PassThru `
+                -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog
             Set-Content -LiteralPath $PidFile -Value $proc.Id -Encoding ascii
             Write-ServiceLog "Legacy dashboard process started (PID: $($proc.Id))"
+            Write-ServiceLog "Listener stdout: $stdoutLog"
+            Write-ServiceLog "Listener stderr: $stderrLog"
         }
         catch {
+            $restartReason = "start_failed"
             Write-ServiceLog "ERROR: Legacy dashboard failed to start: $($_.Exception.Message)"
-            Start-Sleep -Seconds 10
+            Write-CrashEvent -EventType 'start_failed' -Reason $_.Exception.Message -ExitCode 1 -ProcessId 0 -Prefix $script:ActivePrefix -StdoutLog $stdoutLog -StderrLog $stderrLog
+            Register-Crash
+            $restartDelay = Get-RestartDelaySeconds
             continue
         }
 
@@ -316,6 +430,8 @@ function Start-DashboardService {
             Start-Sleep -Seconds 10
             $proc.Refresh()
             if ($proc.HasExited) {
+                $exitCode = $proc.ExitCode
+                $restartReason = "exit"
                 Write-ServiceLog "Legacy dashboard process exited (code: $($proc.ExitCode))."
                 break
             }
@@ -323,6 +439,7 @@ function Start-DashboardService {
                 $failCount += 1
                 Write-ServiceLog "Legacy dashboard health check failed ($failCount)."
                 if ($failCount -ge 3) {
+                    $restartReason = "health_check_failed"
                     Write-ServiceLog "Restarting legacy dashboard process due to failed health checks."
                     try { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue } catch {}
                     break
@@ -332,6 +449,17 @@ function Start-DashboardService {
                 $failCount = 0
             }
         }
+
+        if (-not $restartReason) {
+            $restartReason = "exit"
+        }
+
+        $exitValue = if ($null -ne $exitCode) { $exitCode } else { 0 }
+        $pidValue = if ($proc) { $proc.Id } else { 0 }
+        Write-CrashEvent -EventType $restartReason -Reason $restartReason -ExitCode $exitValue -ProcessId $pidValue -Prefix $script:ActivePrefix -StdoutLog $stdoutLog -StderrLog $stderrLog
+        Register-Crash
+        $restartDelay = Get-RestartDelaySeconds
+
         Remove-Item -LiteralPath $PidFile -ErrorAction SilentlyContinue
         Start-Sleep -Seconds 2
     }

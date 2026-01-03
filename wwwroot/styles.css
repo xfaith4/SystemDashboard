@@ -199,6 +199,33 @@ h1, h2 {
   font-size: 0.78rem;
 }
 
+.service-banner {
+  display: none;
+  gap: 0.6rem;
+  align-items: center;
+  padding: 0.75rem 2rem;
+  background: rgba(37, 99, 235, 0.12);
+  border-bottom: 1px solid rgba(37, 99, 235, 0.28);
+  color: var(--info);
+  font-weight: 600;
+}
+
+.service-banner.is-visible {
+  display: flex;
+}
+
+.service-banner--warn {
+  background: rgba(180, 83, 9, 0.16);
+  border-bottom-color: rgba(180, 83, 9, 0.35);
+  color: var(--warn);
+}
+
+.service-banner__title {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 0.78rem;
+}
+
 .badge {
   display: inline-flex;
   align-items: center;

@@ -43,6 +43,90 @@ if ($ConfigPath -and (Test-Path -LiteralPath $ConfigPath -ErrorAction SilentlyCo
     $script:Config = Get-Content -LiteralPath $resolvedConfig -Raw | ConvertFrom-Json
 }
 
+$script:ListenerStartedAt = $null
+$script:ListenerPrefix = $null
+$script:StartupIssues = @()
+$script:StaticReady = $true
+$script:LastError = $null
+$script:LastErrorAt = $null
+$script:DbFailureCount = 0
+$script:DbLastFailureAt = $null
+$script:DbCircuitUntil = $null
+
+function Get-ListenerLogSettings {
+    $format = if ($env:SYSTEMDASHBOARD_LOG_FORMAT) {
+        $env:SYSTEMDASHBOARD_LOG_FORMAT
+    } elseif ($script:Config?.Logging?.Format) {
+        $script:Config.Logging.Format
+    } else {
+        'text'
+    }
+
+    $maxSizeMb = if ($env:SYSTEMDASHBOARD_LOG_MAX_MB) {
+        [int]$env:SYSTEMDASHBOARD_LOG_MAX_MB
+    } elseif ($script:Config?.Logging?.MaxSizeMB) {
+        [int]$script:Config.Logging.MaxSizeMB
+    } else {
+        10
+    }
+
+    $maxFiles = if ($env:SYSTEMDASHBOARD_LOG_MAX_FILES) {
+        [int]$env:SYSTEMDASHBOARD_LOG_MAX_FILES
+    } elseif ($script:Config?.Logging?.MaxFiles) {
+        [int]$script:Config.Logging.MaxFiles
+    } else {
+        5
+    }
+
+    return @{
+        Format = $format.ToLowerInvariant()
+        MaxSizeMB = $maxSizeMb
+        MaxFiles = $maxFiles
+    }
+}
+
+function Rotate-LogFile {
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [int]$MaxSizeMB = 10,
+        [int]$MaxFiles = 5
+    )
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return
+    }
+
+    $info = Get-Item -LiteralPath $Path -ErrorAction SilentlyContinue
+    if (-not $info) {
+        return
+    }
+
+    if ($info.Length -lt ($MaxSizeMB * 1MB)) {
+        return
+    }
+
+    $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
+    $archivePath = "{0}.{1}.log" -f $Path, $timestamp
+    try {
+        Move-Item -LiteralPath $Path -Destination $archivePath -Force
+    } catch {
+        return
+    }
+
+    if ($MaxFiles -le 0) {
+        return
+    }
+
+    $dir = Split-Path -Parent $Path
+    $base = [System.IO.Path]::GetFileName($Path)
+    $archives = Get-ChildItem -LiteralPath $dir -Filter "$base.*.log" -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTime -Descending
+
+    if ($archives.Count -gt $MaxFiles) {
+        $archives | Select-Object -Skip $MaxFiles | Remove-Item -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Write-Log {
     [CmdletBinding()]
     param(
@@ -52,16 +136,158 @@ function Write-Log {
     $ts = Get-Date -Format o
     $line = "[$ts] [$Level] $Message"
     Write-Information $line -InformationAction Continue
+    if ($Level -eq 'ERROR') {
+        $script:LastError = $Message
+        $script:LastErrorAt = Get-Date
+    }
 
     $logPath = $env:SYSTEMDASHBOARD_LISTENER_LOG
     if (-not $logPath -and $script:Config -and $script:Config.Logging -and $script:Config.Logging.LogPath) {
-        $logPath = Resolve-ConfigPathValue $script:Config.Logging.LogPath
+        try {
+            $logPath = Resolve-ConfigPathValue $script:Config.Logging.LogPath
+        } catch {
+            $logPath = $null
+        }
     }
     if ($logPath) {
         try {
-            $line | Out-File -FilePath $logPath -Append -Encoding utf8
+            $settings = Get-ListenerLogSettings
+            Rotate-LogFile -Path $logPath -MaxSizeMB $settings.MaxSizeMB -MaxFiles $settings.MaxFiles
+
+            $payload = if ($settings.Format -eq 'json') {
+                @{ timestamp = $ts; level = $Level; message = $Message } | ConvertTo-Json -Compress
+            } else {
+                $line
+            }
+            $payload | Out-File -FilePath $logPath -Append -Encoding utf8
         } catch {
             # Avoid logging loops if the log path is invalid.
+        }
+    }
+}
+
+function Get-DbTimeoutSettings {
+    $connectSeconds = if ($env:SYSTEMDASHBOARD_DB_CONNECT_TIMEOUT) {
+        [int]$env:SYSTEMDASHBOARD_DB_CONNECT_TIMEOUT
+    } elseif ($script:Config?.Database?.ConnectTimeoutSeconds) {
+        [int]$script:Config.Database.ConnectTimeoutSeconds
+    } else {
+        5
+    }
+
+    $statementSeconds = if ($env:SYSTEMDASHBOARD_DB_STATEMENT_TIMEOUT) {
+        [int]$env:SYSTEMDASHBOARD_DB_STATEMENT_TIMEOUT
+    } elseif ($script:Config?.Database?.StatementTimeoutSeconds) {
+        [int]$script:Config.Database.StatementTimeoutSeconds
+    } else {
+        8
+    }
+
+    return @{
+        ConnectSeconds = $connectSeconds
+        StatementMs = ($statementSeconds * 1000)
+    }
+}
+
+function Get-DbCircuitSettings {
+    $threshold = if ($env:SYSTEMDASHBOARD_DB_CIRCUIT_THRESHOLD) {
+        [int]$env:SYSTEMDASHBOARD_DB_CIRCUIT_THRESHOLD
+    } elseif ($script:Config?.Database?.CircuitBreaker?.Threshold) {
+        [int]$script:Config.Database.CircuitBreaker.Threshold
+    } else {
+        3
+    }
+
+    $windowSeconds = if ($env:SYSTEMDASHBOARD_DB_CIRCUIT_WINDOW_SECONDS) {
+        [int]$env:SYSTEMDASHBOARD_DB_CIRCUIT_WINDOW_SECONDS
+    } elseif ($script:Config?.Database?.CircuitBreaker?.WindowSeconds) {
+        [int]$script:Config.Database.CircuitBreaker.WindowSeconds
+    } else {
+        60
+    }
+
+    $openSeconds = if ($env:SYSTEMDASHBOARD_DB_CIRCUIT_OPEN_SECONDS) {
+        [int]$env:SYSTEMDASHBOARD_DB_CIRCUIT_OPEN_SECONDS
+    } elseif ($script:Config?.Database?.CircuitBreaker?.OpenSeconds) {
+        [int]$script:Config.Database.CircuitBreaker.OpenSeconds
+    } else {
+        30
+    }
+
+    return @{
+        Threshold = $threshold
+        WindowSeconds = $windowSeconds
+        OpenSeconds = $openSeconds
+    }
+}
+
+function Test-DbCircuitOpen {
+    $now = Get-Date
+    if ($script:DbCircuitUntil -and $script:DbCircuitUntil -gt $now) {
+        return @{ Open = $true; Until = $script:DbCircuitUntil }
+    }
+    return @{ Open = $false; Until = $null }
+}
+
+function Register-DbFailure {
+    param([string]$ErrorMessage)
+
+    $settings = Get-DbCircuitSettings
+    $now = Get-Date
+
+    if (-not $script:DbLastFailureAt -or ($now - $script:DbLastFailureAt).TotalSeconds -gt $settings.WindowSeconds) {
+        $script:DbFailureCount = 1
+    } else {
+        $script:DbFailureCount += 1
+    }
+
+    $script:DbLastFailureAt = $now
+
+    if ($script:DbFailureCount -ge $settings.Threshold) {
+        $script:DbCircuitUntil = $now.AddSeconds($settings.OpenSeconds)
+        Write-Log -Level 'WARN' -Message ("DB circuit opened for {0}s after {1} failures." -f $settings.OpenSeconds, $script:DbFailureCount)
+    }
+
+    if ($ErrorMessage) {
+        $script:LastError = "DB failure: $ErrorMessage"
+        $script:LastErrorAt = $now
+        Write-Log -Level 'WARN' -Message ("DB failure: {0}" -f $ErrorMessage)
+    }
+}
+
+function Reset-DbCircuit {
+    $script:DbFailureCount = 0
+    $script:DbLastFailureAt = $null
+    $script:DbCircuitUntil = $null
+}
+
+function Get-ListenerStatusPayload {
+    $now = Get-Date
+    $uptime = if ($script:ListenerStartedAt) { New-TimeSpan -Start $script:ListenerStartedAt -End $now } else { $null }
+    $circuit = Test-DbCircuitOpen
+
+    return @{
+        ok = ($script:StartupIssues.Count -eq 0) -and (-not $circuit.Open)
+        time = $now.ToString('o')
+        listener = @{
+            prefix = $script:ListenerPrefix
+            started_at = if ($script:ListenerStartedAt) { $script:ListenerStartedAt.ToString('o') } else { $null }
+            uptime_seconds = if ($uptime) { [int]$uptime.TotalSeconds } else { $null }
+            pid = $PID
+        }
+        static_ready = $script:StaticReady
+        startup_issues = $script:StartupIssues
+        last_error = if ($script:LastError) {
+            @{
+                message = $script:LastError
+                time = if ($script:LastErrorAt) { $script:LastErrorAt.ToString('o') } else { $null }
+            }
+        } else { $null }
+        db = @{
+            circuit_open = $circuit.Open
+            circuit_until = if ($circuit.Open -and $circuit.Until) { $circuit.Until.ToString('o') } else { $null }
+            failure_count = $script:DbFailureCount
+            last_failure_at = if ($script:DbLastFailureAt) { $script:DbLastFailureAt.ToString('o') } else { $null }
         }
     }
 }
@@ -198,6 +424,44 @@ function Get-ContentType {
     }
 }
 
+function Get-FallbackHtml {
+    param([string[]]$Issues)
+
+    $issueItems = if ($Issues -and $Issues.Count -gt 0) {
+        ($Issues | ForEach-Object { "<li>$_</li>" }) -join ''
+    } else {
+        '<li>Unknown startup issue.</li>'
+    }
+
+    return @"
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>System Dashboard (Degraded)</title>
+  <style>
+    body { font-family: Segoe UI, Arial, sans-serif; margin: 0; padding: 2rem; background: #0f172a; color: #e2e8f0; }
+    .card { max-width: 780px; background: #111827; padding: 1.5rem; border-radius: 12px; border: 1px solid #1f2937; }
+    h1 { margin-top: 0; color: #f59e0b; }
+    a { color: #38bdf8; }
+    ul { margin: 0.75rem 0 0 1.25rem; }
+    code { background: #0b1120; padding: 0.1rem 0.3rem; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>System Dashboard running in degraded mode</h1>
+    <p>The listener is online, but the web assets or configuration are missing or invalid.</p>
+    <p>Detected issues:</p>
+    <ul>$issueItems</ul>
+    <p>Check <code>/api/status</code> for details and review the listener log for traces.</p>
+  </div>
+</body>
+</html>
+"@
+}
+
 function Resolve-SecretValue {
     [CmdletBinding()]
     param([string]$Secret)
@@ -261,22 +525,46 @@ function Invoke-PostgresJsonQuery {
     $cfg = Get-PostgresConfig
     if (-not $cfg) {
         Write-Log -Level 'WARN' -Message 'Postgres config missing; cannot query LAN data.'
+        Register-DbFailure -ErrorMessage 'Postgres config missing'
         return $null
     }
 
+    $circuit = Test-DbCircuitOpen
+    if ($circuit.Open) {
+        Write-Log -Level 'WARN' -Message ("DB circuit open until {0}; skipping query." -f $circuit.Until)
+        return $null
+    }
+
+    $timeouts = Get-DbTimeoutSettings
     $previousPassword = $env:PGPASSWORD
+    $previousConnectTimeout = $env:PGCONNECT_TIMEOUT
+    $previousOptions = $env:PGOPTIONS
     $env:PGPASSWORD = $cfg.Password
+    $env:PGCONNECT_TIMEOUT = [string]$timeouts.ConnectSeconds
+    $statementOption = "-c statement_timeout=$($timeouts.StatementMs)"
+    $env:PGOPTIONS = if ($previousOptions) { "$statementOption $previousOptions" } else { $statementOption }
     try {
         $output = & $cfg.PsqlPath -h $cfg.Host -p $cfg.Port -U $cfg.Username -d $cfg.Database -t -A -q -v ON_ERROR_STOP=1 -c $Sql 2>&1
         if ($LASTEXITCODE -ne 0) {
-            Write-Log -Level 'WARN' -Message ("Postgres query failed: {0}" -f ($output -join ' '))
+            Register-DbFailure -ErrorMessage ($output -join ' ')
             return $null
         }
+        Reset-DbCircuit
     } finally {
         if ($previousPassword) {
             $env:PGPASSWORD = $previousPassword
         } else {
             Remove-Item Env:PGPASSWORD -ErrorAction SilentlyContinue
+        }
+        if ($previousConnectTimeout) {
+            $env:PGCONNECT_TIMEOUT = $previousConnectTimeout
+        } else {
+            Remove-Item Env:PGCONNECT_TIMEOUT -ErrorAction SilentlyContinue
+        }
+        if ($previousOptions) {
+            $env:PGOPTIONS = $previousOptions
+        } else {
+            Remove-Item Env:PGOPTIONS -ErrorAction SilentlyContinue
         }
     }
 
@@ -294,21 +582,45 @@ function Test-PostgresQuery {
 
     $cfg = Get-PostgresConfig
     if (-not $cfg) {
+        Register-DbFailure -ErrorMessage 'Postgres config missing'
         return @{ ok = $false; error = 'Postgres config missing or incomplete.' }
     }
 
+    $circuit = Test-DbCircuitOpen
+    if ($circuit.Open) {
+        return @{ ok = $false; error = ("DB circuit open until {0}" -f $circuit.Until); circuit_open = $true }
+    }
+
+    $timeouts = Get-DbTimeoutSettings
     $previousPassword = $env:PGPASSWORD
+    $previousConnectTimeout = $env:PGCONNECT_TIMEOUT
+    $previousOptions = $env:PGOPTIONS
     $env:PGPASSWORD = $cfg.Password
+    $env:PGCONNECT_TIMEOUT = [string]$timeouts.ConnectSeconds
+    $statementOption = "-c statement_timeout=$($timeouts.StatementMs)"
+    $env:PGOPTIONS = if ($previousOptions) { "$statementOption $previousOptions" } else { $statementOption }
     try {
         $output = & $cfg.PsqlPath -h $cfg.Host -p $cfg.Port -U $cfg.Username -d $cfg.Database -t -A -q -v ON_ERROR_STOP=1 -c $Sql 2>&1
         if ($LASTEXITCODE -ne 0) {
+            Register-DbFailure -ErrorMessage ($output -join ' ')
             return @{ ok = $false; error = ($output -join ' ') }
         }
+        Reset-DbCircuit
     } finally {
         if ($previousPassword) {
             $env:PGPASSWORD = $previousPassword
         } else {
             Remove-Item Env:PGPASSWORD -ErrorAction SilentlyContinue
+        }
+        if ($previousConnectTimeout) {
+            $env:PGCONNECT_TIMEOUT = $previousConnectTimeout
+        } else {
+            Remove-Item Env:PGCONNECT_TIMEOUT -ErrorAction SilentlyContinue
+        }
+        if ($previousOptions) {
+            $env:PGOPTIONS = $previousOptions
+        } else {
+            Remove-Item Env:PGOPTIONS -ErrorAction SilentlyContinue
         }
     }
 
@@ -400,38 +712,89 @@ function Start-SystemDashboardListener {
     if (-not $CssFile -and $script:Config.CssFile) { $CssFile = $script:Config.CssFile }
     if (-not $PingTarget) { $PingTarget = $script:Config.PingTarget }
     if (-not $PingTarget) { $PingTarget = '1.1.1.1' }
-    $Root = Resolve-ConfigPathValue $Root
-    if (-not $Root) {
-        throw 'Prefix, Root, IndexHtml, and CssFile are required.'
+
+    $startupIssues = @()
+    $staticReady = $true
+
+    if (-not $Prefix) {
+        $Prefix = 'http://localhost:15000/'
+        $startupIssues += "Prefix not set; defaulting to $Prefix"
     }
+
+    try {
+        $Root = Resolve-ConfigPathValue $Root
+    } catch {
+        $startupIssues += "Root path invalid: $Root"
+        $Root = $null
+        $staticReady = $false
+    }
+
+    if (-not $Root) {
+        $Root = Join-Path $script:ModuleRoot 'wwwroot'
+        $startupIssues += "Root not set; defaulting to $Root"
+    }
+
     if (-not $IndexHtml) {
         $IndexHtml = [System.IO.Path]::GetFullPath((Join-Path $Root 'index.html'))
     } else {
-        $IndexHtml = Resolve-ConfigPathValue $IndexHtml
+        try {
+            $IndexHtml = Resolve-ConfigPathValue $IndexHtml
+        } catch {
+            $startupIssues += "IndexHtml path invalid: $IndexHtml"
+            $staticReady = $false
+        }
     }
+
     if (-not $CssFile) {
         $CssFile = [System.IO.Path]::GetFullPath((Join-Path $Root 'styles.css'))
     } else {
-        $CssFile = Resolve-ConfigPathValue $CssFile
-    }
-    if (-not $Prefix -or -not $Root -or -not $IndexHtml -or -not $CssFile) {
-        throw 'Prefix, Root, IndexHtml, and CssFile are required.'
-    }
-    if (-not (Test-Path -LiteralPath $Root -PathType Container)) {
-        throw "Root path not found: $Root"
-    }
-    $AppJsFile = Join-Path (Split-Path -Parent $IndexHtml) 'app.js'
-    foreach ($asset in @($IndexHtml, $CssFile)) {
-        if (-not (Test-Path -LiteralPath $asset -PathType Leaf)) {
-            throw "Static asset not found: $asset"
+        try {
+            $CssFile = Resolve-ConfigPathValue $CssFile
+        } catch {
+            $startupIssues += "CssFile path invalid: $CssFile"
+            $staticReady = $false
         }
     }
+
+    if (-not (Test-Path -LiteralPath $Root -PathType Container)) {
+        $startupIssues += "Root path not found: $Root"
+        $staticReady = $false
+    }
+
+    if (-not (Test-Path -LiteralPath $IndexHtml -PathType Leaf)) {
+        $startupIssues += "IndexHtml not found: $IndexHtml"
+        $staticReady = $false
+    }
+
+    if (-not (Test-Path -LiteralPath $CssFile -PathType Leaf)) {
+        $startupIssues += "CssFile not found: $CssFile"
+        $staticReady = $false
+    }
+
+    $AppJsFile = if ($IndexHtml) { Join-Path (Split-Path -Parent $IndexHtml) 'app.js' } else { $null }
+    if ($AppJsFile -and -not (Test-Path -LiteralPath $AppJsFile -PathType Leaf)) {
+        $startupIssues += "AppJsFile not found: $AppJsFile"
+        $staticReady = $false
+    }
+
+    $script:StartupIssues = $startupIssues
+    $script:StaticReady = $staticReady
+    $fallbackHtml = Get-FallbackHtml -Issues $startupIssues
+
     $listener = $null
     $started = $false
     $attempts = 0
     $maxAttempts = 10
     $basePrefix = $Prefix
-    $baseUri = [System.Uri]$basePrefix
+    try {
+        $baseUri = [System.Uri]$basePrefix
+    } catch {
+        $startupIssues += "Prefix invalid: $basePrefix"
+        $basePrefix = 'http://localhost:15000/'
+        $baseUri = [System.Uri]$basePrefix
+        $script:StartupIssues = $startupIssues
+        $fallbackHtml = Get-FallbackHtml -Issues $startupIssues
+    }
     $port = $baseUri.Port
     $prefixTemplate = '{0}://{1}:{2}/' -f $baseUri.Scheme, $baseUri.Host, '{0}'
     while (-not $started -and $attempts -lt $maxAttempts) {
@@ -460,6 +823,11 @@ function Start-SystemDashboardListener {
     }
     $l = $listener
     Write-Log -Message "Listening on $Prefix"
+    $script:ListenerStartedAt = Get-Date
+    $script:ListenerPrefix = $Prefix
+    if ($startupIssues.Count -gt 0) {
+        Write-Log -Level 'WARN' -Message ("Listener started with {0} startup issue(s)." -f $startupIssues.Count)
+    }
     # Cache for network deltas
     $prevNet = @{}
 
@@ -908,6 +1276,11 @@ SELECT COALESCE(json_agg(t), '[]'::json) FROM (
                     Write-JsonResponse -Response $res -Json '[]' -StatusCode 503
                 }
                 continue
+            } elseif ($requestPath -eq '/api/status') {
+                $payload = Get-ListenerStatusPayload
+                $json = $payload | ConvertTo-Json -Depth 6
+                Write-JsonResponse -Response $res -Json $json
+                continue
             } elseif ($requestPath -eq '/api/health') {
                 $checks = [ordered]@{}
                 $checks.postgres = Test-PostgresQuery -Sql 'SELECT 1;'
@@ -929,6 +1302,18 @@ SELECT COALESCE(json_agg(t), '[]'::json) FROM (
                 }
                 $json = $payload | ConvertTo-Json -Depth 5
                 Write-JsonResponse -Response $res -Json $json -StatusCode ($allOk ? 200 : 503)
+                continue
+            }
+            if (-not $staticReady) {
+                if ($requestPath -eq '/' -or $requestPath -eq '/index.html') {
+                    $buf = [Text.Encoding]::UTF8.GetBytes($fallbackHtml)
+                    $res.ContentType = 'text/html'
+                    $res.ContentLength64 = $buf.Length
+                    $res.OutputStream.Write($buf,0,$buf.Length)
+                    $res.Close()
+                    continue
+                }
+                Write-JsonResponse -Response $res -Json '{"error":"static assets unavailable"}' -StatusCode 503
                 continue
             }
             # Static files
