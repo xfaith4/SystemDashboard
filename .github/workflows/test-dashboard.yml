@@ -33,7 +33,8 @@ jobs:
             while ($attempt -lt $maxAttempts) {
               if ($job.State -in @('Failed','Completed','Stopped')) {
                 $jobDetails = Receive-Job $job -ErrorAction SilentlyContinue
-                throw "Dashboard job (Id: $($job.Id)) ended unexpectedly with state $($job.State). Details: $jobDetails"
+                $jobDetailsText = if ($jobDetails) { ($jobDetails | Out-String).Trim() } else { 'No job output.' }
+                throw "Dashboard job (Id: $($job.Id)) ended unexpectedly with state $($job.State). Details:`n$jobDetailsText"
               }
               $attempt++
               try {
@@ -57,8 +58,8 @@ jobs:
           finally {
             if ($job) {
               if ($job.State -eq 'Running') {
-                try { Stop-Job $job -ErrorAction Stop } catch { Write-Warning "Failed to stop dashboard job: $($_.Exception.Message)" }
+                Stop-Job $job -ErrorAction SilentlyContinue
               }
-              try { Remove-Job $job -ErrorAction Stop } catch { Write-Warning "Failed to remove dashboard job: $($_.Exception.Message)" }
+              Remove-Job $job -ErrorAction SilentlyContinue
             }
           }
