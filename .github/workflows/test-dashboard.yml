@@ -29,7 +29,6 @@ jobs:
                 $jobDetails = Receive-Job $job -ErrorAction SilentlyContinue
                 throw "Dashboard job (Id: $($job.Id)) ended unexpectedly with state $($job.State). Details: $jobDetails"
               }
-              Start-Sleep -Seconds 2
               $attempt++
               try {
                 $response = Invoke-WebRequest -Uri $uri -UseBasicParsing -TimeoutSec 2
@@ -40,6 +39,7 @@ jobs:
               } catch {
                 Write-Host "Attempt ${attempt}/${maxAttempts}: Waiting for dashboard..."
               }
+              Start-Sleep -Seconds 2
             }
 
             if ($attempt -ge $maxAttempts) {
