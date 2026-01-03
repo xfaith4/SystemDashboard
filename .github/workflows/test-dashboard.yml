@@ -25,6 +25,10 @@ jobs:
           try {
             Write-Host "Polling for dashboard readiness at $uri..."
             while ($attempt -lt $maxAttempts) {
+              if ($job.State -in @('Failed','Completed','Stopped')) {
+                $jobDetails = Receive-Job $job -ErrorAction SilentlyContinue
+                throw "Dashboard job ended unexpectedly with state $($job.State). Details: $jobDetails"
+              }
               Start-Sleep -Seconds 2
               $attempt++
               try {
@@ -46,7 +50,7 @@ jobs:
           }
           finally {
             if ($job) {
-              Stop-Job $job -ErrorAction SilentlyContinue
-              Remove-Job $job -ErrorAction SilentlyContinue
+              try { Stop-Job $job -ErrorAction Stop } catch { Write-Warning "Failed to stop dashboard job: $($_.Exception.Message)" }
+              try { Remove-Job $job -ErrorAction Stop } catch { Write-Warning "Failed to remove dashboard job: $($_.Exception.Message)" }
             }
           }
