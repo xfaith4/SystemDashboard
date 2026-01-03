@@ -15,7 +15,13 @@ jobs:
           $job = Start-Job -ScriptBlock {
             param($scriptRoot)
             Import-Module "$scriptRoot\Start-SystemDashboard.psm1" -Force
-            & "$scriptRoot\Start-SystemDashboard.ps1" -Mode Legacy -SkipPreflight -SkipDatabaseCheck -SkipInstall
+            $startParams = @{
+              Mode = 'Legacy'
+              SkipPreflight = $true
+              SkipDatabaseCheck = $true
+              SkipInstall = $true
+            }
+            & "$scriptRoot\Start-SystemDashboard.ps1" @startParams
           } -ArgumentList $PWD
           
           $maxAttempts = 20
