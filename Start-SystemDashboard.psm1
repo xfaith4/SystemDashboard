@@ -635,9 +635,9 @@ SELECT json_build_object(
                 }
 
                 $filters = @("received_utc >= NOW() - INTERVAL '24 hours'")
-                $host = $req.QueryString['host']
-                if ($host) {
-                    $hostSafe = Escape-SqlLiteral $host.ToLowerInvariant()
+                $hostQuery = $req.QueryString['host']
+                if ($hostQuery) {
+                    $hostSafe = Escape-SqlLiteral $hostQuery.ToLowerInvariant()
                     $filters += ("LOWER(source_host) LIKE '%{0}%'" -f $hostSafe)
                 }
 
