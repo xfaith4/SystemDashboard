@@ -27,7 +27,7 @@ jobs:
             while ($attempt -lt $maxAttempts) {
               if ($job.State -in @('Failed','Completed','Stopped')) {
                 $jobDetails = Receive-Job $job -ErrorAction SilentlyContinue
-                throw "Dashboard job ended unexpectedly with state $($job.State). Details: $jobDetails"
+                throw "Dashboard job (Id: $($job.Id)) ended unexpectedly with state $($job.State). Details: $jobDetails"
               }
               Start-Sleep -Seconds 2
               $attempt++
