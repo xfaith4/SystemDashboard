@@ -46,6 +46,7 @@ jobs:
           }
           finally {
             if ($job) {
-              Stop-Job $job -ErrorAction SilentlyContinue | Remove-Job -ErrorAction SilentlyContinue
+              Stop-Job $job -ErrorAction SilentlyContinue
+              Remove-Job $job -ErrorAction SilentlyContinue
             }
           }
