@@ -1,49 +1,22 @@
-<<<<<<< HEAD
 # IDE / tooling
 .vs/
 .vscode/
+.idea/
 *.user
 *.suo
 *.slnx.sqlite
 *.swp
+*.swo
+*~
 
 # Node / Python environments
 node_modules/
 .venv/
-__pycache__/
-*.pyc
-
-# Build / publish outputs
-bin/
-obj/
-out/
-dist/
-publish/
-*.zip
-*.tgz
-*.nupkg
-*.exe
-*.dll
-*.pdb
-
-# Runtime data
-logs/
-var/
-*.log
-*.tmp
-*.db
-*.db-shm
-*.db-wal
-*.sqlite
-
-# Repo-specific archives
-SystemDashboard-1.zip
-SystemDashboard.zip
-=======
-# Python virtual environment
-.venv/
+.venv-wsl/
+.venv
 venv/
 env/
+ENV/
 
 # Python cache
 __pycache__/
@@ -63,14 +36,20 @@ lib/
 lib64/
 parts/
 sdist/
-var/**
-!var/
-!var/**/
-!var/**/*.gitkeep
 wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+out/
+bin/
+obj/
+publish/
+*.zip
+*.tgz
+*.nupkg
+*.exe
+*.dll
+*.pdb
 
 # PyInstaller
 *.manifest
@@ -91,30 +70,24 @@ coverage.xml
 # Flask instance folder
 instance/
 
-# Environments
-.env
-.venv
-ENV/
-env/
-venv/
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
+# Runtime data / logs
+logs/
+var/**
+!var/
+!var/**/
+!var/**/*.gitkeep
+*.log
+!sample-*.log
+*.tmp
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
 
 # OS
 .DS_Store
 Thumbs.db
 
-# PowerShell
-*.tmp
-
-# Logs
-logs/
-*.log
-# But allow sample files
-!sample-*.log
->>>>>>> 7b56c8a6e4bc5c9c145d426fd33c74dd97862afa
+# Repo-specific archives
+SystemDashboard-1.zip
+SystemDashboard.zip
