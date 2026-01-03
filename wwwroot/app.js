@@ -12,6 +12,8 @@
   const ROUTER_KPI_ENDPOINT = '/api/router/kpis';
   const HEALTH_ENDPOINT = '/api/health';
   const TELEMETRY_REFRESH_INTERVAL = 15000;
+  const SYSLOG_PAGE_SIZE = 12;
+  const EVENTS_PAGE_SIZE = 12;
 
   const statusEl = document.getElementById('connection-status');
   const statusDetailEl = document.getElementById('status-detail');
@@ -40,6 +42,10 @@
   const syslogCategorySelect = document.getElementById('syslog-category');
   const syslogSeveritySelect = document.getElementById('syslog-severity');
   const syslogRefreshBtn = document.getElementById('syslog-refresh');
+  const syslogPrevBtn = document.getElementById('syslog-prev');
+  const syslogNextBtn = document.getElementById('syslog-next');
+  const syslogPageEl = document.getElementById('syslog-page');
+  const syslogRangeEl = document.getElementById('syslog-range');
   const eventTableBody = document.querySelector('#event-table tbody');
   const eventsTotal1hEl = document.getElementById('events-total-1h');
   const eventsTotal24hEl = document.getElementById('events-total-24h');
@@ -51,6 +57,10 @@
   const eventCategorySelect = document.getElementById('event-category');
   const eventSeveritySelect = document.getElementById('event-severity');
   const eventRefreshBtn = document.getElementById('event-refresh');
+  const eventPrevBtn = document.getElementById('event-prev');
+  const eventNextBtn = document.getElementById('event-next');
+  const eventPageEl = document.getElementById('event-page');
+  const eventRangeEl = document.getElementById('event-range');
   const timelineChartEl = document.getElementById('timeline-chart');
   const timelineLegendEl = document.getElementById('timeline-legend');
   const timelineMacInput = document.getElementById('timeline-mac');
@@ -79,6 +89,8 @@
   let refreshTimer;
   let telemetryTimer;
   let autoRefreshPaused = false;
+  let syslogPage = 1;
+  let eventPage = 1;
 
   function scheduleNext(delay = REFRESH_INTERVAL) {
     clearTimeout(refreshTimer);
@@ -291,6 +303,51 @@
     cell.textContent = message;
     row.appendChild(cell);
     tbody.appendChild(row);
+  }
+
+  function updatePaginationControls(pageEl, rangeEl, prevBtn, nextBtn, page, pageSize, itemCount) {
+    if (pageEl) {
+      pageEl.textContent = `Page ${page}`;
+    }
+    if (rangeEl) {
+      if (!itemCount) {
+        rangeEl.textContent = 'No results';
+      } else {
+        const start = (page - 1) * pageSize + 1;
+        const end = start + itemCount - 1;
+        rangeEl.textContent = `Showing ${start}-${end}`;
+      }
+    }
+    if (prevBtn) {
+      prevBtn.disabled = page <= 1;
+    }
+    if (nextBtn) {
+      nextBtn.disabled = itemCount < pageSize;
+    }
+  }
+
+  function updateSyslogPagination(itemCount) {
+    updatePaginationControls(
+      syslogPageEl,
+      syslogRangeEl,
+      syslogPrevBtn,
+      syslogNextBtn,
+      syslogPage,
+      SYSLOG_PAGE_SIZE,
+      itemCount
+    );
+  }
+
+  function updateEventPagination(itemCount) {
+    updatePaginationControls(
+      eventPageEl,
+      eventRangeEl,
+      eventPrevBtn,
+      eventNextBtn,
+      eventPage,
+      EVENTS_PAGE_SIZE,
+      itemCount
+    );
   }
 
   function renderHealthBanner(message) {
@@ -588,17 +645,25 @@
     if (severity) {
       params.set('severity', severity);
     }
-    params.set('limit', '50');
+    params.set('limit', SYSLOG_PAGE_SIZE.toString());
+    params.set('offset', Math.max(0, (syslogPage - 1) * SYSLOG_PAGE_SIZE).toString());
     try {
       const res = await fetch(`${SYSLOG_RECENT_ENDPOINT}?${params.toString()}`, { cache: 'no-store' });
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}`);
       }
       const data = await res.json();
-      renderSyslogRows(data);
+      const rows = Array.isArray(data) ? data : [];
+      if (rows.length === 0 && syslogPage > 1) {
+        syslogPage -= 1;
+        return loadSyslogRows();
+      }
+      renderSyslogRows(rows);
+      updateSyslogPagination(rows.length);
     } catch (err) {
       clearElement(syslogTableBody);
       setEmptyRow(syslogTableBody, 6, 'Failed to load syslog.');
+      updateSyslogPagination(0);
     }
   }
 
@@ -875,7 +940,7 @@
       return;
     }
     clearElement(eventTableBody);
-    setEmptyRow(eventTableBody, 5, 'Loading events…');
+    setEmptyRow(eventTableBody, 6, 'Loading events…');
     const params = new URLSearchParams();
     const severity = eventSeveritySelect ? eventSeveritySelect.value : '';
     const source = eventSourceInput ? eventSourceInput.value.trim() : '';
@@ -889,17 +954,25 @@
     if (category) {
       params.set('category', category);
     }
-    params.set('limit', '50');
+    params.set('limit', EVENTS_PAGE_SIZE.toString());
+    params.set('offset', Math.max(0, (eventPage - 1) * EVENTS_PAGE_SIZE).toString());
     try {
       const res = await fetch(`${EVENTS_RECENT_ENDPOINT}?${params.toString()}`, { cache: 'no-store' });
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}`);
       }
       const data = await res.json();
-      renderEventRows(data);
+      const rows = Array.isArray(data) ? data : [];
+      if (rows.length === 0 && eventPage > 1) {
+        eventPage -= 1;
+        return loadEventRows();
+      }
+      renderEventRows(rows);
+      updateEventPagination(rows.length);
     } catch (err) {
       clearElement(eventTableBody);
-      setEmptyRow(eventTableBody, 5, 'Failed to load events.');
+      setEmptyRow(eventTableBody, 6, 'Failed to load events.');
+      updateEventPagination(0);
     }
   }
 
@@ -1095,13 +1168,43 @@
 
   if (syslogRefreshBtn) {
     syslogRefreshBtn.addEventListener('click', () => {
+      syslogPage = 1;
       loadSyslogSummary();
       loadSyslogRows();
     });
   }
   if (eventRefreshBtn) {
     eventRefreshBtn.addEventListener('click', () => {
+      eventPage = 1;
       loadEventSummary();
+      loadEventRows();
+    });
+  }
+  if (syslogPrevBtn) {
+    syslogPrevBtn.addEventListener('click', () => {
+      if (syslogPage > 1) {
+        syslogPage -= 1;
+        loadSyslogRows();
+      }
+    });
+  }
+  if (syslogNextBtn) {
+    syslogNextBtn.addEventListener('click', () => {
+      syslogPage += 1;
+      loadSyslogRows();
+    });
+  }
+  if (eventPrevBtn) {
+    eventPrevBtn.addEventListener('click', () => {
+      if (eventPage > 1) {
+        eventPage -= 1;
+        loadEventRows();
+      }
+    });
+  }
+  if (eventNextBtn) {
+    eventNextBtn.addEventListener('click', () => {
+      eventPage += 1;
       loadEventRows();
     });
   }

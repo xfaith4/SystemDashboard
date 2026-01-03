@@ -75,6 +75,23 @@ h1, h2 {
   padding: 1.5rem 2rem 3rem;
 }
 
+.section-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding-left: 0.2rem;
+}
+
+.section-heading h2 {
+  font-size: 1.15rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.section-heading p {
+  margin: 0;
+}
+
 .grid {
   display: grid;
   gap: 1.5rem;
@@ -108,6 +125,13 @@ h1, h2 {
 
 .card__body {
   overflow-x: auto;
+}
+
+.card__body--table {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  overflow-x: visible;
 }
 
 .metric {
@@ -226,6 +250,10 @@ h1, h2 {
   min-width: 320px;
 }
 
+.table-wrap {
+  overflow-x: auto;
+}
+
 .table th,
 .table td {
   padding: 0.6rem 0.75rem;
@@ -327,6 +355,17 @@ h1, h2 {
   cursor: pointer;
 }
 
+.btn--outline {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+
+.btn--sm {
+  padding: 0.35rem 0.75rem;
+  font-size: 0.85rem;
+}
+
 .btn--ghost {
   background: transparent;
   border: 1px solid var(--border);
@@ -340,6 +379,12 @@ h1, h2 {
 
 .btn:hover {
   filter: brightness(0.95);
+}
+
+.btn:disabled {
+  cursor: default;
+  opacity: 0.5;
+  filter: none;
 }
 
 .syslog-summary {
@@ -473,6 +518,33 @@ h1, h2 {
 .chip--dns { background: rgba(5, 150, 105, 0.16); color: var(--success); }
 .chip--network { background: rgba(99, 102, 241, 0.16); color: #6366f1; }
 .chip--system { background: rgba(148, 163, 184, 0.2); color: var(--muted); }
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding-top: 0.35rem;
+  border-top: 1px solid var(--border);
+}
+
+.pagination__meta {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+  flex: 1;
+}
+
+.pagination__label {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.pagination__range {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
 
 .footer {
   padding: 1.5rem 2rem 2rem;

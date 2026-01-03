@@ -11,9 +11,9 @@ function Resolve-SystemDashboardPath {
 
     $expanded = [Environment]::ExpandEnvironmentVariables($Path)
     if ($expanded.StartsWith('~')) {
-        $home = [Environment]::GetFolderPath('UserProfile')
-        if ($home) {
-            $expanded = Join-Path $home ($expanded.Substring(1).TrimStart('\\','/'))
+        $userProfilePath = [Environment]::GetFolderPath('UserProfile')
+        if ($userProfilePath) {
+            $expanded = Join-Path $userProfilePath ($expanded.Substring(1).TrimStart('\\','/'))
         }
     }
     if ([System.IO.Path]::IsPathRooted($expanded)) {

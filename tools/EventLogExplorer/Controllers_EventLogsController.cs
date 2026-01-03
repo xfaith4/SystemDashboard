@@ -1,8 +1,10 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Http;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics.Eventing.Reader;
 using System.Linq;
+using System.Runtime.Versioning;
 using System.Threading.Tasks;
 
 namespace EventLogExplorer.Controllers
@@ -16,10 +18,10 @@ namespace EventLogExplorer.Controllers
         /// </summary>
         public class EventErrorSummary
         {
-            public string LogName { get; set; }
-            public string ProviderName { get; set; }
+            public string? LogName { get; set; }
+            public string? ProviderName { get; set; }
             public int EventId { get; set; }
-            public string SampleMessage { get; set; } // A sample message for this event type
+            public string? SampleMessage { get; set; } // A sample message for this event type
             public int Count { get; set; }
         }
 
@@ -30,8 +32,14 @@ namespace EventLogExplorer.Controllers
         /// <param name="topN">The number of top common errors to return. Defaults to 10.</param>
         /// <returns>A list of EventErrorSummary objects.</returns>
         [HttpGet("errors")]
+        [SupportedOSPlatform("windows")]
         public async Task<ActionResult<IEnumerable<EventErrorSummary>>> GetCommonErrorEvents([FromQuery] int topN = 10)
         {
+            if (!OperatingSystem.IsWindows())
+            {
+                return StatusCode(StatusCodes.Status501NotImplemented, "Windows Event Log APIs are only supported on Windows.");
+            }
+
             var commonErrors = new Dictionary<(string LogName, string ProviderName, int EventId), (int Count, string SampleMessage)>();
             string[] logNames = { "Application", "System" };
 

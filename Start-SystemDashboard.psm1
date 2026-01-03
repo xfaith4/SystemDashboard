@@ -626,6 +626,13 @@ SELECT json_build_object(
                         $limit = [Math]::Max(1, [Math]::Min(200, $parsed))
                     }
                 }
+                $offset = 0
+                if ($req.QueryString['offset']) {
+                    $parsed = 0
+                    if ([int]::TryParse($req.QueryString['offset'], [ref]$parsed)) {
+                        $offset = [Math]::Max(0, [Math]::Min(10000, $parsed))
+                    }
+                }
 
                 $filters = @("received_utc >= NOW() - INTERVAL '24 hours'")
                 $host = $req.QueryString['host']
@@ -688,6 +695,7 @@ SELECT COALESCE(json_agg(t), '[]'::json) FROM (
     $(if ($categorySafe) { "AND category = '$categorySafe'" } else { "" })
     ORDER BY received_utc DESC
     LIMIT $limit
+    OFFSET $offset
 ) t;
 "@
 
@@ -743,6 +751,13 @@ SELECT json_build_object(
                         $limit = [Math]::Max(1, [Math]::Min(200, $parsed))
                     }
                 }
+                $offset = 0
+                if ($req.QueryString['offset']) {
+                    $parsed = 0
+                    if ([int]::TryParse($req.QueryString['offset'], [ref]$parsed)) {
+                        $offset = [Math]::Max(0, [Math]::Min(10000, $parsed))
+                    }
+                }
 
                 $sql = @"
 SELECT COALESCE(json_agg(t), '[]'::json) FROM (
@@ -756,6 +771,7 @@ SELECT COALESCE(json_agg(t), '[]'::json) FROM (
     WHERE occurred_at >= NOW() - INTERVAL '24 hours'
     ORDER BY occurred_at DESC NULLS LAST
     LIMIT $limit
+    OFFSET $offset
 ) t;
 "@
                 $json = Invoke-PostgresJsonQuery -Sql $sql

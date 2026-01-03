@@ -132,194 +132,10 @@
       </article>
     </section>
 
-    <section class="grid two-column telemetry-grid">
-      <article class="card">
-        <header class="card__header">
-          <div>
-            <h2>Syslog Intake</h2>
-            <p class="muted">Live router + network syslog from telemetry.</p>
-          </div>
-          <div class="controls">
-            <label class="control">
-              Host
-              <input id="syslog-host" type="text" placeholder="RT-AX3000…">
-            </label>
-            <label class="control">
-              Category
-              <select id="syslog-category">
-                <option value="">All</option>
-                <option value="wifi">WiFi</option>
-                <option value="dhcp">DHCP</option>
-                <option value="firewall">Firewall</option>
-                <option value="auth">Auth</option>
-                <option value="dns">DNS</option>
-                <option value="network">Network</option>
-                <option value="system">System</option>
-              </select>
-            </label>
-            <label class="control">
-              Severity
-              <select id="syslog-severity">
-                <option value="">All</option>
-                <option value="0">Emergency</option>
-                <option value="1">Alert</option>
-                <option value="2">Critical</option>
-                <option value="3">Error</option>
-                <option value="4">Warning</option>
-                <option value="5">Notice</option>
-                <option value="6">Info</option>
-                <option value="7">Debug</option>
-              </select>
-            </label>
-            <button class="btn" id="syslog-refresh" type="button">Refresh</button>
-          </div>
-        </header>
-        <div class="syslog-summary">
-          <div class="stat">
-            <span class="stat__label">Last hour</span>
-            <span class="stat__value" id="syslog-total-1h">--</span>
-          </div>
-          <div class="stat">
-            <span class="stat__label">Last 24h</span>
-            <span class="stat__value" id="syslog-total-24h">--</span>
-          </div>
-          <div class="stat">
-            <span class="stat__label">Top app</span>
-            <span class="stat__value" id="syslog-top-app">--</span>
-          </div>
-          <div class="stat">
-            <span class="stat__label">Info</span>
-            <span class="badge badge--info" id="syslog-sev-info">0</span>
-          </div>
-          <div class="stat">
-            <span class="stat__label">Warn</span>
-            <span class="badge badge--warn" id="syslog-sev-warn">0</span>
-          </div>
-          <div class="stat">
-            <span class="stat__label">Error+</span>
-            <span class="badge badge--error" id="syslog-sev-error">0</span>
-          </div>
-        </div>
-        <div class="card__body">
-          <table id="syslog-table" class="table">
-            <thead>
-              <tr>
-                <th>Time</th>
-                <th>Host</th>
-                <th>App</th>
-                <th>Severity</th>
-                <th>Category</th>
-                <th>Message</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr class="empty-row"><td colspan="6">Waiting for syslog…</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </article>
-
-      <article class="card">
-        <header class="card__header">
-          <div>
-            <h2>Event Logs</h2>
-            <p class="muted">Windows events ingested into telemetry.</p>
-          </div>
-          <div class="controls">
-            <label class="control">
-              Source
-              <input id="event-source" type="text" placeholder="System, Application…">
-            </label>
-            <label class="control">
-              Category
-              <select id="event-category">
-                <option value="">All</option>
-                <option value="auth">Auth</option>
-                <option value="update">Update</option>
-                <option value="service">Service</option>
-                <option value="security">Security</option>
-                <option value="network">Network</option>
-                <option value="system">System</option>
-                <option value="application">Application</option>
-              </select>
-            </label>
-            <label class="control">
-              Severity
-              <select id="event-severity">
-                <option value="">All</option>
-                <option value="critical">Critical</option>
-                <option value="error">Error</option>
-                <option value="warning">Warning</option>
-                <option value="information">Information</option>
-              </select>
-            </label>
-            <button class="btn" id="event-refresh" type="button">Refresh</button>
-          </div>
-        </header>
-        <div class="syslog-summary">
-          <div class="stat">
-            <span class="stat__label">Last hour</span>
-            <span class="stat__value" id="events-total-1h">--</span>
-          </div>
-          <div class="stat">
-            <span class="stat__label">Last 24h</span>
-            <span class="stat__value" id="events-total-24h">--</span>
-          </div>
-          <div class="stat">
-            <span class="stat__label">Top source</span>
-            <span class="stat__value" id="events-top-source">--</span>
-          </div>
-          <div class="stat">
-            <span class="stat__label">Warnings</span>
-            <span class="badge badge--warn" id="events-sev-warn">0</span>
-          </div>
-          <div class="stat">
-            <span class="stat__label">Errors</span>
-            <span class="badge badge--error" id="events-sev-error">0</span>
-          </div>
-          <div class="stat">
-            <span class="stat__label">Info</span>
-            <span class="badge badge--info" id="events-sev-info">0</span>
-          </div>
-        </div>
-        <div class="card__body">
-          <table id="event-table" class="table">
-            <thead>
-              <tr>
-                <th>Time</th>
-                <th>Source</th>
-                <th>Severity</th>
-                <th>Category</th>
-                <th>Provider</th>
-                <th>Message</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr class="empty-row"><td colspan="6">Waiting for events…</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </article>
-
-      <article class="card">
-        <header class="card__header">
-          <div>
-            <h2>Router KPIs</h2>
-            <p class="muted">Summary of key syslog patterns (last 24h).</p>
-          </div>
-          <span class="muted" id="router-kpi-updated">--</span>
-        </header>
-        <div class="kpi-list" id="router-kpi-list">
-          <div class="kpi-item"><span>Total drops</span><span class="badge badge--warn" id="kpi-total-drop">--</span></div>
-          <div class="kpi-item"><span>IGMP drops</span><span class="badge badge--warn" id="kpi-igmp-drop">--</span></div>
-          <div class="kpi-item"><span>Roam kicks</span><span class="badge badge--info" id="kpi-roam-kicks">--</span></div>
-          <div class="kpi-item"><span>Rstats errors</span><span class="badge badge--error" id="kpi-rstats-errors">--</span></div>
-          <div class="kpi-item"><span>dnsmasq SIGTERM</span><span class="badge badge--error" id="kpi-dnsmasq-sigterm">--</span></div>
-          <div class="kpi-item"><span>avahi SIGTERM</span><span class="badge badge--error" id="kpi-avahi-sigterm">--</span></div>
-          <div class="kpi-item"><span>UPnP shutdowns</span><span class="badge badge--warn" id="kpi-upnp-shutdowns">--</span></div>
-        </div>
-      </article>
-    </section>
+    <div class="section-heading">
+      <h2>Telemetry Insights</h2>
+      <p class="muted">Device activity and noisy clients at a glance.</p>
+    </div>
 
     <section class="grid two-column telemetry-grid">
       <article class="card">
@@ -392,6 +208,220 @@
               <tr class="empty-row"><td colspan="5">Waiting for device activity…</td></tr>
             </tbody>
           </table>
+        </div>
+      </article>
+    </section>
+
+    <div class="section-heading">
+      <h2>Drilldown Findings</h2>
+      <p class="muted">Filtered log streams with paging for quick analysis.</p>
+    </div>
+
+    <section class="grid two-column telemetry-grid">
+      <article class="card">
+        <header class="card__header">
+          <div>
+            <h2>Syslog Intake</h2>
+            <p class="muted">Live router + network syslog from telemetry.</p>
+          </div>
+          <div class="controls">
+            <label class="control">
+              Host
+              <input id="syslog-host" type="text" placeholder="RT-AX3000…">
+            </label>
+            <label class="control">
+              Category
+              <select id="syslog-category">
+                <option value="">All</option>
+                <option value="wifi">WiFi</option>
+                <option value="dhcp">DHCP</option>
+                <option value="firewall">Firewall</option>
+                <option value="auth">Auth</option>
+                <option value="dns">DNS</option>
+                <option value="network">Network</option>
+                <option value="system">System</option>
+              </select>
+            </label>
+            <label class="control">
+              Severity
+              <select id="syslog-severity">
+                <option value="">All</option>
+                <option value="0">Emergency</option>
+                <option value="1">Alert</option>
+                <option value="2">Critical</option>
+                <option value="3">Error</option>
+                <option value="4">Warning</option>
+                <option value="5">Notice</option>
+                <option value="6">Info</option>
+                <option value="7">Debug</option>
+              </select>
+            </label>
+            <button class="btn" id="syslog-refresh" type="button">Refresh</button>
+          </div>
+        </header>
+        <div class="syslog-summary">
+          <div class="stat">
+            <span class="stat__label">Last hour</span>
+            <span class="stat__value" id="syslog-total-1h">--</span>
+          </div>
+          <div class="stat">
+            <span class="stat__label">Last 24h</span>
+            <span class="stat__value" id="syslog-total-24h">--</span>
+          </div>
+          <div class="stat">
+            <span class="stat__label">Top app</span>
+            <span class="stat__value" id="syslog-top-app">--</span>
+          </div>
+          <div class="stat">
+            <span class="stat__label">Info</span>
+            <span class="badge badge--info" id="syslog-sev-info">0</span>
+          </div>
+          <div class="stat">
+            <span class="stat__label">Warn</span>
+            <span class="badge badge--warn" id="syslog-sev-warn">0</span>
+          </div>
+          <div class="stat">
+            <span class="stat__label">Error+</span>
+            <span class="badge badge--error" id="syslog-sev-error">0</span>
+          </div>
+        </div>
+        <div class="card__body card__body--table">
+          <div class="table-wrap">
+            <table id="syslog-table" class="table">
+              <thead>
+                <tr>
+                  <th>Time</th>
+                  <th>Host</th>
+                  <th>App</th>
+                  <th>Severity</th>
+                  <th>Category</th>
+                  <th>Message</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr class="empty-row"><td colspan="6">Waiting for syslog…</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="pagination" role="navigation" aria-label="Syslog pages">
+            <button class="btn btn--outline btn--sm" id="syslog-prev" type="button" disabled>Previous</button>
+            <div class="pagination__meta">
+              <span class="pagination__label" id="syslog-page">Page 1</span>
+              <span class="pagination__range" id="syslog-range">Showing —</span>
+            </div>
+            <button class="btn btn--outline btn--sm" id="syslog-next" type="button" disabled>Next</button>
+          </div>
+        </div>
+      </article>
+
+      <article class="card">
+        <header class="card__header">
+          <div>
+            <h2>Event Logs</h2>
+            <p class="muted">Windows events ingested into telemetry.</p>
+          </div>
+          <div class="controls">
+            <label class="control">
+              Source
+              <input id="event-source" type="text" placeholder="System, Application…">
+            </label>
+            <label class="control">
+              Category
+              <select id="event-category">
+                <option value="">All</option>
+                <option value="auth">Auth</option>
+                <option value="update">Update</option>
+                <option value="service">Service</option>
+                <option value="security">Security</option>
+                <option value="network">Network</option>
+                <option value="system">System</option>
+                <option value="application">Application</option>
+              </select>
+            </label>
+            <label class="control">
+              Severity
+              <select id="event-severity">
+                <option value="">All</option>
+                <option value="critical">Critical</option>
+                <option value="error">Error</option>
+                <option value="warning">Warning</option>
+                <option value="information">Information</option>
+              </select>
+            </label>
+            <button class="btn" id="event-refresh" type="button">Refresh</button>
+          </div>
+        </header>
+        <div class="syslog-summary">
+          <div class="stat">
+            <span class="stat__label">Last hour</span>
+            <span class="stat__value" id="events-total-1h">--</span>
+          </div>
+          <div class="stat">
+            <span class="stat__label">Last 24h</span>
+            <span class="stat__value" id="events-total-24h">--</span>
+          </div>
+          <div class="stat">
+            <span class="stat__label">Top source</span>
+            <span class="stat__value" id="events-top-source">--</span>
+          </div>
+          <div class="stat">
+            <span class="stat__label">Warnings</span>
+            <span class="badge badge--warn" id="events-sev-warn">0</span>
+          </div>
+          <div class="stat">
+            <span class="stat__label">Errors</span>
+            <span class="badge badge--error" id="events-sev-error">0</span>
+          </div>
+          <div class="stat">
+            <span class="stat__label">Info</span>
+            <span class="badge badge--info" id="events-sev-info">0</span>
+          </div>
+        </div>
+        <div class="card__body card__body--table">
+          <div class="table-wrap">
+            <table id="event-table" class="table">
+              <thead>
+                <tr>
+                  <th>Time</th>
+                  <th>Source</th>
+                  <th>Severity</th>
+                  <th>Category</th>
+                  <th>Provider</th>
+                  <th>Message</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr class="empty-row"><td colspan="6">Waiting for events…</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="pagination" role="navigation" aria-label="Event log pages">
+            <button class="btn btn--outline btn--sm" id="event-prev" type="button" disabled>Previous</button>
+            <div class="pagination__meta">
+              <span class="pagination__label" id="event-page">Page 1</span>
+              <span class="pagination__range" id="event-range">Showing —</span>
+            </div>
+            <button class="btn btn--outline btn--sm" id="event-next" type="button" disabled>Next</button>
+          </div>
+        </div>
+      </article>
+
+      <article class="card">
+        <header class="card__header">
+          <div>
+            <h2>Router KPIs</h2>
+            <p class="muted">Summary of key syslog patterns (last 24h).</p>
+          </div>
+          <span class="muted" id="router-kpi-updated">--</span>
+        </header>
+        <div class="kpi-list" id="router-kpi-list">
+          <div class="kpi-item"><span>Total drops</span><span class="badge badge--warn" id="kpi-total-drop">--</span></div>
+          <div class="kpi-item"><span>IGMP drops</span><span class="badge badge--warn" id="kpi-igmp-drop">--</span></div>
+          <div class="kpi-item"><span>Roam kicks</span><span class="badge badge--info" id="kpi-roam-kicks">--</span></div>
+          <div class="kpi-item"><span>Rstats errors</span><span class="badge badge--error" id="kpi-rstats-errors">--</span></div>
+          <div class="kpi-item"><span>dnsmasq SIGTERM</span><span class="badge badge--error" id="kpi-dnsmasq-sigterm">--</span></div>
+          <div class="kpi-item"><span>avahi SIGTERM</span><span class="badge badge--error" id="kpi-avahi-sigterm">--</span></div>
+          <div class="kpi-item"><span>UPnP shutdowns</span><span class="badge badge--warn" id="kpi-upnp-shutdowns">--</span></div>
         </div>
       </article>
     </section>
