@@ -36,7 +36,7 @@ def test_db():
         db_path = f.name
     
     # Initialize schema
-    schema_path = os.path.join(os.path.dirname(__file__), '..', 'tools', 'schema-sqlite.sql')
+    schema_path = os.path.join(os.path.dirname(__file__), 'fixtures', 'schema-sqlite.sql')
     with open(schema_path, 'r') as f:
         schema_sql = f.read()
     

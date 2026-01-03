@@ -24,7 +24,7 @@
      ```
      Initialize-SystemDashboardDockerDatabase
      ```
-4. Optional LAN schema for observability:
+4. LAN observability schema is included in the unified Postgres schema. (Optional reapply:)
    ```
    Apply-SystemDashboardLanSchema -ConfigPath .\config.json
    ```

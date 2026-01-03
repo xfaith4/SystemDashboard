@@ -249,9 +249,9 @@ if (-not $success) {
 # Apply schema
 Write-Host "`n🏗️  Setting up schema..." -ForegroundColor Yellow
 
-$schemaPath = Join-Path $PSScriptRoot "..\tools\schema.sql"
+$schemaPath = Join-Path $PSScriptRoot "..\telemetry\schema.sql"
 if (Test-Path $schemaPath) {
-    $success = $success -and (Invoke-DockerSQLFile -FilePath $schemaPath -Database $DatabaseName -Description "Applying schema from schema.sql")
+    $success = $success -and (Invoke-DockerSQLFile -FilePath $schemaPath -Database $DatabaseName -Description "Applying schema from telemetry/schema.sql")
 }
 else {
     Write-Host "⚠️  Schema file not found at: $schemaPath" -ForegroundColor Yellow
@@ -312,16 +312,6 @@ $$;
     $success = $success -and (Invoke-DockerPSQL -Command $basicSchema -Database $DatabaseName -Description "Creating basic telemetry schema")
 }
 
-# Apply extended schema for Windows Event Log and IIS tables
-$extendedSchemaPath = Join-Path $PSScriptRoot "..\extended-schema.sql"
-if (Test-Path $extendedSchemaPath) {
-    Write-Host "`n📋 Applying extended schema (Windows Event Log and IIS tables)..." -ForegroundColor Cyan
-    $success = $success -and (Invoke-DockerSQLFile -FilePath $extendedSchemaPath -Database $DatabaseName -Description "Applying extended schema from extended-schema.sql")
-}
-else {
-    Write-Host "⚠️  Extended schema file not found at: $extendedSchemaPath" -ForegroundColor Yellow
-}
-
 # Grant permissions
 Write-Host "`n🔐 Setting up permissions..." -ForegroundColor Yellow
 
@@ -342,9 +332,6 @@ $permissionCommands = @(
 foreach ($cmd in $permissionCommands) {
     $success = $success -and (Invoke-DockerPSQL -Command $cmd -Database $DatabaseName -Description "Setting permissions")
 }
-
-# Create initial partition
-$success = $success -and (Invoke-DockerPSQL -Command "SELECT telemetry.ensure_syslog_partition(CURRENT_DATE);" -Database $DatabaseName -Description "Creating initial partition")
 
 if ($success) {
     Write-Host "`n🎉 Database setup completed successfully!" -ForegroundColor Green

@@ -1,10 +1,10 @@
 #requires -Version 7
 <#
 .SYNOPSIS
-    Applies the LAN Observability schema to the database
+    Applies the unified telemetry schema (including LAN observability) to the database
 .DESCRIPTION
-    Runs the lan-observability-schema.sql script to create necessary tables,
-    functions, and views for LAN device monitoring.
+    Runs the consolidated telemetry/schema.sql script to create the tables,
+    functions, and views needed for LAN device monitoring and related features.
 #>
 
 param(
@@ -72,7 +72,7 @@ if (-not $psqlPath -or -not (Test-Path $psqlPath)) {
 Write-Host "Using psql at: $psqlPath" -ForegroundColor Cyan
 
 # Schema file path
-$schemaFile = Join-Path $repoRoot "lan-observability-schema.sql"
+$schemaFile = Join-Path $repoRoot "telemetry\\schema.sql"
 if (-not (Test-Path $schemaFile)) {
     Write-Error "Schema file not found at: $schemaFile"
     exit 1
@@ -113,7 +113,7 @@ if ($LASTEXITCODE -eq 0) {
 }
 
 # Apply schema
-Write-Host "`nApplying LAN Observability schema..." -ForegroundColor Green
+Write-Host "`nApplying unified telemetry schema (includes LAN)..." -ForegroundColor Green
 
 try {
     $output = & "$psqlPath" -h $dbHost -p $dbPort -U $dbUser -d $dbName -f $schemaFile 2>&1
@@ -134,7 +134,7 @@ try {
     Write-Host "- Created syslog_device_links table (correlation)" -ForegroundColor White
     Write-Host "- Created lan_settings table (configuration)" -ForegroundColor White
     Write-Host "- Created helper functions and views" -ForegroundColor White
-    Write-Host "- Set up initial partition for current month" -ForegroundColor White
+    Write-Host "- Set up initial partitions for current month" -ForegroundColor White
     Write-Host "- Granted permissions to sysdash_ingest and sysdash_reader" -ForegroundColor White
 
     # Verify tables

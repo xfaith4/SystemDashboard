@@ -1,10 +1,10 @@
 #requires -Version 7
 <#
 .SYNOPSIS
-  Apply the telemetry schema (syslog partitions + recent view) to Postgres using config telemetry settings.
+  Apply the unified telemetry schema (syslog, Windows/IIS, LAN, AI, actions) to Postgres.
 .DESCRIPTION
   Reads telemetry database settings from the unified config (2025-09-11/config.json by default),
-  resolves env/file secrets, and runs schema.sql via psql.
+  resolves env/file secrets, and runs telemetry/schema.sql via psql.
 #>
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'

@@ -1,6 +1,5 @@
--- System Dashboard SQLite Schema
--- This schema provides a clean, professional database structure for the system dashboard
--- using SQLite for simple, file-based database management.
+-- System Dashboard SQLite Schema (test-only fixture)
+-- Production uses PostgreSQL; this file exists solely to support unit tests.
 
 -- Enable foreign keys
 PRAGMA foreign_keys = ON;
