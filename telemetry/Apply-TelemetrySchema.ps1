@@ -6,14 +6,13 @@
   Reads telemetry database settings from the unified config (2025-09-11/config.json by default),
   resolves env/file secrets, and runs telemetry/schema.sql via psql.
 #>
-Set-StrictMode -Version Latest
-$ErrorActionPreference = 'Stop'
-
-[CmdletBinding()]
 param(
     [string]$ConfigPath = (Join-Path $PSScriptRoot '..' '2025-09-11' 'config.json'),
     [string]$SchemaPath = (Join-Path $PSScriptRoot 'schema.sql')
 )
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
 
 if (-not (Test-Path -LiteralPath $ConfigPath)) { throw "Config not found at $ConfigPath" }
 if (-not (Test-Path -LiteralPath $SchemaPath)) { throw "Schema file not found at $SchemaPath" }
@@ -48,19 +47,20 @@ function Resolve-Secret {
     return $Fallback
 }
 
-$host = $db.host ?? 'localhost'
+$dbHost = $db.host ?? 'localhost'
 $port = [int]($db.port ?? 5432)
 $name = $db.database ?? $db.name
 $user = $db.username ?? $db.user
 if (-not $name -or -not $user) { throw "telemetry.database.host/user/database required." }
-$pwd = Resolve-Secret -Secret ($db.passwordSecret ?? $db.password) -Fallback $null
-if ([string]::IsNullOrWhiteSpace($pwd)) { throw "telemetry database password missing (password or passwordSecret)." }
 
-$env:PGPASSWORD = $pwd
+$dbPassword = Resolve-Secret -Secret ($db.passwordSecret ?? $db.password) -Fallback $null
+if ([string]::IsNullOrWhiteSpace($dbPassword)) { throw "telemetry database password missing (password or passwordSecret)." } # TODO: Consider using a secure string for password
+
+$env:PGPASSWORD = $dbPassword
 try {
-    $args = @('-h', $host, '-p', [string]$port, '-U', $user, '-d', $name, '-f', $SchemaPath)
-    Write-Host "Applying telemetry schema to $host:$port/$name using $($cmd.Source)..." -ForegroundColor Cyan
-    $p = Start-Process -FilePath $cmd.Source -ArgumentList $args -NoNewWindow -Wait -PassThru -ErrorAction Stop
+    $psqlArgs = @('-h', $dbHost, '-p', [string]$port, '-U', $user, '-d', $name, '-f', $SchemaPath)
+    Write-Host "Applying telemetry schema to $(dbHost):$port/$name using $($cmd.Source)..." -ForegroundColor Cyan
+    $p = Start-Process -FilePath $cmd.Source -ArgumentList $psqlArgs -NoNewWindow -Wait -PassThru -ErrorAction Stop
     if ($p.ExitCode -ne 0) { throw "psql exited with $($p.ExitCode)" }
     Write-Host "Schema applied successfully." -ForegroundColor Green
 }
