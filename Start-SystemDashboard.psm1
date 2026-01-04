@@ -809,6 +809,33 @@ function Write-JsonResponse {
     $Response.Close()
 }
 
+function Test-ClientDisconnectException {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][System.Exception]$Exception
+    )
+
+    $current = $Exception
+    while ($current) {
+        if ($current -is [System.Net.HttpListenerException]) {
+            if ($current.ErrorCode -eq 64 -or $current.ErrorCode -eq 995) {
+                return $true
+            }
+        }
+        if ($current -is [System.IO.IOException]) {
+            if ($current.HResult -eq -2147024832) {
+                return $true
+            }
+        }
+        if ($current.Message -match 'network name is no longer available') {
+            return $true
+        }
+        $current = $current.InnerException
+    }
+
+    return $false
+}
+
 function Ensure-UrlAcl {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string] $Prefix)
@@ -1963,13 +1990,17 @@ SELECT COALESCE(json_agg(t), '[]'::json) FROM (
             $res.Close()
             } catch {
                 $pathLabel = if ($requestPath) { $requestPath } else { $req.RawUrl }
-                Write-Log -Level 'ERROR' -Message ("Request failed for {0}: {1}" -f $pathLabel, $_.Exception.Message)
-                try {
-                    if ($res) {
-                        Write-JsonResponse -Response $res -Json '{"error":"request failed"}' -StatusCode 500
+                if (Test-ClientDisconnectException -Exception $_.Exception) {
+                    try { if ($res) { $res.Close() } } catch {}
+                } else {
+                    Write-Log -Level 'ERROR' -Message ("Request failed for {0}: {1}" -f $pathLabel, $_.Exception.Message)
+                    try {
+                        if ($res) {
+                            Write-JsonResponse -Response $res -Json '{"error":"request failed"}' -StatusCode 500
+                        }
+                    } catch {
+                        try { $res.Close() } catch {}
                     }
-                } catch {
-                    try { $res.Close() } catch {}
                 }
             }
         }
