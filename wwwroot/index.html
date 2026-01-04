@@ -30,53 +30,119 @@
     <span id="service-banner-text">Loading status…</span>
   </div>
 
-  <main class="layout">
-    <section class="grid summary">
-      <article class="card summary__item">
-        <h2>Host</h2>
-        <p class="metric" id="host-name">--</p>
-        <p class="muted">Uptime <span id="uptime-value">--</span></p>
-      </article>
-      <article class="card summary__item">
-        <h2>CPU</h2>
-        <p class="metric" id="cpu-value">--</p>
-        <p class="muted">Average utilisation</p>
-      </article>
-      <article class="card summary__item">
-        <h2>Memory</h2>
-        <p class="metric" id="memory-value">--</p>
-        <p class="muted" id="memory-detail">--</p>
-      </article>
-      <article class="card summary__item">
-        <h2>Latency</h2>
-        <p class="metric" id="latency-value">--</p>
-        <p class="muted">ICMP to <span id="latency-target">configured target</span></p>
-      </article>
-    </section>
+  <div class="layout-toolbar">
+    <div class="layout-controls">
+      <label class="control">
+        Layout
+        <select id="layout-select"></select>
+      </label>
+      <label class="control">
+        Save as
+        <input id="layout-name" type="text" placeholder="Layout name">
+      </label>
+      <button class="btn" id="layout-save" type="button">Save</button>
+      <button class="btn btn--outline" id="layout-delete" type="button">Delete</button>
+      <button class="btn btn--outline" id="layout-reset" type="button">Reset</button>
+      <label class="control control--inline">
+        <input id="layout-lock" type="checkbox">
+        Lock layout
+      </label>
+    </div>
+  </div>
 
-    <section class="card">
-      <header class="card__header">
-        <h2>Disk Utilisation</h2>
-      </header>
-      <div class="card__body">
-        <table id="disk-table" class="table">
-          <thead>
-            <tr>
-              <th>Drive</th>
-              <th>Used</th>
-              <th>Total</th>
-              <th>Usage %</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr class="empty-row"><td colspan="4">Waiting for data…</td></tr>
-          </tbody>
-        </table>
+  <main class="layout">
+    <section class="overview">
+      <article class="card overview__main">
+        <header class="card__header">
+          <div>
+            <h2>At a Glance</h2>
+            <p class="muted">Today's health indicators and noisy actors.</p>
+          </div>
+          <span class="muted" id="overview-range">Today</span>
+        </header>
+        <div class="overview__kpis">
+          <div class="overview__kpi">
+            <span class="overview__label">Errors today</span>
+            <span class="overview__value" id="overview-errors">--</span>
+            <span class="overview__meta">Syslog + events</span>
+          </div>
+          <div class="overview__kpi">
+            <span class="overview__label">Warnings today</span>
+            <span class="overview__value" id="overview-warnings">--</span>
+            <span class="overview__meta">Syslog + events</span>
+          </div>
+          <div class="overview__kpi">
+            <span class="overview__label">Noisy hosts</span>
+            <span class="overview__value" id="overview-noisy-hosts">--</span>
+            <span class="overview__meta">Top: <span id="overview-top-host">--</span></span>
+          </div>
+          <div class="overview__kpi">
+            <span class="overview__label">Top syslog app</span>
+            <span class="overview__value" id="overview-top-app">--</span>
+            <span class="overview__meta">Most active today</span>
+          </div>
+          <div class="overview__kpi">
+            <span class="overview__label">Router drops (24h)</span>
+            <span class="overview__value" id="overview-router-drops">--</span>
+            <span class="overview__meta">Kernel drops</span>
+          </div>
+          <div class="overview__kpi">
+            <span class="overview__label">Disk pressure</span>
+            <span class="overview__value" id="overview-disk-pressure">--</span>
+            <span class="overview__meta" id="overview-disk-detail">--</span>
+          </div>
+        </div>
+        <div class="overview__focus">
+          <div class="overview__focus-header">
+            <h3>Focus now</h3>
+            <span class="muted" id="overview-focus-updated">--</span>
+          </div>
+          <ul class="focus-list" id="overview-focus-list">
+            <li class="empty">Loading focus items…</li>
+          </ul>
+        </div>
+      </article>
+      <div class="overview__side">
+        <article class="card overview__vitals">
+          <header class="card__header">
+            <div>
+              <h2>System Vitals</h2>
+              <p class="muted">Listener snapshot</p>
+            </div>
+          </header>
+          <div class="vitals-grid">
+            <div class="vital">
+              <span class="vital__label">Host</span>
+              <span class="vital__value" id="host-name">--</span>
+              <span class="vital__meta">Uptime <span id="uptime-value">--</span></span>
+            </div>
+            <div class="vital">
+              <span class="vital__label">CPU</span>
+              <span class="vital__value" id="cpu-value">--</span>
+              <span class="vital__meta">Average utilisation</span>
+            </div>
+            <div class="vital">
+              <span class="vital__label">Memory</span>
+              <span class="vital__value" id="memory-value">--</span>
+              <span class="vital__meta" id="memory-detail">--</span>
+            </div>
+            <div class="vital">
+              <span class="vital__label">Latency</span>
+              <span class="vital__value" id="latency-value">--</span>
+              <span class="vital__meta">ICMP to <span id="latency-target">configured target</span></span>
+            </div>
+          </div>
+        </article>
       </div>
     </section>
 
-    <section class="grid two-column">
-      <article class="card">
+    <div class="section-heading">
+      <h2>System Drilldowns</h2>
+      <p class="muted">Deep system metrics for context and troubleshooting.</p>
+    </div>
+
+    <section class="dashboard-grid" id="dashboard-grid">
+      <article class="card dashboard-card" data-layout-id="recent-warnings">
         <header class="card__header">
           <h2>Recent Warnings</h2>
           <span id="warning-total" class="badge">0</span>
@@ -85,7 +151,7 @@
           <li class="empty">Waiting for data…</li>
         </ul>
       </article>
-      <article class="card">
+      <article class="card dashboard-card" data-layout-id="recent-errors">
         <header class="card__header">
           <h2>Recent Errors</h2>
           <span id="error-total" class="badge badge--error">0</span>
@@ -94,12 +160,30 @@
           <li class="empty">Waiting for data…</li>
         </ul>
       </article>
-    </section>
-
-    <section class="grid two-column">
-      <article class="card">
+      <article class="card dashboard-card" data-layout-id="disk-utilisation">
+        <header class="card__header">
+          <h2>Disk Utilisation</h2>
+        </header>
+        <div class="card__body">
+          <table id="disk-table" class="table">
+            <thead>
+              <tr>
+                <th>Drive</th>
+                <th>Used</th>
+                <th>Total</th>
+                <th>Usage %</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr class="empty-row"><td colspan="4">Waiting for data…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </article>
+      <article class="card dashboard-card" data-layout-id="network-throughput">
         <header class="card__header">
           <h2>Network Throughput</h2>
+          <span id="network-count" class="badge">0</span>
         </header>
         <div class="card__body">
           <table id="network-table" class="table">
@@ -116,7 +200,7 @@
           </table>
         </div>
       </article>
-      <article class="card">
+      <article class="card dashboard-card" data-layout-id="top-processes">
         <header class="card__header">
           <h2>Top Processes (CPU time)</h2>
         </header>
@@ -135,15 +219,7 @@
           </table>
         </div>
       </article>
-    </section>
-
-    <div class="section-heading">
-      <h2>Telemetry Insights</h2>
-      <p class="muted">Device activity and noisy clients at a glance.</p>
-    </div>
-
-    <section class="grid two-column telemetry-grid">
-      <article class="card">
+      <article class="card dashboard-card" data-layout-id="device-timeline">
         <header class="card__header">
           <div>
             <h2>Device Timeline</h2>
@@ -189,14 +265,45 @@
         </div>
         <div class="timeline-legend" id="timeline-legend"></div>
       </article>
-
-      <article class="card">
+      <article class="card dashboard-card" data-layout-id="wifi-clients">
+        <header class="card__header">
+          <div>
+            <h2>Wi-Fi Clients</h2>
+            <p class="muted">Live RSSI and link rates from the router.</p>
+          </div>
+          <div class="card__actions">
+            <span class="badge" id="wifi-client-count">0</span>
+            <button class="btn" id="wifi-refresh" type="button">Refresh</button>
+          </div>
+        </header>
+        <div class="card__body">
+          <table id="wifi-table" class="table">
+            <thead>
+              <tr>
+                <th>Client</th>
+                <th>IP</th>
+                <th>Band</th>
+                <th>RSSI</th>
+                <th>Tx/Rx</th>
+                <th>Last Seen</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr class="empty-row"><td colspan="6">Waiting for Wi-Fi clients…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </article>
+      <article class="card dashboard-card" data-layout-id="noisy-devices">
         <header class="card__header">
           <div>
             <h2>Noisy Devices</h2>
             <p class="muted">MACs with high event volume in the last hour.</p>
           </div>
-          <button class="btn" id="devices-refresh" type="button">Refresh</button>
+          <div class="card__actions">
+            <span class="badge" id="device-count">0</span>
+            <button class="btn" id="devices-refresh" type="button">Refresh</button>
+          </div>
         </header>
         <div class="card__body">
           <table id="device-table" class="table">
@@ -215,15 +322,7 @@
           </table>
         </div>
       </article>
-    </section>
-
-    <div class="section-heading">
-      <h2>Drilldown Findings</h2>
-      <p class="muted">Filtered log streams with paging for quick analysis.</p>
-    </div>
-
-    <section class="grid two-column telemetry-grid">
-      <article class="card">
+      <article class="card dashboard-card" data-layout-id="syslog-intake">
         <header class="card__header">
           <div>
             <h2>Syslog Intake</h2>
@@ -261,6 +360,22 @@
                 <option value="7">Debug</option>
               </select>
             </label>
+            <label class="control">
+              From
+              <input id="syslog-start" type="datetime-local">
+            </label>
+            <label class="control">
+              To
+              <input id="syslog-end" type="datetime-local">
+            </label>
+            <label class="control">
+              Bucket
+              <select id="syslog-bucket">
+                <option value="5">5 min</option>
+                <option value="15" selected>15 min</option>
+                <option value="60">1 hr</option>
+              </select>
+            </label>
             <button class="btn" id="syslog-refresh" type="button">Refresh</button>
           </div>
         </header>
@@ -291,6 +406,15 @@
           </div>
         </div>
         <div class="card__body card__body--table">
+          <div class="timeline-block">
+            <div class="timeline-header">
+              <span class="muted">Syslog volume by severity</span>
+            </div>
+            <div class="timeline-chart timeline-chart--compact" id="syslog-timeline-chart">
+              <div class="timeline-empty">Waiting for syslog timeline...</div>
+            </div>
+            <div class="timeline-legend" id="syslog-timeline-legend"></div>
+          </div>
           <div class="table-wrap">
             <table id="syslog-table" class="table">
               <thead>
@@ -318,8 +442,7 @@
           </div>
         </div>
       </article>
-
-      <article class="card">
+      <article class="card dashboard-card" data-layout-id="event-logs">
         <header class="card__header">
           <div>
             <h2>Event Logs</h2>
@@ -353,6 +476,22 @@
                 <option value="information">Information</option>
               </select>
             </label>
+            <label class="control">
+              From
+              <input id="event-start" type="datetime-local">
+            </label>
+            <label class="control">
+              To
+              <input id="event-end" type="datetime-local">
+            </label>
+            <label class="control">
+              Bucket
+              <select id="event-bucket">
+                <option value="5">5 min</option>
+                <option value="15" selected>15 min</option>
+                <option value="60">1 hr</option>
+              </select>
+            </label>
             <button class="btn" id="event-refresh" type="button">Refresh</button>
           </div>
         </header>
@@ -383,6 +522,15 @@
           </div>
         </div>
         <div class="card__body card__body--table">
+          <div class="timeline-block">
+            <div class="timeline-header">
+              <span class="muted">Event volume by severity</span>
+            </div>
+            <div class="timeline-chart timeline-chart--compact" id="event-timeline-chart">
+              <div class="timeline-empty">Waiting for event timeline...</div>
+            </div>
+            <div class="timeline-legend" id="event-timeline-legend"></div>
+          </div>
           <div class="table-wrap">
             <table id="event-table" class="table">
               <thead>
@@ -410,8 +558,7 @@
           </div>
         </div>
       </article>
-
-      <article class="card">
+      <article class="card dashboard-card" data-layout-id="router-kpis">
         <header class="card__header">
           <div>
             <h2>Router KPIs</h2>

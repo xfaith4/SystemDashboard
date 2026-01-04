@@ -661,6 +661,139 @@ function Convert-IsoDurationToMinutes {
     return 1440
 }
 
+function Try-ParseQueryDateTime {
+    param([string]$Value)
+
+    if (-not $Value) {
+        return $null
+    }
+    $parsed = $null
+    try {
+        $styles = [System.Globalization.DateTimeStyles]::AssumeLocal
+        $culture = [System.Globalization.CultureInfo]::InvariantCulture
+        if ([DateTime]::TryParse($Value, $culture, $styles, [ref]$parsed)) {
+            return $parsed
+        }
+    } catch {
+        # Fallback for runtimes that don't expose the 4-arg TryParse overload.
+    }
+    try {
+        if ([DateTime]::TryParse($Value, [ref]$parsed)) {
+            return $parsed
+        }
+    } catch {}
+    return $null
+}
+
+function Resolve-QueryTimeRange {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][System.Collections.Specialized.NameValueCollection]$Query,
+        [int]$DefaultHours = 24
+    )
+
+    $end = Try-ParseQueryDateTime $Query['end']
+    $start = Try-ParseQueryDateTime $Query['start']
+
+    if (-not $end) {
+        $end = Get-Date
+    }
+    if (-not $start) {
+        $start = $end.AddHours(-$DefaultHours)
+    }
+    if ($start -gt $end) {
+        $tmp = $start
+        $start = $end
+        $end = $tmp
+    }
+
+    return @{
+        StartUtc = $start.ToUniversalTime()
+        EndUtc = $end.ToUniversalTime()
+    }
+}
+
+function Read-RequestBody {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][System.Net.HttpListenerRequest]$Request
+    )
+
+    $encoding = if ($Request.ContentEncoding) { $Request.ContentEncoding } else { [Text.Encoding]::UTF8 }
+    $reader = New-Object System.IO.StreamReader($Request.InputStream, $encoding)
+    try {
+        return $reader.ReadToEnd()
+    } finally {
+        $reader.Close()
+    }
+}
+
+function Get-LayoutStorePath {
+    [CmdletBinding()]
+    param()
+
+    $path = $null
+    if ($script:Config -and $script:Config.Service -and $script:Config.Service.Ui -and $script:Config.Service.Ui.LayoutPath) {
+        $path = $script:Config.Service.Ui.LayoutPath
+    } elseif ($script:Config -and $script:Config.Ui -and $script:Config.Ui.LayoutPath) {
+        $path = $script:Config.Ui.LayoutPath
+    }
+    if (-not $path) {
+        $path = './var/ui/layouts.json'
+    }
+
+    try {
+        return Resolve-ConfigPathValue $path
+    } catch {
+        Write-Log -Level 'WARN' -Message "Layout store path invalid: $path ($($_.Exception.Message))"
+        return $null
+    }
+}
+
+function Load-LayoutStore {
+    [CmdletBinding()]
+    param()
+
+    $path = Get-LayoutStorePath
+    if (-not $path -or -not (Test-Path -LiteralPath $path -PathType Leaf)) {
+        return $null
+    }
+    try {
+        $raw = Get-Content -LiteralPath $path -Raw
+        if (-not $raw) {
+            return $null
+        }
+        return $raw | ConvertFrom-Json
+    } catch {
+        Write-Log -Level 'WARN' -Message "Failed to read layout store: $($_.Exception.Message)"
+        return $null
+    }
+}
+
+function Save-LayoutStore {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][object]$Store
+    )
+
+    $path = Get-LayoutStorePath
+    if (-not $path) {
+        return $false
+    }
+    try {
+        $dir = Split-Path -Parent $path
+        if ($dir -and -not (Test-Path -LiteralPath $dir -PathType Container)) {
+            New-Item -Path $dir -ItemType Directory -Force | Out-Null
+        }
+        $json = $Store | ConvertTo-Json -Depth 8
+        Set-Content -LiteralPath $path -Value $json -Encoding UTF8
+        return $true
+    } catch {
+        Write-Log -Level 'WARN' -Message "Failed to save layout store: $($_.Exception.Message)"
+        return $false
+    }
+}
+
 function Write-JsonResponse {
     param(
         [Parameter(Mandatory)][System.Net.HttpListenerResponse]$Response,
@@ -1000,17 +1133,88 @@ function Start-SystemDashboardListener {
                 $res.Close()
                 continue
             } elseif ($requestPath -eq '/api/syslog/summary') {
+                $range = Resolve-QueryTimeRange -Query $req.QueryString -DefaultHours 24
+                $rangeStartIso = Escape-SqlLiteral $range.StartUtc.ToString('o')
+                $rangeEndIso = Escape-SqlLiteral $range.EndUtc.ToString('o')
+                $rangeStart1h = $range.EndUtc.AddHours(-1)
+                if ($rangeStart1h -lt $range.StartUtc) { $rangeStart1h = $range.StartUtc }
+                $rangeStart24h = $range.EndUtc.AddHours(-24)
+                if ($rangeStart24h -lt $range.StartUtc) { $rangeStart24h = $range.StartUtc }
+                $rangeStart1hIso = Escape-SqlLiteral $rangeStart1h.ToString('o')
+                $rangeStart24hIso = Escape-SqlLiteral $rangeStart24h.ToString('o')
+
+                $filters = @(
+                    "received_utc >= '$rangeStartIso'::timestamptz",
+                    "received_utc <= '$rangeEndIso'::timestamptz"
+                )
+                $hostQuery = $req.QueryString['host']
+                if ($hostQuery) {
+                    $hostSafe = Escape-SqlLiteral $hostQuery.ToLowerInvariant()
+                    $filters += ("LOWER(source_host) LIKE '%{0}%'" -f $hostSafe)
+                }
+
+                $category = $req.QueryString['category']
+                $categorySafe = if ($category) { Escape-SqlLiteral $category.ToLowerInvariant() } else { $null }
+
+                $severityFilter = $null
+                if ($req.QueryString['severity']) {
+                    $sevParsed = 0
+                    if ([int]::TryParse($req.QueryString['severity'], [ref]$sevParsed)) {
+                        $severityFilter = $sevParsed
+                    }
+                }
+
+                $categoryExpr = @"
+CASE
+    WHEN (app_name ILIKE '%wlceventd%' OR message ILIKE '%wifi%' OR message ILIKE '%wlan%') THEN 'wifi'
+    WHEN (app_name ILIKE '%dnsmasq%' OR message ILIKE '%dhcp%' OR message ILIKE '%udhcpd%') THEN 'dhcp'
+    WHEN (message ILIKE '%firewall%' OR message ILIKE '%iptables%' OR message ILIKE '%drop%') THEN 'firewall'
+    WHEN (message ILIKE '%auth%' OR message ILIKE '%login%' OR message ILIKE '%ssh%' OR message ILIKE '%vpn%') THEN 'auth'
+    WHEN (message ILIKE '%dns%' OR message ILIKE '%resolver%' OR message ILIKE '%named%') THEN 'dns'
+    WHEN (message ILIKE '%network%' OR message ILIKE '%link%') THEN 'network'
+    ELSE 'system'
+END
+"@
+
+                if ($severityFilter -ne $null) {
+                    $filters += "severity = $severityFilter"
+                }
+                if ($categorySafe) {
+                    $filters += ("($categoryExpr) = '{0}'" -f $categorySafe)
+                }
+
+                $where = $filters -join ' AND '
                 $sql = @"
+WITH rows AS (
+    SELECT received_utc,
+           source_host,
+           app_name,
+           severity,
+           $categoryExpr AS category
+    FROM telemetry.syslog_generic_template
+    WHERE $where
+)
 SELECT json_build_object(
-    'total1h', (SELECT COUNT(*) FROM telemetry.syslog_generic_template WHERE received_utc >= NOW() - INTERVAL '1 hour'),
-    'total24h', (SELECT COUNT(*) FROM telemetry.syslog_generic_template WHERE received_utc >= NOW() - INTERVAL '24 hours'),
+    'total1h', (SELECT COUNT(*) FROM rows WHERE received_utc >= '$rangeStart1hIso'::timestamptz),
+    'total24h', (SELECT COUNT(*) FROM rows WHERE received_utc >= '$rangeStart24hIso'::timestamptz),
+    'noisyHosts', (SELECT COUNT(DISTINCT source_host) FROM rows WHERE source_host IS NOT NULL AND source_host <> '' AND severity <= 4),
     'topApps', COALESCE((
         SELECT json_agg(t)
         FROM (
             SELECT app_name AS app, COUNT(*) AS total
-            FROM telemetry.syslog_generic_template
-            WHERE received_utc >= NOW() - INTERVAL '24 hours'
+            FROM rows
             GROUP BY app_name
+            ORDER BY total DESC NULLS LAST
+            LIMIT 5
+        ) t
+    ), '[]'::json),
+    'topHosts', COALESCE((
+        SELECT json_agg(t)
+        FROM (
+            SELECT source_host AS host, COUNT(*) AS total
+            FROM rows
+            WHERE source_host IS NOT NULL AND source_host <> ''
+            GROUP BY source_host
             ORDER BY total DESC NULLS LAST
             LIMIT 5
         ) t
@@ -1018,21 +1222,9 @@ SELECT json_build_object(
     'bySeverity', COALESCE((
         SELECT json_agg(t)
         FROM (
-            SELECT CASE severity
-                WHEN 0 THEN 'emerg'
-                WHEN 1 THEN 'alert'
-                WHEN 2 THEN 'critical'
-                WHEN 3 THEN 'error'
-                WHEN 4 THEN 'warning'
-                WHEN 5 THEN 'notice'
-                WHEN 6 THEN 'info'
-                WHEN 7 THEN 'debug'
-                ELSE 'unknown'
-            END AS severity,
-            COUNT(*) AS total
-            FROM telemetry.syslog_generic_template
-            WHERE received_utc >= NOW() - INTERVAL '24 hours'
-            GROUP BY 1
+            SELECT severity, COUNT(*) AS total
+            FROM rows
+            GROUP BY severity
             ORDER BY total DESC
         ) t
     ), '[]'::json)
@@ -1062,7 +1254,13 @@ SELECT json_build_object(
                     }
                 }
 
-                $filters = @("received_utc >= NOW() - INTERVAL '24 hours'")
+                $range = Resolve-QueryTimeRange -Query $req.QueryString -DefaultHours 24
+                $rangeStartIso = Escape-SqlLiteral $range.StartUtc.ToString('o')
+                $rangeEndIso = Escape-SqlLiteral $range.EndUtc.ToString('o')
+                $filters = @(
+                    "received_utc >= '$rangeStartIso'::timestamptz",
+                    "received_utc <= '$rangeEndIso'::timestamptz"
+                )
                 $hostQuery = $req.QueryString['host']
                 if ($hostQuery) {
                     $hostSafe = Escape-SqlLiteral $hostQuery.ToLowerInvariant()
@@ -1135,17 +1333,147 @@ SELECT COALESCE(json_agg(t), '[]'::json) FROM (
                     Write-JsonResponse -Response $res -Json $json
                 }
                 continue
-            } elseif ($requestPath -eq '/api/events/summary') {
+            } elseif ($requestPath -eq '/api/syslog/timeline') {
+                $bucketMinutes = 15
+                if ($req.QueryString['bucketMinutes']) {
+                    $parsed = 0
+                    if ([int]::TryParse($req.QueryString['bucketMinutes'], [ref]$parsed)) {
+                        if ($parsed -ge 1 -and $parsed -le 60) {
+                            $bucketMinutes = $parsed
+                        }
+                    }
+                }
+
+                $range = Resolve-QueryTimeRange -Query $req.QueryString -DefaultHours 24
+                $rangeStartIso = Escape-SqlLiteral $range.StartUtc.ToString('o')
+                $rangeEndIso = Escape-SqlLiteral $range.EndUtc.ToString('o')
+                $filters = @(
+                    "received_utc >= '$rangeStartIso'::timestamptz",
+                    "received_utc <= '$rangeEndIso'::timestamptz"
+                )
+                $hostQuery = $req.QueryString['host']
+                if ($hostQuery) {
+                    $hostSafe = Escape-SqlLiteral $hostQuery.ToLowerInvariant()
+                    $filters += ("LOWER(source_host) LIKE '%{0}%'" -f $hostSafe)
+                }
+
+                $category = $req.QueryString['category']
+                $categorySafe = if ($category) { Escape-SqlLiteral $category.ToLowerInvariant() } else { $null }
+
+                $severityFilter = $null
+                if ($req.QueryString['severity']) {
+                    $sevParsed = 0
+                    if ([int]::TryParse($req.QueryString['severity'], [ref]$sevParsed)) {
+                        $severityFilter = $sevParsed
+                    }
+                }
+
+                $categoryExpr = @"
+CASE
+    WHEN (app_name ILIKE '%wlceventd%' OR message ILIKE '%wifi%' OR message ILIKE '%wlan%') THEN 'wifi'
+    WHEN (app_name ILIKE '%dnsmasq%' OR message ILIKE '%dhcp%' OR message ILIKE '%udhcpd%') THEN 'dhcp'
+    WHEN (message ILIKE '%firewall%' OR message ILIKE '%iptables%' OR message ILIKE '%drop%') THEN 'firewall'
+    WHEN (message ILIKE '%auth%' OR message ILIKE '%login%' OR message ILIKE '%ssh%' OR message ILIKE '%vpn%') THEN 'auth'
+    WHEN (message ILIKE '%dns%' OR message ILIKE '%resolver%' OR message ILIKE '%named%') THEN 'dns'
+    WHEN (message ILIKE '%network%' OR message ILIKE '%link%') THEN 'network'
+    ELSE 'system'
+END
+"@
+                if ($severityFilter -ne $null) {
+                    $filters += "severity = $severityFilter"
+                }
+                if ($categorySafe) {
+                    $filters += ("($categoryExpr) = '{0}'" -f $categorySafe)
+                }
+
+                $where = $filters -join ' AND '
+                $severityGroupExpr = @"
+CASE
+    WHEN severity <= 3 THEN 'error'
+    WHEN severity = 4 THEN 'warning'
+    WHEN severity IN (5, 6) THEN 'info'
+    WHEN severity = 7 THEN 'debug'
+    ELSE 'info'
+END
+"@
                 $sql = @"
+WITH rows AS (
+    SELECT received_utc,
+           $severityGroupExpr AS severity_group
+    FROM telemetry.syslog_generic_template
+    WHERE $where
+)
+SELECT COALESCE(json_agg(t), '[]'::json) FROM (
+    SELECT
+        date_trunc('minute', received_utc)
+            - make_interval(mins => (EXTRACT(MINUTE FROM received_utc)::int % $bucketMinutes)) AS bucket_start,
+        severity_group AS category,
+        COUNT(*) AS total
+    FROM rows
+    GROUP BY bucket_start, severity_group
+    ORDER BY bucket_start ASC
+) t;
+"@
+                $json = Invoke-PostgresJsonQuery -Sql $sql
+                if ($null -eq $json) {
+                    Write-Log -Level 'WARN' -Message 'Syslog timeline query failed.'
+                    Write-JsonResponse -Response $res -Json '[]' -StatusCode 503
+                } else {
+                    Write-JsonResponse -Response $res -Json $json
+                }
+                continue
+            } elseif ($requestPath -eq '/api/events/summary') {
+                $range = Resolve-QueryTimeRange -Query $req.QueryString -DefaultHours 24
+                $rangeStartIso = Escape-SqlLiteral $range.StartUtc.ToString('o')
+                $rangeEndIso = Escape-SqlLiteral $range.EndUtc.ToString('o')
+                $rangeStart1h = $range.EndUtc.AddHours(-1)
+                if ($rangeStart1h -lt $range.StartUtc) { $rangeStart1h = $range.StartUtc }
+                $rangeStart24h = $range.EndUtc.AddHours(-24)
+                if ($rangeStart24h -lt $range.StartUtc) { $rangeStart24h = $range.StartUtc }
+                $rangeStart1hIso = Escape-SqlLiteral $rangeStart1h.ToString('o')
+                $rangeStart24hIso = Escape-SqlLiteral $rangeStart24h.ToString('o')
+
+                $filters = @(
+                    "occurred_at >= '$rangeStartIso'::timestamptz",
+                    "occurred_at <= '$rangeEndIso'::timestamptz"
+                )
+
+                $sourceQuery = $req.QueryString['source']
+                if ($sourceQuery) {
+                    $sourceSafe = Escape-SqlLiteral $sourceQuery.ToLowerInvariant()
+                    $filters += ("LOWER(source) LIKE '%{0}%'" -f $sourceSafe)
+                }
+
+                $category = $req.QueryString['category']
+                if ($category) {
+                    $categorySafe = Escape-SqlLiteral $category.ToLowerInvariant()
+                    $filters += ("LOWER(event_type) = '{0}'" -f $categorySafe)
+                }
+
+                $severity = $req.QueryString['severity']
+                if ($severity) {
+                    $severitySafe = Escape-SqlLiteral $severity.ToLowerInvariant()
+                    $filters += ("LOWER(severity) = '{0}'" -f $severitySafe)
+                }
+
+                $where = $filters -join ' AND '
+                $sql = @"
+WITH rows AS (
+    SELECT occurred_at,
+           source,
+           severity,
+           event_type
+    FROM telemetry.events
+    WHERE $where
+)
 SELECT json_build_object(
-    'total1h', (SELECT COUNT(*) FROM telemetry.events WHERE occurred_at >= NOW() - INTERVAL '1 hour'),
-    'total24h', (SELECT COUNT(*) FROM telemetry.events WHERE occurred_at >= NOW() - INTERVAL '24 hours'),
+    'total1h', (SELECT COUNT(*) FROM rows WHERE occurred_at >= '$rangeStart1hIso'::timestamptz),
+    'total24h', (SELECT COUNT(*) FROM rows WHERE occurred_at >= '$rangeStart24hIso'::timestamptz),
     'topSources', COALESCE((
         SELECT json_agg(t)
         FROM (
             SELECT source, COUNT(*) AS total
-            FROM telemetry.events
-            WHERE occurred_at >= NOW() - INTERVAL '24 hours'
+            FROM rows
             GROUP BY source
             ORDER BY total DESC NULLS LAST
             LIMIT 5
@@ -1155,8 +1483,7 @@ SELECT json_build_object(
         SELECT json_agg(t)
         FROM (
             SELECT severity, COUNT(*) AS total
-            FROM telemetry.events
-            WHERE occurred_at >= NOW() - INTERVAL '24 hours'
+            FROM rows
             GROUP BY severity
             ORDER BY total DESC
         ) t
@@ -1187,6 +1514,33 @@ SELECT json_build_object(
                     }
                 }
 
+                $range = Resolve-QueryTimeRange -Query $req.QueryString -DefaultHours 24
+                $rangeStartIso = Escape-SqlLiteral $range.StartUtc.ToString('o')
+                $rangeEndIso = Escape-SqlLiteral $range.EndUtc.ToString('o')
+                $filters = @(
+                    "occurred_at >= '$rangeStartIso'::timestamptz",
+                    "occurred_at <= '$rangeEndIso'::timestamptz"
+                )
+
+                $sourceQuery = $req.QueryString['source']
+                if ($sourceQuery) {
+                    $sourceSafe = Escape-SqlLiteral $sourceQuery.ToLowerInvariant()
+                    $filters += ("LOWER(source) LIKE '%{0}%'" -f $sourceSafe)
+                }
+
+                $category = $req.QueryString['category']
+                if ($category) {
+                    $categorySafe = Escape-SqlLiteral $category.ToLowerInvariant()
+                    $filters += ("LOWER(event_type) = '{0}'" -f $categorySafe)
+                }
+
+                $severity = $req.QueryString['severity']
+                if ($severity) {
+                    $severitySafe = Escape-SqlLiteral $severity.ToLowerInvariant()
+                    $filters += ("LOWER(severity) = '{0}'" -f $severitySafe)
+                }
+
+                $where = $filters -join ' AND '
                 $sql = @"
 SELECT COALESCE(json_agg(t), '[]'::json) FROM (
     SELECT occurred_at,
@@ -1196,7 +1550,7 @@ SELECT COALESCE(json_agg(t), '[]'::json) FROM (
            subject,
            COALESCE(payload->>'message', '') AS message
     FROM telemetry.events
-    WHERE occurred_at >= NOW() - INTERVAL '24 hours'
+    WHERE $where
     ORDER BY occurred_at DESC NULLS LAST
     LIMIT $limit
     OFFSET $offset
@@ -1205,6 +1559,77 @@ SELECT COALESCE(json_agg(t), '[]'::json) FROM (
                 $json = Invoke-PostgresJsonQuery -Sql $sql
                 if ($null -eq $json) {
                     Write-Log -Level 'WARN' -Message 'Event recent query failed.'
+                    Write-JsonResponse -Response $res -Json '[]' -StatusCode 503
+                } else {
+                    Write-JsonResponse -Response $res -Json $json
+                }
+                continue
+            } elseif ($requestPath -eq '/api/events/timeline') {
+                $bucketMinutes = 15
+                if ($req.QueryString['bucketMinutes']) {
+                    $parsed = 0
+                    if ([int]::TryParse($req.QueryString['bucketMinutes'], [ref]$parsed)) {
+                        if ($parsed -ge 1 -and $parsed -le 60) {
+                            $bucketMinutes = $parsed
+                        }
+                    }
+                }
+
+                $range = Resolve-QueryTimeRange -Query $req.QueryString -DefaultHours 24
+                $rangeStartIso = Escape-SqlLiteral $range.StartUtc.ToString('o')
+                $rangeEndIso = Escape-SqlLiteral $range.EndUtc.ToString('o')
+                $filters = @(
+                    "occurred_at >= '$rangeStartIso'::timestamptz",
+                    "occurred_at <= '$rangeEndIso'::timestamptz"
+                )
+
+                $sourceQuery = $req.QueryString['source']
+                if ($sourceQuery) {
+                    $sourceSafe = Escape-SqlLiteral $sourceQuery.ToLowerInvariant()
+                    $filters += ("LOWER(source) LIKE '%{0}%'" -f $sourceSafe)
+                }
+
+                $category = $req.QueryString['category']
+                if ($category) {
+                    $categorySafe = Escape-SqlLiteral $category.ToLowerInvariant()
+                    $filters += ("LOWER(event_type) = '{0}'" -f $categorySafe)
+                }
+
+                $severity = $req.QueryString['severity']
+                if ($severity) {
+                    $severitySafe = Escape-SqlLiteral $severity.ToLowerInvariant()
+                    $filters += ("LOWER(severity) = '{0}'" -f $severitySafe)
+                }
+
+                $where = $filters -join ' AND '
+                $severityGroupExpr = @"
+CASE
+    WHEN LOWER(severity) IN ('critical', 'error') THEN 'error'
+    WHEN LOWER(severity) IN ('warning', 'warn') THEN 'warning'
+    ELSE 'info'
+END
+"@
+                $sql = @"
+WITH rows AS (
+    SELECT occurred_at,
+           $severityGroupExpr AS severity_group
+    FROM telemetry.events
+    WHERE $where
+)
+SELECT COALESCE(json_agg(t), '[]'::json) FROM (
+    SELECT
+        date_trunc('minute', occurred_at)
+            - make_interval(mins => (EXTRACT(MINUTE FROM occurred_at)::int % $bucketMinutes)) AS bucket_start,
+        severity_group AS category,
+        COUNT(*) AS total
+    FROM rows
+    GROUP BY bucket_start, severity_group
+    ORDER BY bucket_start ASC
+) t;
+"@
+                $json = Invoke-PostgresJsonQuery -Sql $sql
+                if ($null -eq $json) {
+                    Write-Log -Level 'WARN' -Message 'Event timeline query failed.'
                     Write-JsonResponse -Response $res -Json '[]' -StatusCode 503
                 } else {
                     Write-JsonResponse -Response $res -Json $json
@@ -1221,18 +1646,47 @@ SELECT COALESCE(json_agg(t), '[]'::json) FROM (
                     $kpiPath = Resolve-ConfigPathValue $kpiPath
                 }
 
-                $json = if ($kpiPath -and (Test-Path -LiteralPath $kpiPath)) {
-                    Get-Content -LiteralPath $kpiPath -Raw
-                } else {
-                    '{}'
+                $json = $null
+                if ($kpiPath -and (Test-Path -LiteralPath $kpiPath)) {
+                    try {
+                        $raw = Get-Content -LiteralPath $kpiPath -Raw
+                        if ($raw) {
+                            $parsed = $raw | ConvertFrom-Json
+                            if ($parsed -and $parsed.kpis) {
+                                $json = $raw
+                            }
+                        }
+                    } catch {
+                        $json = $null
+                    }
                 }
 
-                $buf  = [Text.Encoding]::UTF8.GetBytes($json)
-                $res.ContentType = 'application/json'
-                $res.Headers['Cache-Control'] = 'no-store'
-                $res.ContentLength64 = $buf.Length
-                $res.OutputStream.Write($buf,0,$buf.Length)
-                $res.Close()
+                if (-not $json) {
+                    $fallbackSql = @"
+SELECT json_build_object(
+    'updated_utc', to_char((NOW() AT TIME ZONE 'utc'), 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+    'window_hours', 24,
+    'kpis', json_build_object(
+        'total_drop', (SELECT COUNT(*) FROM telemetry.syslog_generic_template WHERE received_utc >= NOW() - INTERVAL '24 hours' AND message ~* 'kernel:\s+DROP'),
+        'igmp_drops', (SELECT COUNT(*) FROM telemetry.syslog_generic_template WHERE received_utc >= NOW() - INTERVAL '24 hours' AND message ~* 'kernel:\s+DROP' AND message ~* 'DST=224\.0\.0\.1' AND message ~* 'PROTO=2'),
+        'rstats_errors', (SELECT COUNT(*) FROM telemetry.syslog_generic_template WHERE received_utc >= NOW() - INTERVAL '24 hours' AND message ~* 'rstats\[\d+\]:\s+Problem loading'),
+        'roam_kicks', (SELECT COUNT(*) FROM telemetry.syslog_generic_template WHERE received_utc >= NOW() - INTERVAL '24 hours' AND message ~* 'roamast:.*(disconnect weak signal strength station|remove client)\s+\[[0-9a-f:]{17}\]'),
+        'dnsmasq_sigterm', (SELECT COUNT(*) FROM telemetry.syslog_generic_template WHERE received_utc >= NOW() - INTERVAL '24 hours' AND message ~* 'dnsmasq\[\d+\]: exiting on receipt of SIGTERM'),
+        'avahi_sigterm', (SELECT COUNT(*) FROM telemetry.syslog_generic_template WHERE received_utc >= NOW() - INTERVAL '24 hours' AND message ~* 'avahi-daemon\[\d+\]: Got SIGTERM'),
+        'upnp_shutdowns', (SELECT COUNT(*) FROM telemetry.syslog_generic_template WHERE received_utc >= NOW() - INTERVAL '24 hours' AND message ~* 'miniupnpd\[\d+\]: shutting down MiniUPnPd')
+    ),
+    'top_drop_sources', '[]'::json,
+    'top_drop_destinations', '[]'::json,
+    'roam_kicks', '[]'::json
+);
+"@
+                    $json = Invoke-PostgresJsonQuery -Sql $fallbackSql
+                }
+
+                if (-not $json) {
+                    $json = '{}'
+                }
+                Write-JsonResponse -Response $res -Json $json
                 continue
             } elseif ($requestPath -eq '/api/devices/summary') {
                 $limit = 10
@@ -1263,6 +1717,72 @@ SELECT COALESCE(json_agg(t), '[]'::json) FROM (
                 $json = Invoke-PostgresJsonQuery -Sql $sql
                 if ($null -eq $json) {
                     Write-Log -Level 'WARN' -Message 'Device summary query failed.'
+                    Write-JsonResponse -Response $res -Json '[]' -StatusCode 503
+                } else {
+                    Write-JsonResponse -Response $res -Json $json
+                }
+                continue
+            } elseif ($requestPath -eq '/api/lan/clients') {
+                $limit = 50
+                if ($req.QueryString['limit']) {
+                    $parsed = 0
+                    if ([int]::TryParse($req.QueryString['limit'], [ref]$parsed)) {
+                        $limit = [Math]::Max(1, [Math]::Min(200, $parsed))
+                    }
+                }
+                $windowMinutes = 10
+                if ($req.QueryString['windowMinutes']) {
+                    $parsed = 0
+                    if ([int]::TryParse($req.QueryString['windowMinutes'], [ref]$parsed)) {
+                        if ($parsed -ge 1 -and $parsed -le 120) {
+                            $windowMinutes = $parsed
+                        }
+                    }
+                }
+                $sql = @"
+WITH rows AS (
+    SELECT d.device_id,
+           d.mac_address,
+           d.hostname,
+           d.nickname,
+           d.primary_ip_address,
+           d.last_seen_utc,
+           ds.sample_time_utc AS last_snapshot_time,
+           COALESCE(ds.ip_address, d.primary_ip_address) AS current_ip,
+           ds.interface AS current_interface,
+           ds.rssi AS current_rssi,
+           ds.tx_rate_mbps,
+           ds.rx_rate_mbps
+    FROM telemetry.devices d
+    JOIN LATERAL (
+        SELECT sample_time_utc,
+               ip_address,
+               interface,
+               rssi,
+               tx_rate_mbps,
+               rx_rate_mbps
+        FROM telemetry.device_snapshots_template
+        WHERE device_id = d.device_id
+          AND sample_time_utc >= NOW() - INTERVAL '$windowMinutes minutes'
+          AND is_online = true
+        ORDER BY sample_time_utc DESC
+        LIMIT 1
+    ) ds ON true
+    WHERE d.is_active = true
+      AND ds.interface ILIKE ANY (ARRAY['%wl0%','%wl1%','%wl2%','%2.4%','%2g%','%5g%','%6g%','%wireless%','%wifi%'])
+)
+SELECT COALESCE(json_agg(t), '[]'::json) FROM (
+    SELECT rows.*,
+           rows.current_interface AS interface,
+           rows.current_ip AS ip_address
+    FROM rows
+    ORDER BY current_rssi DESC NULLS LAST, last_snapshot_time DESC
+    LIMIT $limit
+) t;
+"@
+                $json = Invoke-PostgresJsonQuery -Sql $sql
+                if ($null -eq $json) {
+                    Write-Log -Level 'WARN' -Message 'Wi-Fi client query failed.'
                     Write-JsonResponse -Response $res -Json '[]' -StatusCode 503
                 } else {
                     Write-JsonResponse -Response $res -Json $json
@@ -1320,6 +1840,48 @@ SELECT COALESCE(json_agg(t), '[]'::json) FROM (
                 } catch {
                     Write-Log -Level 'WARN' -Message "Timeline query failed: $($_.Exception.Message)"
                     Write-JsonResponse -Response $res -Json '[]' -StatusCode 503
+                }
+                continue
+            } elseif ($requestPath -eq '/api/layouts') {
+                if ($req.HttpMethod -eq 'GET') {
+                    $store = Load-LayoutStore
+                    if (-not $store) {
+                        $store = @{
+                            active = 'Default'
+                            layouts = @{}
+                        }
+                    } elseif (-not $store.layouts) {
+                        $store.layouts = @{}
+                    }
+                    if (-not $store.active) {
+                        $store.active = 'Default'
+                    }
+                    $json = $store | ConvertTo-Json -Depth 8
+                    Write-JsonResponse -Response $res -Json $json
+                } elseif ($req.HttpMethod -eq 'POST') {
+                    $raw = Read-RequestBody -Request $req
+                    if (-not $raw) {
+                        Write-JsonResponse -Response $res -Json '{"error":"empty body"}' -StatusCode 400
+                        continue
+                    }
+                    try {
+                        $payload = $raw | ConvertFrom-Json -ErrorAction Stop
+                    } catch {
+                        Write-JsonResponse -Response $res -Json '{"error":"invalid json"}' -StatusCode 400
+                        continue
+                    }
+                    $store = @{
+                        active = if ($payload.active) { [string]$payload.active } else { 'Default' }
+                        layouts = if ($payload.layouts) { $payload.layouts } else { @{} }
+                    }
+                    if (-not (Save-LayoutStore -Store $store)) {
+                        Write-JsonResponse -Response $res -Json '{"error":"failed to save layout"}' -StatusCode 500
+                        continue
+                    }
+                    $json = $store | ConvertTo-Json -Depth 8
+                    Write-JsonResponse -Response $res -Json $json
+                } else {
+                    Write-JsonResponse -Response $res -Json '{"error":"method not allowed"}' -StatusCode 405
                 }
                 continue
             } elseif ($requestPath -eq '/api/status') {

@@ -58,6 +58,7 @@ See `docs/screenshots/README.md` for naming and capture guidance.
 
 - Listener degrades gracefully when assets/config are missing; check `/api/status` for startup issues and last error.
 - Database calls use connect/query timeouts plus a circuit breaker; tune with `SYSTEMDASHBOARD_DB_CONNECT_TIMEOUT`, `SYSTEMDASHBOARD_DB_STATEMENT_TIMEOUT`, and `SYSTEMDASHBOARD_DB_CIRCUIT_*`.
+- Dashboard layout persistence stores to `var/ui/layouts.json` (override with `Service.Ui.LayoutPath` or `Ui.LayoutPath`) and falls back to localStorage if the endpoint is unavailable.
 - Local Postgres port auto-detection checks configured port first, then fallbacks via `SYSTEMDASHBOARD_DB_PORT_FALLBACKS` or `Database.PortFallbacks`.
 - Service restart backoff and crash history live in `var/log/dashboard-crash-history.log`; adjust with `SYSTEMDASHBOARD_RESTART_*`.
 - Listener/service logs: `var/log/dashboard-listener.log`, `var/log/dashboard-ui.log`, and per-run stdout/stderr `dashboard-listener-*.out.log` / `dashboard-listener-*.err.log`.
