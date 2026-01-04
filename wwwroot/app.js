@@ -796,21 +796,10 @@
       return;
     }
     card.classList.toggle('is-empty', isEmpty);
-    card.classList.toggle('is-collapsed', isEmpty);
     card.dataset.empty = isEmpty ? 'true' : 'false';
     const emptyEl = card.querySelector('.card__empty');
     if (emptyEl) {
       emptyEl.textContent = message || 'No data';
-    }
-    if (isEmpty) {
-      if (!card.dataset.prevSpanY) {
-        const currentSpan = card.style.getPropertyValue('--span-y') || '6';
-        card.dataset.prevSpanY = currentSpan;
-      }
-      card.style.setProperty('--span-y', '3');
-    } else if (card.dataset.prevSpanY) {
-      card.style.setProperty('--span-y', card.dataset.prevSpanY);
-      delete card.dataset.prevSpanY;
     }
   }
 
@@ -1250,9 +1239,12 @@
     if (!emptyToggleEl) {
       return;
     }
-    let show = false;
+    let show = true;
     try {
-      show = localStorage.getItem(EMPTY_TOGGLE_KEY) === 'true';
+      const stored = localStorage.getItem(EMPTY_TOGGLE_KEY);
+      if (stored !== null) {
+        show = stored === 'true';
+      }
     } catch {}
     setShowEmptyPanels(show);
     emptyToggleEl.addEventListener('change', () => {
