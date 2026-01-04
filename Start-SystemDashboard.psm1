@@ -365,10 +365,18 @@ function Get-MockSystemMetrics {
     # Mock processes
     $processNames = @('explorer', 'chrome', 'code', 'powershell', 'svchost')
     $topProcs = $processNames | ForEach-Object {
+        $workingSetMb = Get-Random -Minimum 50 -Maximum 600
+        $privateMb = Get-Random -Minimum 25 -Maximum 400
+        $ioReadMb = Get-Random -Minimum 1 -Maximum 50
+        $ioWriteMb = Get-Random -Minimum 1 -Maximum 30
         [pscustomobject]@{
             Name=$_;
             CPU=([math]::Round((Get-Random -Minimum 0.1 -Maximum 25.5), 2));
-            Id=(Get-Random -Minimum 1000 -Maximum 9999)
+            Id=(Get-Random -Minimum 1000 -Maximum 9999);
+            WorkingSet64=($workingSetMb * 1MB);
+            PrivateMemorySize64=($privateMb * 1MB);
+            IOReadBytes=($ioReadMb * 1MB);
+            IOWriteBytes=($ioWriteMb * 1MB)
         }
     }
 
@@ -1106,8 +1114,16 @@ function Start-SystemDashboardListener {
                         }
                     } catch {}
                     # Top processes
-                    $topProcs = Get-Process | Sort-Object CPU -Descending | Select-Object -First 5 | ForEach-Object {
-                        [pscustomobject]@{ Name=$_.ProcessName; CPU=$([math]::Round($_.CPU,2)); Id=$_.Id }
+                    $topProcs = Get-Process | Sort-Object CPU -Descending | Select-Object -First 10 | ForEach-Object {
+                        [pscustomobject]@{
+                            Name               = $_.ProcessName
+                            CPU                = $([math]::Round($_.CPU, 2))
+                            Id                 = $_.Id
+                            WorkingSet64       = $_.WorkingSet64
+                            PrivateMemorySize64 = $_.PrivateMemorySize64
+                            IOReadBytes        = $_.IOReadBytes
+                            IOWriteBytes       = $_.IOWriteBytes
+                        }
                     }
                     $metrics = [pscustomobject]@{
                         Time          = $nowUtc

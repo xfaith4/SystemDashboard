@@ -44,6 +44,12 @@ Unified telemetry ingestion + dashboards for Windows events, syslog, and LAN act
 
 See `docs/screenshots/README.md` for naming and capture guidance.
 
+## Legacy UI density notes
+
+- Density strategy: keep primary KPIs in the `System Health` strip, push verbose telemetry into compact tables with sticky headers, and collapse low-signal panels by default.
+- Adding KPIs: extend the `System Health` tiles in `wwwroot/index.html` and wire values/deltas in `wwwroot/app.js` (`kpiHistory` + `updateKpiTile`).
+- Empty-state collapsing: `setPanelEmptyState()` marks cards `is-empty` and collapses their body; the `Show empty panels` toggle (stored as `system-dashboard-show-empty` in localStorage) reveals them.
+
 ## Operational commands (from the module)
 
 - `Apply-SystemDashboardLanSchema -ConfigPath .\config.json` – add LAN observability tables.

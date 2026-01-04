@@ -6,17 +6,25 @@
   <title>System Dashboard</title>
   <link rel="stylesheet" href="styles.css">
 </head>
-<body>
+<body data-show-empty="false">
   <header class="top-bar">
     <div class="brand">
       <h1>System Dashboard</h1>
       <p class="muted">Live metrics served by the PowerShell listener.</p>
+      <div class="brand-meta">
+        <span class="meta-pill">Host <span id="host-name">--</span></span>
+        <span class="meta-pill">Uptime <span id="uptime-value">--</span></span>
+        <span class="meta-pill">Latency <span id="latency-value">--</span> <span class="muted">@</span> <span id="latency-target">configured target</span></span>
+      </div>
     </div>
     <div class="status-wrapper">
       <span id="connection-status" class="status status--connecting">Connecting…</span>
       <span id="status-detail" class="muted"></span>
-      <div id="refresh-status" class="refresh-status">Auto-refresh: on</div>
-      <button id="refresh-resume" class="btn btn--ghost" type="button">Resume</button>
+      <div class="refresh-compact">
+        <button id="refresh-toggle" class="icon-btn" type="button" title="Pause auto-refresh" aria-label="Pause auto-refresh">Pause</button>
+        <span id="refresh-status" class="muted">Auto-refresh: on</span>
+        <span id="refresh-timestamp" class="muted">--</span>
+      </div>
     </div>
   </header>
 
@@ -47,178 +55,292 @@
         <input id="layout-lock" type="checkbox">
         Lock layout
       </label>
+      <label class="control control--inline">
+        <input id="empty-toggle" type="checkbox">
+        Show empty panels
+      </label>
     </div>
   </div>
 
   <main class="layout">
-    <section class="overview">
-      <article class="card overview__main">
+    <section class="health-strip" id="health-strip">
+      <header class="health-strip__header">
+        <div>
+          <h2>System Health</h2>
+          <p class="muted">Compact KPIs with 60-minute sparklines.</p>
+        </div>
+        <div class="health-strip__meta">
+          <span class="muted" id="health-window-label">Window: 60m</span>
+          <span class="muted" id="health-updated">Updated --</span>
+        </div>
+      </header>
+      <div class="health-strip__kpis">
+        <button class="kpi-tile" type="button" data-drilldown="#processes-card">
+          <div class="kpi-tile__top">
+            <span class="kpi-tile__label">CPU %</span>
+            <span class="kpi-tile__window">60m</span>
+          </div>
+          <div class="kpi-tile__value-row">
+            <span class="kpi-tile__value" id="kpi-cpu-value">--</span>
+            <span class="kpi-tile__delta" id="kpi-cpu-delta">--</span>
+          </div>
+          <div class="kpi-tile__spark" id="kpi-cpu-spark"></div>
+        </button>
+        <button class="kpi-tile" type="button" data-drilldown="#processes-card">
+          <div class="kpi-tile__top">
+            <span class="kpi-tile__label">RAM %</span>
+            <span class="kpi-tile__window">60m</span>
+          </div>
+          <div class="kpi-tile__value-row">
+            <span class="kpi-tile__value" id="kpi-ram-value">--</span>
+            <span class="kpi-tile__delta" id="kpi-ram-delta">--</span>
+          </div>
+          <div class="kpi-tile__spark" id="kpi-ram-spark"></div>
+        </button>
+        <button class="kpi-tile" type="button" data-drilldown="#disk-card">
+          <div class="kpi-tile__top">
+            <span class="kpi-tile__label">Disk worst %</span>
+            <span class="kpi-tile__window">now</span>
+          </div>
+          <div class="kpi-tile__value-row">
+            <span class="kpi-tile__value" id="kpi-disk-worst">--</span>
+            <span class="kpi-tile__delta" id="kpi-disk-worst-delta">--</span>
+          </div>
+          <div class="kpi-tile__spark" id="kpi-disk-worst-spark"></div>
+        </button>
+        <button class="kpi-tile" type="button" data-drilldown="#disk-card">
+          <div class="kpi-tile__top">
+            <span class="kpi-tile__label">Disk free C:</span>
+            <span class="kpi-tile__window">now</span>
+          </div>
+          <div class="kpi-tile__value-row">
+            <span class="kpi-tile__value" id="kpi-disk-free">--</span>
+            <span class="kpi-tile__delta" id="kpi-disk-free-delta">--</span>
+          </div>
+          <div class="kpi-tile__spark" id="kpi-disk-free-spark"></div>
+        </button>
+        <button class="kpi-tile" type="button" data-drilldown="#network-card">
+          <div class="kpi-tile__top">
+            <span class="kpi-tile__label">Net in</span>
+            <span class="kpi-tile__window">60m</span>
+          </div>
+          <div class="kpi-tile__value-row">
+            <span class="kpi-tile__value" id="kpi-net-in">--</span>
+            <span class="kpi-tile__delta" id="kpi-net-in-delta">--</span>
+          </div>
+          <div class="kpi-tile__spark" id="kpi-net-in-spark"></div>
+        </button>
+        <button class="kpi-tile" type="button" data-drilldown="#network-card">
+          <div class="kpi-tile__top">
+            <span class="kpi-tile__label">Net out</span>
+            <span class="kpi-tile__window">60m</span>
+          </div>
+          <div class="kpi-tile__value-row">
+            <span class="kpi-tile__value" id="kpi-net-out">--</span>
+            <span class="kpi-tile__delta" id="kpi-net-out-delta">--</span>
+          </div>
+          <div class="kpi-tile__spark" id="kpi-net-out-spark"></div>
+        </button>
+        <button class="kpi-tile" type="button" data-drilldown="#network-card">
+          <div class="kpi-tile__top">
+            <span class="kpi-tile__label">Net 95p</span>
+            <span class="kpi-tile__window">60m</span>
+          </div>
+          <div class="kpi-tile__value-row">
+            <span class="kpi-tile__value" id="kpi-net-95p">--</span>
+            <span class="kpi-tile__delta" id="kpi-net-95p-delta">--</span>
+          </div>
+          <div class="kpi-tile__spark" id="kpi-net-95p-spark"></div>
+        </button>
+        <button class="kpi-tile" type="button" data-drilldown="#alerts-card">
+          <div class="kpi-tile__top">
+            <span class="kpi-tile__label">Errors</span>
+            <span class="kpi-tile__window">24h</span>
+          </div>
+          <div class="kpi-tile__value-row">
+            <span class="kpi-tile__value" id="kpi-errors">--</span>
+            <span class="kpi-tile__delta" id="kpi-errors-delta">--</span>
+          </div>
+          <div class="kpi-tile__spark" id="kpi-errors-spark"></div>
+        </button>
+        <button class="kpi-tile" type="button" data-drilldown="#alerts-card">
+          <div class="kpi-tile__top">
+            <span class="kpi-tile__label">Warnings</span>
+            <span class="kpi-tile__window">24h</span>
+          </div>
+          <div class="kpi-tile__value-row">
+            <span class="kpi-tile__value" id="kpi-warnings">--</span>
+            <span class="kpi-tile__delta" id="kpi-warnings-delta">--</span>
+          </div>
+          <div class="kpi-tile__spark" id="kpi-warnings-spark"></div>
+        </button>
+      </div>
+    </section>
+
+    <section class="dense-row dense-row--primary">
+      <article class="card compact-card" id="alerts-card">
         <header class="card__header">
           <div>
-            <h2>At a Glance</h2>
-            <p class="muted">Today's health indicators and noisy actors.</p>
+            <h2>Alerts Summary</h2>
+            <p class="muted">Last 24h with latest 3 alerts.</p>
           </div>
-          <span class="muted" id="overview-range">Today</span>
+          <div class="card__actions">
+            <button class="btn btn--outline btn--sm" id="alerts-view-all" type="button">View all</button>
+            <span class="card__empty" aria-hidden="true"></span>
+          </div>
         </header>
-        <div class="overview__kpis">
-          <div class="overview__kpi">
-            <span class="overview__label">Errors today</span>
-            <span class="overview__value" id="overview-errors">--</span>
-            <span class="overview__meta">Syslog + events</span>
+        <div class="alerts-kpis">
+          <div class="alert-stat alert-stat--error">
+            <span class="alert-stat__label">Errors (24h)</span>
+            <span class="alert-stat__value" id="alerts-errors">--</span>
+            <span class="alert-stat__delta" id="alerts-errors-delta">--</span>
           </div>
-          <div class="overview__kpi">
-            <span class="overview__label">Warnings today</span>
-            <span class="overview__value" id="overview-warnings">--</span>
-            <span class="overview__meta">Syslog + events</span>
+          <div class="alert-stat alert-stat--warn">
+            <span class="alert-stat__label">Warnings (24h)</span>
+            <span class="alert-stat__value" id="alerts-warnings">--</span>
+            <span class="alert-stat__delta" id="alerts-warnings-delta">--</span>
           </div>
-          <div class="overview__kpi">
-            <span class="overview__label">Noisy hosts</span>
-            <span class="overview__value" id="overview-noisy-hosts">--</span>
-            <span class="overview__meta">Top: <span id="overview-top-host">--</span></span>
-          </div>
-          <div class="overview__kpi">
-            <span class="overview__label">Top syslog app</span>
-            <span class="overview__value" id="overview-top-app">--</span>
-            <span class="overview__meta">Most active today</span>
-          </div>
-          <div class="overview__kpi">
-            <span class="overview__label">Router drops (24h)</span>
-            <span class="overview__value" id="overview-router-drops">--</span>
-            <span class="overview__meta">Kernel drops</span>
-          </div>
-          <div class="overview__kpi">
-            <span class="overview__label">Disk pressure</span>
-            <span class="overview__value" id="overview-disk-pressure">--</span>
-            <span class="overview__meta" id="overview-disk-detail">--</span>
+          <div class="alert-stat">
+            <span class="alert-stat__label">Last occurrence</span>
+            <span class="alert-stat__value" id="alerts-updated">--</span>
+            <span class="alert-stat__delta">Last 24h window</span>
           </div>
         </div>
-        <div class="overview__focus">
-          <div class="overview__focus-header">
-            <h3>Focus now</h3>
-            <span class="muted" id="overview-focus-updated">--</span>
+        <ul id="alerts-list" class="alerts-list">
+          <li class="empty">Waiting for alerts…</li>
+        </ul>
+      </article>
+
+      <article class="card compact-card" id="processes-card">
+        <header class="card__header">
+          <div>
+            <h2>Top Processes</h2>
+            <p class="muted">Top 10 by selected signal.</p>
           </div>
-          <ul class="focus-list" id="overview-focus-list">
-            <li class="empty">Loading focus items…</li>
-          </ul>
+          <div class="card__actions">
+            <div class="tabs" role="tablist" aria-label="Top process tabs">
+              <button class="tab is-active" type="button" role="tab" aria-selected="true" data-process-mode="cpu">CPU</button>
+              <button class="tab" type="button" role="tab" aria-selected="false" data-process-mode="ram">RAM</button>
+              <button class="tab" type="button" role="tab" aria-selected="false" data-process-mode="io">IO</button>
+            </div>
+            <span class="card__empty" aria-hidden="true"></span>
+          </div>
+        </header>
+        <div class="card__subheader">
+          <label class="control control--inline">
+            Filter
+            <input id="process-filter" type="text" placeholder="svc, chrome, sql">
+          </label>
+          <label class="control control--inline">
+            Since
+            <select id="process-window">
+              <option value="60">Last 1m</option>
+              <option value="300" selected>Last 5m</option>
+              <option value="900">Last 15m</option>
+            </select>
+          </label>
+          <span class="muted" id="process-updated">Updated --</span>
+        </div>
+        <div class="card__body">
+          <div class="table-wrap" id="process-table-wrap">
+            <table id="process-table" class="table table--dense">
+              <thead>
+                <tr>
+                  <th data-sort-key="name">Process</th>
+                  <th data-sort-key="cpu" data-sort-type="number">CPU (s)</th>
+                  <th data-sort-key="cpuPct" data-sort-type="number">CPU %</th>
+                  <th data-sort-key="workingSet" data-sort-type="number">Working Set</th>
+                  <th data-sort-key="privateBytes" data-sort-type="number">Private MB</th>
+                  <th data-sort-key="io" data-sort-type="number">IO MB</th>
+                  <th data-sort-key="pid" data-sort-type="number">PID</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr class="empty-row"><td colspan="7">Waiting for process data…</td></tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </article>
-      <div class="overview__side">
-        <article class="card overview__vitals">
-          <header class="card__header">
-            <div>
-              <h2>System Vitals</h2>
-              <p class="muted">Listener snapshot</p>
-            </div>
-          </header>
-          <div class="vitals-grid">
-            <div class="vital">
-              <span class="vital__label">Host</span>
-              <span class="vital__value" id="host-name">--</span>
-              <span class="vital__meta">Uptime <span id="uptime-value">--</span></span>
-            </div>
-            <div class="vital">
-              <span class="vital__label">CPU</span>
-              <span class="vital__value" id="cpu-value">--</span>
-              <span class="vital__meta">Average utilisation</span>
-            </div>
-            <div class="vital">
-              <span class="vital__label">Memory</span>
-              <span class="vital__value" id="memory-value">--</span>
-              <span class="vital__meta" id="memory-detail">--</span>
-            </div>
-            <div class="vital">
-              <span class="vital__label">Latency</span>
-              <span class="vital__value" id="latency-value">--</span>
-              <span class="vital__meta">ICMP to <span id="latency-target">configured target</span></span>
-            </div>
+    </section>
+
+    <section class="dense-row dense-row--resources">
+      <article class="card compact-card" id="disk-card">
+        <header class="card__header">
+          <div>
+            <h2>Disk</h2>
+            <p class="muted">Usage + risk thresholds (Warn ≥ 85%, Critical ≥ 92%).</p>
           </div>
-        </article>
-      </div>
+          <span class="card__empty" aria-hidden="true"></span>
+        </header>
+        <div class="card__body">
+          <div class="table-wrap">
+            <table id="disk-table" class="table table--dense">
+              <thead>
+                <tr>
+                  <th data-sort-key="drive">Drive</th>
+                  <th data-sort-key="used" data-sort-type="number">Used</th>
+                  <th data-sort-key="free" data-sort-type="number">Free</th>
+                  <th data-sort-key="freePct" data-sort-type="number">Free %</th>
+                  <th data-sort-key="total" data-sort-type="number">Total</th>
+                  <th data-sort-key="usedPct" data-sort-type="number">Usage %</th>
+                  <th data-sort-key="risk">Risk</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr class="empty-row"><td colspan="7">Waiting for data…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </article>
+
+      <article class="card compact-card" id="network-card">
+        <header class="card__header">
+          <div>
+            <h2>Network</h2>
+            <p class="muted">Current throughput with 60m 95p.</p>
+          </div>
+          <div class="card__actions">
+            <label class="control control--inline">
+              Interface
+              <select id="network-adapter"></select>
+            </label>
+            <span class="card__empty" aria-hidden="true"></span>
+          </div>
+        </header>
+        <div class="network-summary">
+          <div class="network-stat">
+            <span class="network-stat__label">In</span>
+            <span class="network-stat__value" id="network-in-current">--</span>
+            <span class="network-stat__delta" id="network-in-delta">--</span>
+          </div>
+          <div class="network-stat">
+            <span class="network-stat__label">Out</span>
+            <span class="network-stat__value" id="network-out-current">--</span>
+            <span class="network-stat__delta" id="network-out-delta">--</span>
+          </div>
+          <div class="network-stat">
+            <span class="network-stat__label">95p (60m)</span>
+            <span class="network-stat__value" id="network-95p">--</span>
+            <span class="network-stat__delta" id="network-95p-delta">--</span>
+          </div>
+          <div class="network-stat">
+            <span class="network-stat__label">Peak (60m)</span>
+            <span class="network-stat__value" id="network-peak">--</span>
+            <span class="network-stat__delta" id="network-updated">Updated --</span>
+          </div>
+        </div>
+        <div class="sparkline sparkline--large" id="network-spark"></div>
+      </article>
     </section>
 
     <div class="section-heading">
       <h2>System Drilldowns</h2>
-      <p class="muted">Deep system metrics for context and troubleshooting.</p>
+      <p class="muted">Deep metrics and telemetry streams for investigation.</p>
     </div>
 
     <section class="dashboard-grid" id="dashboard-grid">
-      <article class="card dashboard-card" data-layout-id="recent-warnings">
-        <header class="card__header">
-          <h2>Recent Warnings</h2>
-          <span id="warning-total" class="badge">0</span>
-        </header>
-        <ul id="warning-list" class="list">
-          <li class="empty">Waiting for data…</li>
-        </ul>
-      </article>
-      <article class="card dashboard-card" data-layout-id="recent-errors">
-        <header class="card__header">
-          <h2>Recent Errors</h2>
-          <span id="error-total" class="badge badge--error">0</span>
-        </header>
-        <ul id="error-list" class="list">
-          <li class="empty">Waiting for data…</li>
-        </ul>
-      </article>
-      <article class="card dashboard-card" data-layout-id="disk-utilisation">
-        <header class="card__header">
-          <h2>Disk Utilisation</h2>
-        </header>
-        <div class="card__body">
-          <table id="disk-table" class="table">
-            <thead>
-              <tr>
-                <th>Drive</th>
-                <th>Used</th>
-                <th>Total</th>
-                <th>Usage %</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr class="empty-row"><td colspan="4">Waiting for data…</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </article>
-      <article class="card dashboard-card" data-layout-id="network-throughput">
-        <header class="card__header">
-          <h2>Network Throughput</h2>
-          <span id="network-count" class="badge">0</span>
-        </header>
-        <div class="card__body">
-          <table id="network-table" class="table">
-            <thead>
-              <tr>
-                <th>Adapter</th>
-                <th>Send</th>
-                <th>Receive</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr class="empty-row"><td colspan="3">Waiting for data…</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </article>
-      <article class="card dashboard-card" data-layout-id="top-processes">
-        <header class="card__header">
-          <h2>Top Processes (CPU time)</h2>
-        </header>
-        <div class="card__body">
-          <table id="process-table" class="table">
-            <thead>
-              <tr>
-                <th>Process</th>
-                <th>CPU (s)</th>
-                <th>PID</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr class="empty-row"><td colspan="3">Waiting for data…</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </article>
       <article class="card dashboard-card" data-layout-id="device-timeline">
         <header class="card__header">
           <div>
@@ -259,6 +381,7 @@
             </label>
             <button class="btn" id="timeline-refresh" type="button">Refresh</button>
           </div>
+          <span class="card__empty" aria-hidden="true"></span>
         </header>
         <div class="timeline-chart" id="timeline-chart">
           <div class="timeline-empty">Waiting for timeline…</div>
@@ -274,18 +397,19 @@
           <div class="card__actions">
             <span class="badge" id="wifi-client-count">0</span>
             <button class="btn" id="wifi-refresh" type="button">Refresh</button>
+            <span class="card__empty" aria-hidden="true"></span>
           </div>
         </header>
         <div class="card__body">
-          <table id="wifi-table" class="table">
+          <table id="wifi-table" class="table table--dense">
             <thead>
               <tr>
-                <th>Client</th>
-                <th>IP</th>
-                <th>Band</th>
-                <th>RSSI</th>
-                <th>Tx/Rx</th>
-                <th>Last Seen</th>
+                <th data-sort-key="client">Client</th>
+                <th data-sort-key="ip">IP</th>
+                <th data-sort-key="band">Band</th>
+                <th data-sort-key="rssi" data-sort-type="number">RSSI</th>
+                <th data-sort-key="rates" data-sort-type="number">Tx/Rx</th>
+                <th data-sort-key="lastSeen">Last Seen</th>
               </tr>
             </thead>
             <tbody>
@@ -303,17 +427,18 @@
           <div class="card__actions">
             <span class="badge" id="device-count">0</span>
             <button class="btn" id="devices-refresh" type="button">Refresh</button>
+            <span class="card__empty" aria-hidden="true"></span>
           </div>
         </header>
         <div class="card__body">
-          <table id="device-table" class="table">
+          <table id="device-table" class="table table--dense">
             <thead>
               <tr>
-                <th>MAC</th>
-                <th>Last Seen</th>
-                <th>Events (1h)</th>
-                <th>Last RSSI</th>
-                <th>Last Event</th>
+                <th data-sort-key="mac">MAC</th>
+                <th data-sort-key="lastSeen">Last Seen</th>
+                <th data-sort-key="events" data-sort-type="number">Events (1h)</th>
+                <th data-sort-key="rssi" data-sort-type="number">Last RSSI</th>
+                <th data-sort-key="event">Last Event</th>
               </tr>
             </thead>
             <tbody>
@@ -378,6 +503,7 @@
             </label>
             <button class="btn" id="syslog-refresh" type="button">Refresh</button>
           </div>
+          <span class="card__empty" aria-hidden="true"></span>
         </header>
         <div class="syslog-summary">
           <div class="stat">
@@ -416,15 +542,15 @@
             <div class="timeline-legend" id="syslog-timeline-legend"></div>
           </div>
           <div class="table-wrap">
-            <table id="syslog-table" class="table">
+            <table id="syslog-table" class="table table--dense">
               <thead>
                 <tr>
-                  <th>Time</th>
-                  <th>Host</th>
-                  <th>App</th>
-                  <th>Severity</th>
-                  <th>Category</th>
-                  <th>Message</th>
+                  <th data-sort-key="time">Time</th>
+                  <th data-sort-key="host">Host</th>
+                  <th data-sort-key="app">App</th>
+                  <th data-sort-key="severity">Severity</th>
+                  <th data-sort-key="category">Category</th>
+                  <th data-sort-key="message">Message</th>
                 </tr>
               </thead>
               <tbody>
@@ -494,6 +620,7 @@
             </label>
             <button class="btn" id="event-refresh" type="button">Refresh</button>
           </div>
+          <span class="card__empty" aria-hidden="true"></span>
         </header>
         <div class="syslog-summary">
           <div class="stat">
@@ -532,15 +659,15 @@
             <div class="timeline-legend" id="event-timeline-legend"></div>
           </div>
           <div class="table-wrap">
-            <table id="event-table" class="table">
+            <table id="event-table" class="table table--dense">
               <thead>
                 <tr>
-                  <th>Time</th>
-                  <th>Source</th>
-                  <th>Severity</th>
-                  <th>Category</th>
-                  <th>Provider</th>
-                  <th>Message</th>
+                  <th data-sort-key="time">Time</th>
+                  <th data-sort-key="source">Source</th>
+                  <th data-sort-key="severity">Severity</th>
+                  <th data-sort-key="category">Category</th>
+                  <th data-sort-key="provider">Provider</th>
+                  <th data-sort-key="message">Message</th>
                 </tr>
               </thead>
               <tbody>
@@ -565,6 +692,7 @@
             <p class="muted">Summary of key syslog patterns (last 24h).</p>
           </div>
           <span class="muted" id="router-kpi-updated">--</span>
+          <span class="card__empty" aria-hidden="true"></span>
         </header>
         <div class="kpi-list" id="router-kpi-list">
           <div class="kpi-item"><span>Total drops</span><span class="badge badge--warn" id="kpi-total-drop">--</span></div>
@@ -582,6 +710,15 @@
   <footer class="footer muted">
     <p>Data refreshes automatically every <span id="refresh-interval">5</span> seconds.</p>
   </footer>
+  <div id="detail-drawer" class="detail-drawer" aria-hidden="true">
+    <div class="detail-drawer__panel" role="dialog" aria-modal="true" aria-labelledby="detail-title">
+      <div class="detail-drawer__header">
+        <h3 id="detail-title">Details</h3>
+        <button id="detail-close" class="icon-btn" type="button" aria-label="Close details">Close</button>
+      </div>
+      <div id="detail-body" class="detail-drawer__body"></div>
+    </div>
+  </div>
   <script src="app.js"></script>
 </body>
 </html>
