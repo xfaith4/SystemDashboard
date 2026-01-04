@@ -18,8 +18,10 @@ except ImportError:  # pragma: no cover - running standalone without pytest inst
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 def load_config():
-    """Load database configuration from config.json"""
-    config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config.json')
+    """Load database configuration from config.json or SYSTEMDASHBOARD_CONFIG."""
+    config_path = os.environ.get('SYSTEMDASHBOARD_CONFIG')
+    if not config_path:
+        config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config.json')
     try:
         with open(config_path, 'r') as f:
             config = json.load(f)
@@ -54,10 +56,10 @@ def check_database_connection(verbose: bool = True):
         print(f"Config from file: {db_config}")
 
     # Set environment variables like the service script does
-    os.environ['DASHBOARD_DB_HOST'] = db_config.get('Host', 'localhost')
-    os.environ['DASHBOARD_DB_PORT'] = str(db_config.get('Port', 5432))
-    os.environ['DASHBOARD_DB_NAME'] = db_config.get('Database', 'system_dashboard')
-    os.environ['DASHBOARD_DB_USER'] = 'sysdash_reader'
+    os.environ.setdefault('DASHBOARD_DB_HOST', db_config.get('Host', 'localhost'))
+    os.environ.setdefault('DASHBOARD_DB_PORT', str(db_config.get('Port', 5432)))
+    os.environ.setdefault('DASHBOARD_DB_NAME', db_config.get('Database', 'system_dashboard'))
+    os.environ.setdefault('DASHBOARD_DB_USER', 'sysdash_reader')
 
     connection_info = load_connection_info()
 
@@ -66,7 +68,7 @@ def check_database_connection(verbose: bool = True):
     if not reader_password:
         reader_password = os.environ.get('SYSTEMDASHBOARD_DB_PASSWORD', 'GeneratedPassword123!').replace('123!', '456!')
 
-    os.environ['DASHBOARD_DB_PASSWORD'] = reader_password
+    os.environ.setdefault('DASHBOARD_DB_PASSWORD', reader_password)
 
     if verbose:
         print("Environment variables set:")

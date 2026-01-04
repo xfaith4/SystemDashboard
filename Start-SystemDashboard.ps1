@@ -89,6 +89,107 @@ function Load-DbSecrets {
     }
 }
 
+function Test-TcpPort {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$TargetHost,
+        [Parameter(Mandatory)][int]$Port,
+        [int]$TimeoutMs = 500
+    )
+
+    try {
+        $client = [System.Net.Sockets.TcpClient]::new()
+        $async = $client.BeginConnect($TargetHost, $Port, $null, $null)
+        if (-not $async.AsyncWaitHandle.WaitOne($TimeoutMs, $false)) {
+            $client.Close()
+            return $false
+        }
+        $client.EndConnect($async)
+        $client.Close()
+        return $true
+    } catch {
+        return $false
+    }
+}
+
+function Get-DbPortFallbacks {
+    [CmdletBinding()]
+    param(
+        [int]$CurrentPort,
+        [string]$TargetHost,
+        [object]$DbConfig
+    )
+
+    $fallbacks = @()
+
+    if ($env:SYSTEMDASHBOARD_DB_PORT_FALLBACKS) {
+        $fallbacks += $env:SYSTEMDASHBOARD_DB_PORT_FALLBACKS -split ',' | ForEach-Object {
+            $value = $_.Trim()
+            $parsed = 0
+            if ([int]::TryParse($value, [ref]$parsed)) {
+                $parsed
+            }
+        }
+    }
+
+    if ($DbConfig -and $DbConfig.PortFallbacks) {
+        foreach ($port in $DbConfig.PortFallbacks) {
+            if ($port -is [int]) {
+                $fallbacks += $port
+            } else {
+                $parsed = 0
+                if ([int]::TryParse([string]$port, [ref]$parsed)) {
+                    $fallbacks += $parsed
+                }
+            }
+        }
+    }
+
+    $isLocal = $TargetHost -in @('localhost','127.0.0.1','::1')
+    if ($isLocal -and $fallbacks.Count -eq 0) {
+        $fallbacks += 5432
+        $fallbacks += 5433
+    }
+
+    $fallbacks = $fallbacks | Where-Object { $_ -ne $CurrentPort } | Sort-Object -Unique
+    return $fallbacks
+}
+
+function Resolve-DashboardDbPort {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$ConfigPath
+    )
+
+    try {
+        $cfg = Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Json
+    } catch {
+        return
+    }
+
+    $db = $cfg.Database
+    if (-not $db) {
+        return
+    }
+
+    $dbHost = if ($env:DASHBOARD_DB_HOST) { $env:DASHBOARD_DB_HOST } elseif ($db.Host) { [string]$db.Host } else { 'localhost' }
+    $currentPort = if ($env:DASHBOARD_DB_PORT) { [int]$env:DASHBOARD_DB_PORT } elseif ($db.Port) { [int]$db.Port } else { 5432 }
+
+    if (Test-TcpPort -TargetHost $dbHost -Port $currentPort) {
+        return
+    }
+
+    $fallbacks = Get-DbPortFallbacks -CurrentPort $currentPort -TargetHost $dbHost -DbConfig $db
+    foreach ($port in $fallbacks) {
+        if (Test-TcpPort -TargetHost $dbHost -Port $port) {
+            $env:DASHBOARD_DB_PORT = [string]$port
+            Write-Warning "Detected PostgreSQL listening on $dbHost`:$port; overriding configured port $currentPort for this session."
+            Write-Host "Detected PostgreSQL listening on $dbHost`:$port; overriding configured port $currentPort for this session."
+            return
+        }
+    }
+}
+
 function Set-DashboardDbEnvironment {
     [CmdletBinding()]
     param(
@@ -162,6 +263,7 @@ if (-not $SkipPreflight) {
 
     Load-DbSecrets -RepoRoot $repoRoot
     Set-DashboardDbEnvironment -ConfigPath $ConfigPath
+    Resolve-DashboardDbPort -ConfigPath $ConfigPath
 
     if (-not $SkipInstall) {
         $pythonExe = Resolve-PythonExe -RepoRoot $repoRoot

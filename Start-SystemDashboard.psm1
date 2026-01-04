@@ -54,26 +54,27 @@ $script:DbLastFailureAt = $null
 $script:DbCircuitUntil = $null
 
 function Get-ListenerLogSettings {
+    $logging = if ($script:Config) { $script:Config.Logging } else { $null }
     $format = if ($env:SYSTEMDASHBOARD_LOG_FORMAT) {
         $env:SYSTEMDASHBOARD_LOG_FORMAT
-    } elseif ($script:Config?.Logging?.Format) {
-        $script:Config.Logging.Format
+    } elseif ($logging -and $logging.PSObject.Properties['Format'] -and $logging.Format) {
+        $logging.Format
     } else {
         'text'
     }
 
     $maxSizeMb = if ($env:SYSTEMDASHBOARD_LOG_MAX_MB) {
         [int]$env:SYSTEMDASHBOARD_LOG_MAX_MB
-    } elseif ($script:Config?.Logging?.MaxSizeMB) {
-        [int]$script:Config.Logging.MaxSizeMB
+    } elseif ($logging -and $logging.PSObject.Properties['MaxSizeMB'] -and $logging.MaxSizeMB) {
+        [int]$logging.MaxSizeMB
     } else {
         10
     }
 
     $maxFiles = if ($env:SYSTEMDASHBOARD_LOG_MAX_FILES) {
         [int]$env:SYSTEMDASHBOARD_LOG_MAX_FILES
-    } elseif ($script:Config?.Logging?.MaxFiles) {
-        [int]$script:Config.Logging.MaxFiles
+    } elseif ($logging -and $logging.PSObject.Properties['MaxFiles'] -and $logging.MaxFiles) {
+        [int]$logging.MaxFiles
     } else {
         5
     }
@@ -142,11 +143,18 @@ function Write-Log {
     }
 
     $logPath = $env:SYSTEMDASHBOARD_LISTENER_LOG
-    if (-not $logPath -and $script:Config -and $script:Config.Logging -and $script:Config.Logging.LogPath) {
-        try {
-            $logPath = Resolve-ConfigPathValue $script:Config.Logging.LogPath
-        } catch {
-            $logPath = $null
+    if (-not $logPath -and $script:Config) {
+        $loggingProp = $script:Config.PSObject.Properties['Logging']
+        if ($loggingProp -and $loggingProp.Value) {
+            $logging = $loggingProp.Value
+            $logPathProp = $logging.PSObject.Properties['LogPath']
+            if ($logPathProp -and $logPathProp.Value) {
+                try {
+                    $logPath = Resolve-ConfigPathValue $logPathProp.Value
+                } catch {
+                    $logPath = $null
+                }
+            }
         }
     }
     if ($logPath) {
@@ -167,18 +175,19 @@ function Write-Log {
 }
 
 function Get-DbTimeoutSettings {
+    $dbConfig = if ($script:Config) { $script:Config.Database } else { $null }
     $connectSeconds = if ($env:SYSTEMDASHBOARD_DB_CONNECT_TIMEOUT) {
         [int]$env:SYSTEMDASHBOARD_DB_CONNECT_TIMEOUT
-    } elseif ($script:Config?.Database?.ConnectTimeoutSeconds) {
-        [int]$script:Config.Database.ConnectTimeoutSeconds
+    } elseif ($dbConfig -and $dbConfig.PSObject.Properties['ConnectTimeoutSeconds'] -and $dbConfig.ConnectTimeoutSeconds) {
+        [int]$dbConfig.ConnectTimeoutSeconds
     } else {
         5
     }
 
     $statementSeconds = if ($env:SYSTEMDASHBOARD_DB_STATEMENT_TIMEOUT) {
         [int]$env:SYSTEMDASHBOARD_DB_STATEMENT_TIMEOUT
-    } elseif ($script:Config?.Database?.StatementTimeoutSeconds) {
-        [int]$script:Config.Database.StatementTimeoutSeconds
+    } elseif ($dbConfig -and $dbConfig.PSObject.Properties['StatementTimeoutSeconds'] -and $dbConfig.StatementTimeoutSeconds) {
+        [int]$dbConfig.StatementTimeoutSeconds
     } else {
         8
     }
@@ -190,26 +199,29 @@ function Get-DbTimeoutSettings {
 }
 
 function Get-DbCircuitSettings {
+    $dbConfig = if ($script:Config) { $script:Config.Database } else { $null }
+    $circuit = if ($dbConfig) { $dbConfig.CircuitBreaker } else { $null }
+
     $threshold = if ($env:SYSTEMDASHBOARD_DB_CIRCUIT_THRESHOLD) {
         [int]$env:SYSTEMDASHBOARD_DB_CIRCUIT_THRESHOLD
-    } elseif ($script:Config?.Database?.CircuitBreaker?.Threshold) {
-        [int]$script:Config.Database.CircuitBreaker.Threshold
+    } elseif ($circuit -and $circuit.PSObject.Properties['Threshold'] -and $circuit.Threshold) {
+        [int]$circuit.Threshold
     } else {
         3
     }
 
     $windowSeconds = if ($env:SYSTEMDASHBOARD_DB_CIRCUIT_WINDOW_SECONDS) {
         [int]$env:SYSTEMDASHBOARD_DB_CIRCUIT_WINDOW_SECONDS
-    } elseif ($script:Config?.Database?.CircuitBreaker?.WindowSeconds) {
-        [int]$script:Config.Database.CircuitBreaker.WindowSeconds
+    } elseif ($circuit -and $circuit.PSObject.Properties['WindowSeconds'] -and $circuit.WindowSeconds) {
+        [int]$circuit.WindowSeconds
     } else {
         60
     }
 
     $openSeconds = if ($env:SYSTEMDASHBOARD_DB_CIRCUIT_OPEN_SECONDS) {
         [int]$env:SYSTEMDASHBOARD_DB_CIRCUIT_OPEN_SECONDS
-    } elseif ($script:Config?.Database?.CircuitBreaker?.OpenSeconds) {
-        [int]$script:Config.Database.CircuitBreaker.OpenSeconds
+    } elseif ($circuit -and $circuit.PSObject.Properties['OpenSeconds'] -and $circuit.OpenSeconds) {
+        [int]$circuit.OpenSeconds
     } else {
         30
     }
@@ -483,11 +495,11 @@ function Get-PostgresConfig {
     $db = $script:Config.Database
     # NOTE: $Host is a built-in, read-only automatic variable in PowerShell.
     # Use a different name to avoid assignment errors.
-    $dbHost = if ($db.Host) { [string]$db.Host } else { 'localhost' }
-    $port = if ($db.Port) { [int]$db.Port } else { 5432 }
-    $database = if ($db.Database) { [string]$db.Database } else { 'system_dashboard' }
-    $username = if ($db.Username) { [string]$db.Username } else { 'sysdash_reader' }
-    $password = Resolve-SecretValue $db.PasswordSecret
+    $dbHost = if ($env:DASHBOARD_DB_HOST) { [string]$env:DASHBOARD_DB_HOST } elseif ($db.Host) { [string]$db.Host } else { 'localhost' }
+    $port = if ($env:DASHBOARD_DB_PORT) { [int]$env:DASHBOARD_DB_PORT } elseif ($db.Port) { [int]$db.Port } else { 5432 }
+    $database = if ($env:DASHBOARD_DB_NAME) { [string]$env:DASHBOARD_DB_NAME } elseif ($db.Database) { [string]$db.Database } else { 'system_dashboard' }
+    $username = if ($env:DASHBOARD_DB_USER) { [string]$env:DASHBOARD_DB_USER } elseif ($db.Username) { [string]$db.Username } else { 'sysdash_reader' }
+    $password = if ($env:DASHBOARD_DB_PASSWORD) { [string]$env:DASHBOARD_DB_PASSWORD } else { Resolve-SecretValue $db.PasswordSecret }
     if (-not $password -and $db.Password) {
         $password = [string]$db.Password
     }
