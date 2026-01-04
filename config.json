@@ -7,7 +7,7 @@
   "RouterIP": "192.168.1.1",
   "Database": {
     "Host": "localhost",
-    "Port": 5432,
+    "Port": 5433,
     "Database": "system_dashboard",
     "Username": "sysdash_ingest",
     "PasswordSecret": "env:SYSTEMDASHBOARD_DB_PASSWORD",

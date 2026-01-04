@@ -736,15 +736,44 @@ function Read-RequestBody {
     }
 }
 
+function Get-ConfigPropertyValue {
+    [CmdletBinding()]
+    param(
+        [Parameter()][object]$Parent,
+        [Parameter(Mandatory)][string]$PropertyName
+    )
+
+    if (-not $Parent -or [string]::IsNullOrWhiteSpace($PropertyName)) {
+        return $null
+    }
+
+    $psProp = $Parent.PSObject.Properties[$PropertyName]
+    if ($psProp) {
+        return $psProp.Value
+    }
+
+    if ($Parent -is [System.Collections.IDictionary] -and $Parent.Contains($PropertyName)) {
+        return $Parent[$PropertyName]
+    }
+
+    return $null
+}
+
 function Get-LayoutStorePath {
     [CmdletBinding()]
     param()
 
     $path = $null
-    if ($script:Config -and $script:Config.Service -and $script:Config.Service.Ui -and $script:Config.Service.Ui.LayoutPath) {
-        $path = $script:Config.Service.Ui.LayoutPath
-    } elseif ($script:Config -and $script:Config.Ui -and $script:Config.Ui.LayoutPath) {
-        $path = $script:Config.Ui.LayoutPath
+    $service = Get-ConfigPropertyValue -Parent $script:Config -PropertyName 'Service'
+    $serviceUi = Get-ConfigPropertyValue -Parent $service -PropertyName 'Ui'
+    $serviceLayoutPath = Get-ConfigPropertyValue -Parent $serviceUi -PropertyName 'LayoutPath'
+    $configUi = Get-ConfigPropertyValue -Parent $script:Config -PropertyName 'Ui'
+    $configLayoutPath = Get-ConfigPropertyValue -Parent $configUi -PropertyName 'LayoutPath'
+
+    if ($serviceLayoutPath) {
+        $path = $serviceLayoutPath
+    } elseif ($configLayoutPath) {
+        $path = $configLayoutPath
     }
     if (-not $path) {
         $path = './var/ui/layouts.json'
