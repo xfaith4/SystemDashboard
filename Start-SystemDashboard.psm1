@@ -846,6 +846,24 @@ function Write-JsonResponse {
     $Response.Close()
 }
 
+function Safe-JsonResponse {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][System.Net.HttpListenerResponse]$Response,
+        [Parameter(Mandatory)][string]$Json,
+        [int]$StatusCode = 200,
+        [string]$Context = 'response'
+    )
+
+    try {
+        Write-JsonResponse -Response $Response -Json $Json -StatusCode $StatusCode
+        return $true
+    } catch {
+        Write-Log -Level 'WARN' -Message ("Failed to write {0}: {1}" -f $Context, $_.Exception.Message)
+        return $false
+    }
+}
+
 function Test-ClientDisconnectException {
     [CmdletBinding()]
     param(
@@ -1903,15 +1921,19 @@ SELECT COALESCE(json_agg(t), '[]'::json) FROM (
     ORDER BY bucket_start ASC
 ) t;
 "@
-                try {
-                    $json = Invoke-PostgresJsonQuery -Sql $sql
-                    if ([string]::IsNullOrWhiteSpace($json)) {
-                        $json = '[]'
+                {
+                    $statusCode = 200
+                    $payload = '[]'
+                    try {
+                        $json = Invoke-PostgresJsonQuery -Sql $sql
+                        if (-not [string]::IsNullOrWhiteSpace($json)) {
+                            $payload = $json
+                        }
+                    } catch {
+                        Write-Log -Level 'WARN' -Message "Timeline query failed: $($_.Exception.Message)"
+                        $statusCode = 503
                     }
-                    Write-JsonResponse -Response $res -Json $json
-                } catch {
-                    Write-Log -Level 'WARN' -Message "Timeline query failed: $($_.Exception.Message)"
-                    Write-JsonResponse -Response $res -Json '[]' -StatusCode 503
+                    Safe-JsonResponse -Response $res -Json $payload -StatusCode $statusCode -Context 'timeline payload'
                 }
                 continue
             } elseif ($requestPath -eq '/api/layouts') {
