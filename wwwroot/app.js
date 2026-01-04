@@ -166,6 +166,12 @@
   const routerKpiDnsmasqSigtermEl = document.getElementById('kpi-dnsmasq-sigterm');
   const routerKpiAvahiSigtermEl = document.getElementById('kpi-avahi-sigterm');
   const routerKpiUpnpShutdownsEl = document.getElementById('kpi-upnp-shutdowns');
+  const telemetryPillEl = document.getElementById('telemetry-pill');
+  const telemetryPillDetailEl = document.getElementById('telemetry-pill-detail');
+  const statusStripEl = document.getElementById('status-strip');
+  const statusStripSummaryEl = document.getElementById('status-strip-summary');
+  const statusStripToggleBtn = document.getElementById('status-strip-toggle');
+  const statusStripDetailsEl = document.getElementById('status-strip-details');
 
   if (refreshIntervalEl) {
     refreshIntervalEl.textContent = (REFRESH_INTERVAL / 1000).toString();
@@ -180,6 +186,9 @@
   let layoutLocked = false;
   let layoutStore = { active: DEFAULT_LAYOUT_NAME, layouts: {} };
   let layoutSaveTimer;
+  let connectionState = 'connecting';
+  let offlineSummary = '';
+  let cardAgeTimer = null;
 
   const kpiHistory = {
     cpu: [],
@@ -229,21 +238,31 @@
     if (!statusEl) {
       return;
     }
+    connectionState = state;
     statusEl.className = `status status--${state}`;
     switch (state) {
       case 'online':
         statusEl.textContent = 'Online';
+        offlineSummary = '';
+        updateTelemetryPill(null, null);
         break;
       case 'offline':
         statusEl.textContent = 'Offline';
+        offlineSummary = detail || 'Telemetry offline.';
+        updateTelemetryPill(METRICS_ENDPOINT, offlineSummary);
         break;
       default:
-        statusEl.textContent = 'Connecting…';
+        statusEl.textContent = 'Connecting.';
+        offlineSummary = '';
+        updateTelemetryPill(null, null);
         break;
     }
     if (statusDetailEl) {
       statusDetailEl.textContent = detail || '';
     }
+    document.body.classList.toggle('is-offline', state === 'offline');
+    refreshStatusStripAppearance(state === 'offline' ? detail : void 0);
+    updateCardAges();
   }
 
   function formatPercent(value, options) {
@@ -330,6 +349,28 @@
     }
     parts.push(`${minutes}m`);
     return parts.join(' ');
+  }
+
+  function formatAge(milliseconds) {
+    if (typeof milliseconds !== 'number' || Number.isNaN(milliseconds) || milliseconds < 0) {
+      return '--';
+    }
+    const totalSeconds = Math.floor(milliseconds / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    if (minutes > 0) {
+      return `${minutes}m ${seconds}s`;
+    }
+    return `${seconds}s`;
+  }
+
+  function updateCardAges() {
+    const label = lastMetricsAt
+      ? `Data age: ${formatAge(Date.now() - lastMetricsAt)}`
+      : 'Data age: waiting';
+    document.querySelectorAll('.card__age').forEach((el) => {
+      el.textContent = label;
+    });
   }
 
   function formatTimestamp(value) {
@@ -1379,6 +1420,23 @@
     });
   }
 
+  function initCardAgeBadges() {
+    document.querySelectorAll('.card').forEach((card) => {
+      const header = card.querySelector('.card__header');
+      if (!header || header.querySelector('.card__age')) {
+        return;
+      }
+      const badge = document.createElement('span');
+      badge.className = 'card__age';
+      badge.textContent = 'Data age: waiting';
+      header.appendChild(badge);
+    });
+    updateCardAges();
+    if (!cardAgeTimer) {
+      cardAgeTimer = setInterval(updateCardAges, 1000);
+    }
+  }
+
   function initDragAndResize() {
     if (!dashboardGridEl) {
       return;
@@ -1533,6 +1591,73 @@
     );
   }
 
+  function computeStatusSummaryFromBanners() {
+    if (healthBannerEl && healthBannerEl.classList.contains('is-visible')) {
+      const text = healthBannerTextEl ? healthBannerTextEl.textContent : '';
+      return `Telemetry health warning · ${text}`;
+    }
+    if (serviceBannerEl && serviceBannerEl.classList.contains('is-visible')) {
+      const text = serviceBannerTextEl ? serviceBannerTextEl.textContent : '';
+      return `Listener status · ${text}`;
+    }
+    return 'Telemetry operating normally.';
+  }
+
+  function computeStatusSeverity() {
+    if (connectionState === 'offline') {
+      return 'error';
+    }
+    if ((healthBannerEl && healthBannerEl.classList.contains('is-visible')) ||
+        (serviceBannerEl && serviceBannerEl.classList.contains('service-banner--warn'))) {
+      return 'warn';
+    }
+    return 'ok';
+  }
+
+  function refreshStatusStripAppearance(overrideSummary) {
+    if (statusStripEl) {
+      statusStripEl.dataset.severity = computeStatusSeverity();
+    }
+    if (!statusStripSummaryEl) {
+      return;
+    }
+    if (connectionState === 'offline') {
+      statusStripSummaryEl.textContent = overrideSummary || offlineSummary || 'Telemetry offline.';
+      return;
+    }
+    if (overrideSummary) {
+      statusStripSummaryEl.textContent = overrideSummary;
+      return;
+    }
+    statusStripSummaryEl.textContent = computeStatusSummaryFromBanners();
+  }
+
+  function updateTelemetryPill(endpoint, message) {
+    if (!telemetryPillEl) {
+      return;
+    }
+    if (!endpoint || !message) {
+      telemetryPillEl.hidden = true;
+      telemetryPillEl.removeAttribute('title');
+      if (telemetryPillDetailEl) {
+        telemetryPillDetailEl.textContent = '';
+      }
+      return;
+    }
+    let resolved = endpoint;
+    try {
+      resolved = new URL(endpoint, window.location.origin).toString();
+    } catch {
+      resolved = endpoint;
+    }
+    telemetryPillEl.hidden = false;
+    telemetryPillEl.href = resolved;
+    if (telemetryPillDetailEl) {
+      telemetryPillDetailEl.textContent = truncateText(message, 90);
+    }
+    telemetryPillEl.title = message;
+  }
+
   function renderHealthBanner(message) {
     if (!healthBannerEl || !healthBannerTextEl) {
       return;
@@ -1540,10 +1665,12 @@
     if (!message) {
       healthBannerEl.classList.remove('is-visible');
       healthBannerTextEl.textContent = '';
+      refreshStatusStripAppearance();
       return;
     }
     healthBannerTextEl.textContent = message;
     healthBannerEl.classList.add('is-visible');
+    refreshStatusStripAppearance();
   }
 
   function renderServiceBanner(message, isWarning = false) {
@@ -1553,11 +1680,13 @@
     if (!message) {
       serviceBannerEl.classList.remove('is-visible', 'service-banner--warn');
       serviceBannerTextEl.textContent = '';
+      refreshStatusStripAppearance();
       return;
     }
     serviceBannerTextEl.textContent = message;
     serviceBannerEl.classList.add('is-visible');
     serviceBannerEl.classList.toggle('service-banner--warn', Boolean(isWarning));
+    refreshStatusStripAppearance();
   }
 
   function setKpiValue(element, value) {
@@ -3349,7 +3478,18 @@
     });
   }
 
+  if (statusStripToggleBtn && statusStripEl && statusStripDetailsEl) {
+    statusStripToggleBtn.addEventListener('click', () => {
+      const expanded = statusStripEl.getAttribute('data-expanded') === 'true';
+      const next = !expanded;
+      statusStripEl.setAttribute('data-expanded', next.toString());
+      statusStripToggleBtn.setAttribute('aria-expanded', next.toString());
+      statusStripDetailsEl.setAttribute('aria-hidden', next ? 'false' : 'true');
+    });
+  }
+
   initCardHandles();
+  initCardAgeBadges();
   initDragAndResize();
   initLayoutControls();
   initEmptyToggle();

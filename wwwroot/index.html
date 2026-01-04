@@ -15,6 +15,10 @@
         <span class="meta-pill">Host <span id="host-name">--</span></span>
         <span class="meta-pill">Uptime <span id="uptime-value">--</span></span>
         <span class="meta-pill">Latency <span id="latency-value">--</span> <span class="muted">@</span> <span id="latency-target">configured target</span></span>
+        <a class="meta-pill meta-pill--telemetry" id="telemetry-pill" href="/api/status" target="_blank" rel="noreferrer noopener" hidden>
+          <span class="meta-pill__label">Telemetry degraded</span>
+          <span class="meta-pill__detail" id="telemetry-pill-detail">Waiting for details…</span>
+        </a>
       </div>
     </div>
     <div class="status-wrapper">
@@ -28,16 +32,23 @@
     </div>
   </header>
 
-  <div id="health-banner" class="health-banner" role="alert" aria-live="polite">
-    <strong class="health-banner__title">Telemetry health warning</strong>
-    <span id="health-banner-text">Checks unavailable.</span>
-  </div>
-
-  <div id="service-banner" class="service-banner" role="status" aria-live="polite">
-    <strong class="service-banner__title">Listener status</strong>
-    <span id="service-banner-text">Loading status…</span>
-  </div>
-
+  <section class="status-strip" id="status-strip" data-expanded="false">
+    <button class="status-strip__toggle" id="status-strip-toggle" type="button" aria-expanded="false">
+      <span class="status-strip__icon" aria-hidden="true"></span>
+      <span class="status-strip__summary" id="status-strip-summary">Telemetry status unavailable.</span>
+      <span class="status-strip__chevron" aria-hidden="true"></span>
+    </button>
+    <div class="status-strip__details" id="status-strip-details" aria-hidden="true">
+      <div id="health-banner" class="health-banner" role="alert" aria-live="polite">
+        <strong class="health-banner__title">Telemetry health warning</strong>
+        <span id="health-banner-text">Checks unavailable.</span>
+      </div>
+      <div id="service-banner" class="service-banner" role="status" aria-live="polite">
+        <strong class="service-banner__title">Listener status</strong>
+        <span id="service-banner-text">Loading status.</span>
+      </div>
+    </div>
+  </section>
   <div class="layout-toolbar">
     <div class="layout-controls">
       <label class="control">
@@ -722,3 +733,4 @@
   <script src="app.js"></script>
 </body>
 </html>
+
