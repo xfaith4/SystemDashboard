@@ -24,6 +24,7 @@
   const memoryValueEl = document.getElementById('memory-value');
   const memoryDetailEl = document.getElementById('memory-detail');
   const latencyEl = document.getElementById('latency-value');
+  const latencyTargetEl = document.getElementById('latency-target');
   const diskTableBody = document.querySelector('#disk-table tbody');
   const networkTableBody = document.querySelector('#network-table tbody');
   const processTableBody = document.querySelector('#process-table tbody');
@@ -126,11 +127,12 @@
 
   function formatPercent(value, options) {
     const settings = Object.assign({ scaleTo100: true, digits: 1 }, options);
-    if (typeof value !== 'number' || !isFinite(value)) {
+    if (typeof value !== 'number' || !isFinite(value) || value < 0) {
       return '--';
     }
     const percent = (value <= 1 && settings.scaleTo100) ? value * 100 : value;
-    return `${percent.toFixed(settings.digits)}%`;
+    const clamped = Math.min(Math.max(percent, 0), 100);
+    return `${clamped.toFixed(settings.digits)}%`;
   }
 
   function formatNumber(value, digits = 1) {
@@ -1187,6 +1189,10 @@
     }
     if (latencyEl) {
       latencyEl.textContent = formatLatency(data?.Network?.LatencyMs);
+    }
+    if (latencyTargetEl) {
+      const target = data?.Network?.LatencyTarget;
+      latencyTargetEl.textContent = target ? target : 'configured target';
     }
     renderDiskTable(Array.isArray(data.Disk) ? data.Disk : []);
     renderEventList(data?.Events?.Warnings, warningListEl, warningTotalEl, 'No warnings reported.');

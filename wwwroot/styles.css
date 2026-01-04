@@ -99,6 +99,28 @@ h1, h2 {
 
 .summary {
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+}
+
+.summary__item {
+  padding: 0.95rem 1.1rem;
+  gap: 0.6rem;
+}
+
+.summary__item p {
+  margin: 0;
+}
+
+.summary__item h2 {
+  font-size: 1rem;
+}
+
+.summary__item .metric {
+  font-size: 1.6rem;
+}
+
+.summary__item .muted {
+  font-size: 0.8rem;
 }
 
 .two-column {

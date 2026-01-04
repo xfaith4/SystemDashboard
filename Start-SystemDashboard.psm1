@@ -861,8 +861,22 @@ function Start-SystemDashboardListener {
                     $nowUtc = (Get-Date).ToUniversalTime().ToString('o')
                     $computerName = $env:COMPUTERNAME
                     # CPU
-                    $cpuPct = 0
-                    try { $cpuPct = [math]::Round((Get-Counter '\\Processor(_Total)\\% Processor Time').CounterSamples.CookedValue, 2) } catch { $cpuPct = -1 }
+                    $cpuPct = $null
+                    try {
+                        $cpuPct = [double](Get-Counter '\\Processor(_Total)\\% Processor Time').CounterSamples.CookedValue
+                    } catch {
+                        $cpuPct = $null
+                    }
+                    if ($cpuPct -eq $null -or $cpuPct -lt 0 -or $cpuPct -gt 1000) {
+                        try {
+                            $cpuPct = (Get-CimInstance Win32_Processor | Measure-Object -Property LoadPercentage -Average).Average
+                        } catch {
+                            $cpuPct = $null
+                        }
+                    }
+                    if ($cpuPct -ne $null) {
+                        $cpuPct = [math]::Round([math]::Min([math]::Max($cpuPct, 0), 100), 2)
+                    }
                     # Memory
                     $os = Get-CimInstance Win32_OperatingSystem
                     $totalMemGB = [math]::Round($os.TotalVisibleMemorySize / 1MB, 2)
@@ -907,9 +921,29 @@ function Start-SystemDashboardListener {
                     } catch {}
                     # Ping latency
                     $latencyMs = -1
+                    $latencyTarget = $PingTarget
                     try {
-                        $ping = Test-Connection -ComputerName $PingTarget -Count 1 -ErrorAction Stop
-                        if ($ping) { $latencyMs = [int]($ping | Select-Object -First 1).ResponseTime }
+                        $targets = @()
+                        if ($PingTarget) { $targets += $PingTarget }
+                        if ($script:Config -and $script:Config.RouterIP) { $targets += [string]$script:Config.RouterIP }
+                        try {
+                            $gateway = (Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue |
+                                Sort-Object RouteMetric | Select-Object -First 1).NextHop
+                            if ($gateway) { $targets += $gateway }
+                        } catch {}
+                        $targets += '1.1.1.1'
+                        $targets = $targets | Where-Object { $_ } | Select-Object -Unique
+
+                        foreach ($target in $targets) {
+                            try {
+                                $ping = Test-Connection -ComputerName $target -Count 1 -ErrorAction Stop
+                                if ($ping) {
+                                    $latencyMs = [int]($ping | Select-Object -First 1).ResponseTime
+                                    $latencyTarget = $target
+                                    break
+                                }
+                            } catch {}
+                        }
                     } catch {}
                     # Top processes
                     $topProcs = Get-Process | Sort-Object CPU -Descending | Select-Object -First 5 | ForEach-Object {
@@ -923,7 +957,7 @@ function Start-SystemDashboardListener {
                         Disk          = $disks
                         Uptime        = @{ Days=$uptime.Days; Hours=$uptime.Hours; Minutes=$uptime.Minutes }
                         Events        = @{ Warnings=$warnSummary; Errors=$errSummary }
-                        Network       = @{ Usage=$netUsage; LatencyMs=$latencyMs }
+                        Network       = @{ Usage=$netUsage; LatencyMs=$latencyMs; LatencyTarget=$latencyTarget }
                         Processes     = $topProcs
                     }
                 } catch {
