@@ -2,11 +2,79 @@
 {% block content %}
 <section class="dashboard">
     <header class="dashboard-header">
-        <h1>Operations Telemetry Overview</h1>
+        <div class="dashboard-title">
+            <p class="eyebrow">Realtime Reliability</p>
+            <h1>Operations Telemetry Overview</h1>
+            <p class="subtitle">Blended signals from IIS, authentication, Windows event logs, router telemetry, and syslog.</p>
+        </div>
+        <div class="drill-actions">
+            <a class="drill-button" href="{{ url_for('events') }}">View Windows Events</a>
+            <a class="drill-button" href="{{ url_for('router') }}">Router & WAN Logs</a>
+            <a class="drill-button" href="{{ url_for('wifi') }}">Wi‑Fi Clients</a>
+        </div>
         {% if summary.using_mock %}
         <p class="notice">Displaying sample data because the database connection could not be established.</p>
         {% endif %}
     </header>
+
+    <section class="pulse-strip">
+        <article class="pulse-card" data-series-key="iis_errors">
+            <div class="pulse-top">
+                <div>
+                    <p class="eyebrow">IIS 5xx (7d)</p>
+                    <h3 id="pulse-iis-total">--</h3>
+                </div>
+                <span class="pill pill-error">Error</span>
+            </div>
+            <div class="pulse-meta">
+                <span>Last 24h vs 7d median</span>
+                <span class="delta" id="pulse-iis-delta">--</span>
+            </div>
+            <svg class="sparkline" id="spark-iis" viewBox="0 0 120 36" preserveAspectRatio="none"></svg>
+        </article>
+        <article class="pulse-card" data-series-key="auth_failures">
+            <div class="pulse-top">
+                <div>
+                    <p class="eyebrow">Auth Failures (7d)</p>
+                    <h3 id="pulse-auth-total">--</h3>
+                </div>
+                <span class="pill pill-warn">Auth</span>
+            </div>
+            <div class="pulse-meta">
+                <span>Bursts per day</span>
+                <span class="delta" id="pulse-auth-delta">--</span>
+            </div>
+            <svg class="sparkline" id="spark-auth" viewBox="0 0 120 36" preserveAspectRatio="none"></svg>
+        </article>
+        <article class="pulse-card" data-series-key="windows_errors">
+            <div class="pulse-top">
+                <div>
+                    <p class="eyebrow">Windows Critical/Error (7d)</p>
+                    <h3 id="pulse-windows-total">--</h3>
+                </div>
+                <span class="pill pill-info">OS</span>
+            </div>
+            <div class="pulse-meta">
+                <span>Noise floor vs spikes</span>
+                <span class="delta" id="pulse-windows-delta">--</span>
+            </div>
+            <svg class="sparkline" id="spark-windows" viewBox="0 0 120 36" preserveAspectRatio="none"></svg>
+        </article>
+        <article class="pulse-card" data-series-key="router_alerts">
+            <div class="pulse-top">
+                <div>
+                    <p class="eyebrow">Router Alerts (7d)</p>
+                    <h3 id="pulse-router-total">--</h3>
+                </div>
+                <span class="pill pill-accent">WAN</span>
+            </div>
+            <div class="pulse-meta">
+                <span>WAN/DHCP/auth anomalies</span>
+                <span class="delta" id="pulse-router-delta">--</span>
+            </div>
+            <svg class="sparkline" id="spark-router" viewBox="0 0 120 36" preserveAspectRatio="none"></svg>
+        </article>
+    </section>
 
     <!-- 7-Day Trend Graphs Section -->
     <section class="trends-section">
@@ -152,51 +220,8 @@
     {% endif %}
 </section>
 
-<script>
-// Initialize charts with trend data using CSS-based visualization
-(async function() {
-    try {
-        const response = await fetch('/api/trends');
-        const data = await response.json();
-        
-        function createBarChart(containerId, values, color) {
-            const container = document.getElementById(containerId);
-            if (!container) return;
-            
-            // Use Math.max.apply for safer max calculation
-            const maxValue = Math.max.apply(Math, values.concat([1]));
-            
-            const chartHTML = `
-                <div class="bar-chart">
-                    ${data.dates.map((date, i) => {
-                        const height = (values[i] / maxValue) * 100;
-                        // Extract MM-DD from YYYY-MM-DD format
-                        const shortDate = date.substring(5);
-                        return `
-                            <div class="bar-wrapper">
-                                <div class="bar-container">
-                                    <div class="bar" style="height: ${height}%; background-color: ${color};" title="${date}: ${values[i]}">
-                                        <span class="bar-value">${values[i]}</span>
-                                    </div>
-                                </div>
-                                <div class="bar-label">${shortDate}</div>
-                            </div>
-                        `;
-                    }).join('')}
-                </div>
-            `;
-            
-            container.innerHTML = chartHTML;
-        }
-        
-        createBarChart('iisErrorsChart', data.iis_errors, '#e74c3c');
-        createBarChart('authFailuresChart', data.auth_failures, '#f5a623');
-        createBarChart('windowsErrorsChart', data.windows_errors, '#4e9af1');
-        createBarChart('routerAlertsChart', data.router_alerts, '#9b59b6');
-        
-    } catch (error) {
-        console.error('Failed to load trend data:', error);
-    }
-})();
-</script>
+{% endblock %}
+
+{% block extra_scripts %}
+<script defer src="{{ url_for('static', filename='dashboard.js') }}"></script>
 {% endblock %}
